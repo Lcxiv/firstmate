@@ -375,8 +375,8 @@ esac
 SH
   chmod +x "$fakebin/ps"
 
-  output=$(HERMES_INTERACTIVE=1 PATH="$fakebin:$BASE_PATH" FM_CONFIG_OVERRIDE="$config" \
-    "$ROOT/bin/fm-harness.sh")
+  output=$(env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT HERMES_INTERACTIVE=1 \
+    PATH="$fakebin:$BASE_PATH" FM_CONFIG_OVERRIDE="$config" "$ROOT/bin/fm-harness.sh")
   [ "$output" = hermes ] || fail "Hermes env-marker detection returned '$output'"
   output=$(env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u HERMES_INTERACTIVE \
     PATH="$fakebin:$BASE_PATH" FM_CONFIG_OVERRIDE="$config" "$ROOT/bin/fm-harness.sh")
