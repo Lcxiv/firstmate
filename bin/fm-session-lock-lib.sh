@@ -7,6 +7,34 @@
 # bin/fm-claude-stop-autoarm.sh uses it to prove a Stop hook fires inside the
 # lock-owning primary session before it may arm or rewake.
 # This file is sourced by scripts and has no side effects on source.
+#
+# Identity has two layers, because a harness can replace a session's PROCESS
+# while the LOGICAL session continues (observed live on Claude Code 2.1.220:
+# a mid-conversation fork/relaunch leaves the pre-fork pid alive as an idle
+# interactive process while a new pid carries the working conversation):
+#   state/.lock          the owning harness process pid (the incarnation).
+#   state/.lock-session  optional sidecar: the owning harness SESSION id (the
+#                        logical session). Written and cleared only by
+#                        bin/fm-lock.sh under its acquisition mutex.
+# A lock whose recorded session id equals the current session's id names the
+# SAME logical session in a new process, so bin/fm-lock.sh may re-key the pid;
+# a live holder with a different or unresolvable session id is a competing
+# session and is never reclaimed, inherited, or forced.
+#
+# The current session's id resolves only from sources the harness itself
+# plants, in trust order:
+#   1. FM_CLAUDE_SESSION_ID_HINT - set exclusively by our own hook scripts from
+#      the harness-provided hook payload (Claude writes session_id into every
+#      Stop payload), never from ps-visible text.
+#   2. CLAUDE_CODE_SESSION_ID from the environment, accepted only when
+#      CLAUDE_PID names exactly the pid the ancestry walk resolved: Claude Code
+#      exports both into every tool shell it spawns, so the pair proves the
+#      environment was planted by the resolved session itself and not inherited
+#      from the shared daemon or an unrelated outer session.
+# Command-line text (ps args) is NEVER an identity source for the current
+# session: prompts and briefs are argv-visible and can quote a session id.
+# Non-Claude harnesses have no verified session-id source, so their locks stay
+# pid-only and every behavior below degrades to the pid-only contract.
 
 # Known harness command names; extend when a new adapter is verified.
 FM_HARNESS_RE='claude|codex|opencode|grok|kimi|^pi$|^pi-signed$'
@@ -230,4 +258,68 @@ fm_session_lock_owned_by_self() {
   esac
   my_pid=$(fm_harness_ancestry_pid) || return 1
   [ "$my_pid" = "$lock_pid" ]
+}
+
+# True when $1 is shaped like a harness session id (a UUID). Both Claude
+# session ids and Stop-payload session_id values are UUIDs; anything else is
+# rejected so free-text can never become an identity.
+fm_session_id_wellformed() {
+  printf '%s' "$1" | grep -qiE '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+}
+
+# Print the current session's harness session id, or fail when no trusted
+# source resolves one. $1 is the pid the ancestry walk resolved for this
+# process; the environment pair is accepted only when CLAUDE_PID names exactly
+# that pid (see the header for the full trust contract).
+fm_session_lock_my_session_id() {
+  local my_pid=$1 hint=${FM_CLAUDE_SESSION_ID_HINT:-} env_sid=${CLAUDE_CODE_SESSION_ID:-} env_pid=${CLAUDE_PID:-}
+  if [ -n "$hint" ] && fm_session_id_wellformed "$hint"; then
+    printf '%s\n' "$hint"
+    return 0
+  fi
+  if [ -n "$env_sid" ] && [ -n "$env_pid" ] && [ "$env_pid" = "$my_pid" ] \
+    && fm_session_id_wellformed "$env_sid"; then
+    printf '%s\n' "$env_sid"
+    return 0
+  fi
+  return 1
+}
+
+# Print the session id recorded for state dir $1's lock holder, or fail when
+# the sidecar is absent or malformed. A malformed sidecar is treated as absent
+# so damaged bytes can never match anything.
+fm_session_lock_holder_session_id() {
+  local state=$1 sid
+  sid=$(cat "$state/.lock-session" 2>/dev/null || true)
+  fm_session_id_wellformed "$sid" || return 1
+  printf '%s\n' "$sid"
+}
+
+# Classify how the current process relates to state dir $1's recorded holder
+# $2, given this process's resolved harness pid $3. Prints exactly one of:
+#   self          the recorded pid is this session's own harness pid
+#   same-session  a different pid, but the recorded session id equals this
+#                 session's trusted id: the same logical session in a new
+#                 process (a fork/relaunch successor), safe to re-key
+#   live-other    a live competing session, or a live holder whose succession
+#                 cannot be proven - never reclaimable while it lives
+#   stale         the recorded pid is dead or not a harness session shape
+# Missing either session id fails toward live-other, never toward takeover.
+fm_session_lock_relation() {
+  local state=$1 lock_pid=$2 my_pid=$3 my_sid holder_sid
+  if [ "$lock_pid" = "$my_pid" ]; then
+    printf 'self\n'
+    return 0
+  fi
+  if ! fm_harness_pid_alive "$lock_pid"; then
+    printf 'stale\n'
+    return 0
+  fi
+  if my_sid=$(fm_session_lock_my_session_id "$my_pid") \
+    && holder_sid=$(fm_session_lock_holder_session_id "$state") \
+    && [ "$my_sid" = "$holder_sid" ]; then
+    printf 'same-session\n'
+    return 0
+  fi
+  printf 'live-other\n'
 }

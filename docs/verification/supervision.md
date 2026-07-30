@@ -173,6 +173,32 @@ A shell hosted by a pooled spare sourced the daemon's own startup shell snapshot
 `bin/fm-session-lock-lib.sh` therefore treats the daemon and its pooled workers as non-session shapes: the ancestry walk resolves no identity through them and fails closed, and a lock recorded against one is a reclaimable owner rather than a live competing session.
 The versioned executable is newly recognized as a session: its command name is the version rather than `claude`, so resumed, forked, and app-hosted sessions previously matched no harness shape at all and resolved the daemon-owned worker above them, and now resolve their own per-session pid.
 
+The fork-handover gap behind the session-id sidecar was measured on 2026-07-30 in the same Claude Code 2.1.220 home, using the fork already visible in the table above: pid 80210 was launched at 16:51 as a `--fork-session --resume` successor while the pre-fork interactive session (pid 25274) stayed alive.
+The two sessions' transcripts prove the handover was real and that the fork minted a NEW session id:
+
+```sh
+stat -f 'created %SB' ~/.claude/projects/-Users-louiscondevaux-firstmate/{cfaf5775-*,42ed4142-*}.jsonl
+```
+
+```text
+created Jul 29 15:42:09 2026  cfaf5775-... (pre-fork session; its last user record is stamped 2026-07-29T23:51:26Z, i.e. 16:51 local, with no turn after)
+created Jul 29 16:51:46 2026  42ed4142-... (successor, created at the fork moment and carrying its id in argv per the table above)
+```
+
+The lock still recorded pid 25274, so the working session owned nothing, `fm_session_lock_owned_by_self` failed, and the auto-arm stayed silently inert - the gap now closed by the `state/.lock-session` sidecar plus the auto-arm's foreign-owner notice.
+Claude Code plants the working session's identity into every tool shell, verified live in the same home on 2026-07-30:
+
+```sh
+env | grep -E '^CLAUDE_(CODE_SESSION_ID|PID)='
+```
+
+```text
+CLAUDE_CODE_SESSION_ID=585af80a-d320-4c39-bcce-71f415cc0bdb
+CLAUDE_PID=79174
+```
+
+`CLAUDE_PID` equaled the pid the ancestry walk resolved for that shell, which is the cross-check `bin/fm-session-lock-lib.sh` requires before trusting the pair, and Claude Stop payloads carry the same value in their `session_id` field, which is the hint source `bin/fm-claude-stop-autoarm.sh` exports.
+
 Deterministic entry points:
 
 ```sh
