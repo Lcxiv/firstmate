@@ -86,6 +86,7 @@ Ambiguous pending text never receives the busy-queue conversion.
 tests/fm-backend-tmux-smoke.test.sh
 tests/fm-composer-ghost.test.sh
 tests/fm-kimi-harness.test.sh
+tests/fm-hermes-harness.test.sh
 tests/fm-tmux-submit-busy.test.sh
 tests/fm-bootstrap.test.sh
 ```

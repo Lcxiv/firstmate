@@ -30,6 +30,7 @@ zsh
 A persistent parent shell waiting for a child remained reported as the parent process, while a shell that directly execed a simple command changed identity with the process itself.
 Claude, Codex, OpenCode, and Grok were observed under their own process names.
 Kimi Code CLI 0.29.1 was observed under `kimi` on 2026-07-25.
+Hermes Agent 0.19.0 was observed under its Python wrapper ancestry and `HERMES_INTERACTIVE=1` marker on 2026-07-30.
 Pi and pi-signed 0.82.0 were reverified on 2026-07-27 through real isolated `fm-spawn.sh` launches.
 
 Installed-wrapper checks:
@@ -83,6 +84,7 @@ The structural multi-row composer reader, Kimi pointer-delivery path, and OpenCo
 ```sh
 tests/fm-composer-ghost.test.sh
 tests/fm-kimi-harness.test.sh
+tests/fm-hermes-harness.test.sh
 tests/fm-tmux-submit-busy.test.sh
 ```
 
