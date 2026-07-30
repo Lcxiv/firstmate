@@ -153,6 +153,26 @@ Observed guarantee: after ordinary `session_shutdown` for `/new`, `/resume`, and
 Stale prior-generation tool callbacks could not mutate the active child, repeated transitions kept exactly one live arm cycle, and terminal `quit` still refused late rearm.
 Plain Pi and pi-signed share the same tracked `.pi/extensions/fm-primary-pi-watch.ts` path, so both inherit the generation owner; other primary harnesses are not applicable because they do not use this Pi extension lifecycle.
 
+Claude session identity was measured against the shared background daemon on 2026-07-29 with Claude Code 2.1.220, which runs one daemon plus a pool of daemon-owned workers that are all named `claude`:
+
+```sh
+ps -eo pid,ppid,comm,args | grep '[c]laude'
+```
+
+Observed shapes, with the daemon parented to init and outliving every session:
+
+```text
+13272     1  /Users/u/.local/bin/claude   claude daemon run --origin transient --spawned-by {"label":"claude",...}
+13280 13272  claude bg-pty-host           claude bg-pty-host --bg-pty-host /tmp/cc-daemon-501/<id>/spare/<hash>.pty.sock ...
+13285 13280  claude bg-spare              claude bg-spare --bg-spare /tmp/cc-daemon-501/<id>/spare/<hash>.claim.sock
+80210 80123  .../claude/versions/2.1.220  .../versions/2.1.220 --session-id <id> --fork-session --resume ...
+25274 25248  claude                       claude
+```
+
+A shell hosted by a pooled spare sourced the daemon's own startup shell snapshot rather than the claiming session's, so a pooled worker's ancestry and inherited environment both describe the daemon and carry no evidence of the session that claimed it.
+`bin/fm-session-lock-lib.sh` therefore treats the daemon and its pooled workers as non-session shapes: the ancestry walk resolves no identity through them and fails closed, and a lock recorded against one is a reclaimable owner rather than a live competing session.
+The versioned executable is still recognized as a session, so resumed, forked, and app-hosted sessions resolve their own per-session pid instead of the daemon above them.
+
 Deterministic entry points:
 
 ```sh
@@ -161,6 +181,7 @@ tests/fm-pi-primary-types.test.sh
 tests/fm-watcher-lock.test.sh
 tests/fm-subagent-pretool-check.test.sh
 tests/fm-claude-stop-autoarm.test.sh
+tests/fm-session-lock-identity.test.sh
 tests/fm-turnend-guard.test.sh
 ```
 
