@@ -34,6 +34,10 @@ BASE_PATH="$PATH"
 #   900 <...>/MacOS/claude --bg-pty-host <...>/pty/<session>.sock   pty host
 #  1000 claude -p "... daemon run ..."   a session whose PROMPT says daemon
 #  1100 <...>/claude/helper    unrelated program under a directory named claude
+#  1200 "/Applications/Claude Code.app/.../claude" daemon run   daemon whose
+#                             executable PATH contains a space
+#  1300 node <...>/claude/cli.js daemon run   interpreter-hosted daemon
+#  1400 node <...>/claude/cli.js --session-id ...   interpreter-hosted session
 make_ps() {
   local fakebin=$1
   cat > "$fakebin/ps" <<'SH'
@@ -84,6 +88,15 @@ case "$pid:$field" in
   1100:comm=) printf '%s\n' '/opt/share/claude/helper' ;;
   1100:args=) printf '%s\n' 'helper --serve' ;;
   1100:ppid=) printf '%s\n' 1 ;;
+  1200:comm=) printf '%s\n' '/Applications/Claude Code.app/Contents/MacOS/claude' ;;
+  1200:args=) printf '%s\n' '/Applications/Claude Code.app/Contents/MacOS/claude daemon run --origin service' ;;
+  1200:ppid=) printf '%s\n' 1 ;;
+  1300:comm=) printf '%s\n' '/usr/local/bin/node' ;;
+  1300:args=) printf '%s\n' '/usr/local/bin/node /opt/claude/cli.js daemon run --origin transient' ;;
+  1300:ppid=) printf '%s\n' 1 ;;
+  1400:comm=) printf '%s\n' '/usr/local/bin/node' ;;
+  1400:args=) printf '%s\n' '/usr/local/bin/node /opt/claude/cli.js --session-id abc' ;;
+  1400:ppid=) printf '%s\n' 700 ;;
   *:comm=) printf '%s\n' bash ;;
   *:args=) printf '%s\n' bash ;;
   *:ppid=) printf '%s\n' "${FM_TEST_ENTRY:-600}" ;;
@@ -239,6 +252,41 @@ test_unrelated_program_under_a_claude_directory_is_not_a_harness() {
   pass "session-lock identity: a claude path component alone does not make a process the harness"
 }
 
+test_daemon_under_a_spaced_executable_path_is_rejected() {
+  local fakebin got status
+  fakebin=$(fm_fakebin "$TMP_ROOT/spaced-exe-daemon")
+  make_ps "$fakebin"
+  # The subcommand is found by anchoring on the executable, not by splitting on
+  # the first whitespace, so an app-bundle or home directory whose path contains
+  # a space still exposes the daemon subcommand instead of a path fragment.
+  got=$(ancestry_for "$fakebin" 1200); status=$?
+  [ -z "$got" ] || fail "daemon under a spaced executable path resolved '$got'"
+  expect_code 1 "$status" "a daemon under a spaced executable path must fail closed"
+  if alive_for "$fakebin" 1200; then
+    fail "daemon under a spaced executable path was accepted as a live session holder"
+  fi
+  pass "session-lock identity: a spaced executable path does not hide the daemon subcommand"
+}
+
+test_interpreter_hosted_daemon_is_rejected_and_session_resolves() {
+  local fakebin got status
+  fakebin=$(fm_fakebin "$TMP_ROOT/interpreter-hosted")
+  make_ps "$fakebin"
+  # An interpreter-hosted install puts the harness script in argv[1], so the
+  # subcommand is one token further along. Detection must not be skipped there,
+  # and the same offset must still read a real session's flags as a session.
+  got=$(ancestry_for "$fakebin" 1300); status=$?
+  [ -z "$got" ] || fail "interpreter-hosted daemon resolved '$got'"
+  expect_code 1 "$status" "an interpreter-hosted daemon must fail closed"
+  if alive_for "$fakebin" 1300; then
+    fail "interpreter-hosted daemon was accepted as a live session holder"
+  fi
+  got=$(ancestry_for "$fakebin" 1400)
+  [ "$got" = 1400 ] || fail "interpreter-hosted session resolved '$got', expected 1400"
+  alive_for "$fakebin" 1400 || fail "interpreter-hosted session was not accepted as a live holder"
+  pass "session-lock identity: an interpreter-hosted daemon is rejected while its session shape still resolves"
+}
+
 test_plain_session_and_non_claude_harness_unchanged() {
   local fakebin got
   fakebin=$(fm_fakebin "$TMP_ROOT/plain-session")
@@ -259,4 +307,6 @@ test_nested_pool_chain_resolves_outermost_session
 test_versioned_executable_session_resolves_itself
 test_session_prompt_mentioning_daemon_is_still_a_session
 test_unrelated_program_under_a_claude_directory_is_not_a_harness
+test_daemon_under_a_spaced_executable_path_is_rejected
+test_interpreter_hosted_daemon_is_rejected_and_session_resolves
 test_plain_session_and_non_claude_harness_unchanged
