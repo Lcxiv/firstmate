@@ -306,7 +306,11 @@ fm_session_lock_holder_session_id() {
 #   self          the recorded pid is this session's own harness pid
 #   same-session  a different pid, but the recorded session id equals this
 #                 session's trusted id: the same logical session in a new
-#                 process (an id-keeping relaunch successor), safe to re-key
+#                 process (an id-keeping relaunch successor), safe to re-key.
+#                 Two live incarnations of one session may re-key alternately;
+#                 that oscillation stays inside one logical session and
+#                 settles once the superseded incarnation goes idle, the
+#                 observed post-fork behavior
 #   live-other    a live competing session, or a live holder whose succession
 #                 cannot be proven - never reclaimable while it lives; an
 #                 id-minting fork successor lands here by design

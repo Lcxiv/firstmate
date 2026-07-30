@@ -107,11 +107,24 @@ if [ -e "$LOCK" ] || [ -L "$LOCK" ]; then
 fi
 # Clear the previous owner's session identity BEFORE publishing ours: a stale
 # sidecar left beside a new pid would attribute another session's id to this
-# owner and let a third process with that id claim same-session succession.
-rm -f "$SIDECAR" 2>/dev/null || true
-if [ -e "$SIDECAR" ] || [ -L "$SIDECAR" ]; then
-  echo "error: cannot clear the previous owner's session identity; operate read-only until resolved" >&2
-  exit 1
+# owner and let a third process with that id claim same-session succession
+# (clearing first means a crash mid-acquisition degrades to a pid-only lock,
+# the safe direction, never to a borrowed identity). The one case that skips
+# the clear is a same-session re-key, whose recorded id already equals ours
+# byte for byte: leaving it in place means the sidecar is never even
+# transiently absent, so a concurrent identity check during the re-key still
+# proves same-session instead of misreading a foreign owner.
+KEEP_SIDECAR=0
+if [ -n "$MY_SID" ] && [ -f "$SIDECAR" ] && [ ! -L "$SIDECAR" ] \
+  && [ "$(cat "$SIDECAR" 2>/dev/null)" = "$MY_SID" ]; then
+  KEEP_SIDECAR=1
+fi
+if [ "$KEEP_SIDECAR" -eq 0 ]; then
+  rm -f "$SIDECAR" 2>/dev/null || true
+  if [ -e "$SIDECAR" ] || [ -L "$SIDECAR" ]; then
+    echo "error: cannot clear the previous owner's session identity; operate read-only until resolved" >&2
+    exit 1
+  fi
 fi
 if ! { printf '%s\n' "$me" > "$LOCK"; } 2>/dev/null; then
   echo "error: cannot write session lock; operate read-only until resolved" >&2
@@ -125,9 +138,11 @@ if [ ! -f "$LOCK" ] || [ -L "$LOCK" ] || [ "$written" != "$me" ]; then
   echo "error: session lock ownership verification failed; operate read-only until resolved" >&2
   exit 1
 fi
-if [ -n "$MY_SID" ]; then
+if [ -n "$MY_SID" ] && [ "$KEEP_SIDECAR" -eq 0 ]; then
   # A failed identity write degrades to today's pid-only lock rather than
-  # refusing, but never leaves partial bytes that could match something.
+  # refusing, but never leaves partial bytes that could match something, and
+  # never silently: without a recorded identity, a replacement process for
+  # this session cannot prove succession until this process exits.
   if ! { printf '%s\n' "$MY_SID" > "$SIDECAR"; } 2>/dev/null \
     || [ "$(cat "$SIDECAR" 2>/dev/null)" != "$MY_SID" ]; then
     rm -f "$SIDECAR" 2>/dev/null || true
@@ -136,6 +151,7 @@ if [ -n "$MY_SID" ]; then
       exit 1
     fi
     MY_SID=''
+    echo "warning: could not record this session's identity beside the lock; if this session's process is later replaced, the replacement cannot take over until this process exits" >&2
   fi
 fi
 release_claim_lock
