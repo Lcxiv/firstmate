@@ -12,9 +12,51 @@
 FM_HARNESS_RE='claude|codex|opencode|grok|kimi|^pi$|^pi-signed$'
 
 # Claude Code process shapes that are NOT a session, matched in argv subcommand
-# position (argv[1]) or in a worker's own process title.
+# position or in a worker's own process title.
 # Extend when a new non-session Claude worker role is verified.
-FM_CLAUDE_NONSESSION_ARGV1='daemon|bg-spare|bg-pty-host|--bg-spare|--bg-pty-host'
+FM_CLAUDE_NONSESSION_SUBCMD='daemon|bg-spare|bg-pty-host|--bg-spare|--bg-pty-host'
+
+# Echo the argv tokens that follow argv[0] of args ($2), dropping $3 further
+# tokens (1 for an interpreter host, whose argv[1] is the harness script path
+# and whose subcommand is therefore one token further along).
+# argv[0] is located by ANCHORING ON THE EXECUTABLE comm ($1), never by
+# splitting on the first whitespace: an executable path containing a space
+# ("/Applications/Claude Code.app/.../claude") must still yield its real
+# subcommand. comm and argv[0] can disagree - ps reports a full path for one and
+# a bare name for the other, and Linux truncates comm - so a leading comm is
+# tried first, then the first argv token whose basename is comm's basename.
+# Returns 1 when argv[0] cannot be located at all.
+fm_claude_argv_tail() {
+  local comm=$1 args=$2 skip=$3 bc rest tok found=0
+  case "$args" in
+    "$comm") rest='' ;;
+    "$comm "*) rest=${args:$((${#comm} + 1))} ;;
+    *)
+      bc=${comm##*/}
+      rest=$args
+      while [ -n "$rest" ]; do
+        tok=${rest%% *}
+        case "$rest" in
+          *' '*) rest=${rest#* } ;;
+          *) rest='' ;;
+        esac
+        if [ "${tok##*/}" = "$bc" ]; then
+          found=1
+          break
+        fi
+      done
+      [ "$found" -eq 1 ] || return 1
+      ;;
+  esac
+  while [ "$skip" -gt 0 ]; do
+    case "$rest" in
+      *' '*) rest=${rest#* } ;;
+      *) rest='' ;;
+    esac
+    skip=$((skip - 1))
+  done
+  printf '%s' "$rest"
+}
 
 # True when a claude-named process belongs to Claude Code's shared background
 # daemon infrastructure rather than to one interactive or headless session.
@@ -37,17 +79,36 @@ FM_CLAUDE_NONSESSION_ARGV1='daemon|bg-spare|bg-pty-host|--bg-spare|--bg-pty-host
 # treating one as the lock owner lets two different sessions resolve the same
 # identity and claim one home's lock, and records a lock pid that no later
 # session can ever see go stale.
-# The subcommand test reads argv[1] only, never the whole command line, so a
-# session whose PROMPT mentions one of these words stays a session.
+# The subcommand test reads ONE argv token in subcommand position, never the
+# whole command line, so a session whose PROMPT mentions one of these words stays
+# a session.
+# $3 is the interpreter offset: 0 when comm is the harness executable itself, 1
+# when comm is an interpreter hosting the harness script (see
+# fm_harness_session_match, which is the branch that knows).
 fm_claude_nonsession() {
-  local comm=$1 args=$2 argv1
+  local comm=$1 args=$2 skip=${3:-0} rest token title=0
   # A pooled worker sets its own process title, so comm alone can carry the role.
   case "$comm" in
     *bg-spare*|*bg-pty-host*) return 0 ;;
   esac
-  argv1=${args#* }
-  argv1=${argv1%% *}
-  printf '%s' "$argv1" | grep -qE "^($FM_CLAUDE_NONSESSION_ARGV1)$"
+  # A process that rewrote its own process title carries its role inside comm, so
+  # comm's own subcommand position is what to test there. A comm with no path
+  # separator but with further tokens is such a title; a comm containing "/" is
+  # an executable path whose spaces belong to the path.
+  case "$comm" in
+    */*) ;;
+    *' '*) title=1 ;;
+  esac
+  if [ "$title" -eq 1 ]; then
+    rest=${comm#* }
+  else
+    # Unlocatable argv[0] means the subcommand position is unknown. Fail CLOSED
+    # (report infrastructure), so an unreadable command line can never let the
+    # shared daemon be accepted as a session identity.
+    rest=$(fm_claude_argv_tail "$comm" "$args" "$skip") || return 0
+  fi
+  token=${rest%% *}
+  printf '%s' "$token" | grep -qE "^($FM_CLAUDE_NONSESSION_SUBCMD)$"
 }
 
 # True when ps fields comm ($1) and args ($2) describe a verified harness
@@ -57,7 +118,7 @@ fm_claude_nonsession() {
 # verified harness?" test, so the ancestry walk and the holder-liveness check
 # can never disagree about the same pid.
 fm_harness_session_match() {
-  local comm=$1 args=$2 bc hit=0 is_claude=0
+  local comm=$1 args=$2 bc hit=0 is_claude=0 argv_skip=0
   FM_HARNESS_MATCH_CLAUDE=0
   bc=$(basename -- "$comm")
   if printf '%s' "$bc" | grep -qE "$FM_HARNESS_RE"; then
@@ -75,10 +136,14 @@ fm_harness_session_match() {
     esac
     if [ "$hit" -eq 0 ]; then
       # Bare interpreter (e.g. node): match the harness name in its script path.
+      # argv[0] is the interpreter and argv[1] the harness script, so the
+      # subcommand sits one token further along than for a direct install; that
+      # offset is passed to fm_claude_nonsession rather than re-derived there.
       case "$comm" in
         *node*|*python*)
           if printf '%s' "$args" | grep -qE "$FM_HARNESS_RE"; then
             hit=1
+            argv_skip=1
             case "$args" in *claude*) is_claude=1 ;; esac
           fi
           ;;
@@ -86,7 +151,7 @@ fm_harness_session_match() {
     fi
   fi
   [ "$hit" -eq 1 ] || return 1
-  if [ "$is_claude" -eq 1 ] && fm_claude_nonsession "$comm" "$args"; then
+  if [ "$is_claude" -eq 1 ] && fm_claude_nonsession "$comm" "$args" "$argv_skip"; then
     return 1
   fi
   FM_HARNESS_MATCH_CLAUDE=$is_claude
