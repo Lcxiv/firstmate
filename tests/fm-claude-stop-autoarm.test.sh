@@ -198,6 +198,45 @@ test_reclaims_stale_session_lock_before_arming() {
   pass "auto-arm: a demonstrably dead recorded session owner is reclaimed through fm-lock.sh before arming"
 }
 
+# A live process whose command name is claude and whose argv subcommand is
+# "daemon": the shape of Claude Code's shared background daemon, which sets its
+# own process title exactly this way. Echoes its pid.
+# One process with no child and no inherited pipe, so killing the pid ends the
+# whole fixture and the caller's command substitution never waits on it.
+start_fake_claude_daemon() {
+  exec -a "claude daemon run --origin transient" sleep 60 >/dev/null 2>&1 &
+  printf '%s\n' "$!"
+}
+
+test_reclaims_live_daemon_owner_before_arming() {
+  local dir daemon_pid out status expected_owner actual_owner
+  dir=$(make_primary_dir "$TMP_ROOT/daemon-owner")
+  : > "$dir/state/task.meta"
+  write_arm_fixture "$dir" actionable
+  # Claude Code's background daemon is claude-named, shared by every session of
+  # the user, and outlives all of them, so a lock recorded against it belongs to
+  # no session and can never be seen to go stale. Treating it as a competing
+  # live owner left this hook inert on every Stop for the whole session, with
+  # nothing else routinely arming the watcher. It must be reclaimed instead.
+  daemon_pid=$(start_fake_claude_daemon)
+  printf '%s\n' "$daemon_pid" > "$dir/state/.lock"
+  out=$(printf '%s\n' '{"session_id":"daemon-owner"}' \
+    | FM_HOME="$dir" "$FAKE_CLAUDE" -c '
+        printf "%s\n" "$$" > "$FM_HOME/state/expected-owner"
+        "$FM_HOME/bin/fm-claude-stop-autoarm.sh"
+      ' 2>&1); status=$?
+  expected_owner=$(cat "$dir/state/expected-owner")
+  actual_owner=$(cat "$dir/state/.lock")
+  kill "$daemon_pid" 2>/dev/null || true
+  wait "$daemon_pid" 2>/dev/null || true
+  expect_code 2 "$status" "a live shared-daemon lock owner must be reclaimed before the actionable rewake"
+  [ "$actual_owner" = "$expected_owner" ] \
+    || fail "shared-daemon lock was not claimed by the current session: expected $expected_owner, got $actual_owner"
+  [ -e "$dir/state/arm-ran" ] || fail "hook did not arm after reclaiming the shared-daemon lock"
+  [ "$(epoch_outcome "$dir")" = rewake ] || fail "shared-daemon reclaim must record outcome=rewake"
+  pass "auto-arm: a live shared-daemon lock owner is reclaimed, not mistaken for a competing session"
+}
+
 test_inert_when_lock_held_by_other_harness() {
   local dir other out status owner_after
   dir=$(make_primary_dir "$TMP_ROOT/other-lock")
@@ -416,9 +455,31 @@ test_fm_lock_status_still_works_with_shared_lib() {
   pass "fm-lock: shared session-lock lib preserves the status path"
 }
 
+test_fm_lock_reclaims_a_live_shared_daemon_owner() {
+  local dir daemon_pid out status
+  dir="$TMP_ROOT/lock-daemon-owner"
+  mkdir -p "$dir/state"
+  # Session start must not be refused by a lock recorded against the shared
+  # daemon. Because the daemon outlives every session, refusing here left the
+  # home read-only until someone deleted the lock by hand.
+  daemon_pid=$(start_fake_claude_daemon)
+  printf '%s\n' "$daemon_pid" > "$dir/state/.lock"
+  out=$(FM_HOME="$dir" "$FAKE_CLAUDE" -c 'bash "$1/bin/fm-lock.sh"' _ "$ROOT" 2>&1); status=$?
+  kill "$daemon_pid" 2>/dev/null || true
+  wait "$daemon_pid" 2>/dev/null || true
+  expect_code 0 "$status" "fm-lock.sh must reclaim a lock recorded against the shared daemon: $out"
+  assert_contains "$out" "lock acquired" "fm-lock.sh must report acquisition after reclaiming a shared-daemon lock"
+  [ "$(cat "$dir/state/.lock")" != "$daemon_pid" ] \
+    || fail "fm-lock.sh left the shared daemon recorded as the session owner"
+  out=$(FM_HOME="$dir" bash "$ROOT/bin/fm-lock.sh" status 2>&1)
+  assert_contains "$out" "lock:" "fm-lock.sh status must still report a holder line"
+  pass "fm-lock: a lock recorded against the shared daemon is reclaimable, not a permanent refusal"
+}
+
 test_inert_in_child_worktree
 test_inert_without_session_lock
 test_reclaims_stale_session_lock_before_arming
+test_reclaims_live_daemon_owner_before_arming
 test_inert_when_lock_held_by_other_harness
 test_inert_when_afk
 test_stale_lock_recovery_preserves_afk_and_need_gates
@@ -433,3 +494,4 @@ test_need_vanished_mid_cycle_closes_quietly
 test_afk_mid_cycle_suppresses_rewake
 test_active_in_marked_secondmate_home
 test_fm_lock_status_still_works_with_shared_lib
+test_fm_lock_reclaims_a_live_shared_daemon_owner

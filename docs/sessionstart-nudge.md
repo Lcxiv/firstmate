@@ -14,6 +14,8 @@ The Shared Predicate section of [`turnend-guard.md`](turnend-guard.md#shared-pre
 
 Before printing, the wrapper reads `state/.lock` and walks at most eight parents from its own pid in its own separate, hard-coded loop, independent of `bin/fm-lock.sh`'s ancestry walk (`fm_harness_ancestry_pid()` in `bin/fm-session-lock-lib.sh`, which now walks up to sixteen parents and can extend past a claude-named match to a still-more-ancestral one) and of Pi's `lockOwnership()`.
 If the lock names a live pid in that ancestry, session start already ran in this harness session and the wrapper stays silent.
+That loop tests pid equality only and classifies no process shape, so it never resolves a harness identity of its own and cannot publish one.
+When it does not find the lock owner it prints the nudge, which errs toward running session start.
 Every path exits 0, including malformed state and adapter errors, because a Claude SessionStart exit 2 blocks session initialization.
 
 ## Harness transports
