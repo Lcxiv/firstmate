@@ -13,6 +13,7 @@ Claude's `.claude/settings.json` Stop `asyncRewake` hook (`bin/fm-claude-stop-au
 The hook fires on every Stop, and an eligible primary with supervision need admits one home-scoped owner that foregrounds `bin/fm-watch-arm.sh` inside the hook-owned process tree.
 A numeric session-lock owner that fails the shared `fm_harness_pid_alive` predicate is reclaimed through `bin/fm-lock.sh` before auto-arm state changes, while a live owner, absent lock, or malformed lock keeps the competing hook inert.
 That predicate, not process liveness alone, decides ownership: `bin/fm-session-lock-lib.sh` owns which harness process shapes count as a session, and a running process that is not one of them is a reclaimable owner rather than a competing session.
+A firing whose own ancestry resolves no session pid, because every candidate is Claude's shared daemon infrastructure, fails closed and stays inert for that Stop; a later firing that does resolve its own session pid performs the reclaim.
 The stale-owner claim occurs only after the existing AFK and supervision-need gates pass.
 While supervision is still needed and away mode remains inactive, an actionable close or typed failure wakes the idle session through exit 2.
 
