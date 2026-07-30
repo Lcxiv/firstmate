@@ -14,7 +14,10 @@ JQ_BIN=$(command -v jq) || fail "test needs jq"
 BASE_PATH=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
 
 cleanup_hermes_harness() {
-  [ -z "$HERMES_RUNTIME_TASK_TMP" ] || rm -rf "$HERMES_RUNTIME_TASK_TMP"
+  local task_tmp
+  for task_tmp in $HERMES_RUNTIME_TASK_TMP; do
+    rm -rf "$task_tmp"
+  done
   rm -rf "$TMP_ROOT"
 }
 trap cleanup_hermes_harness EXIT
@@ -152,7 +155,7 @@ run_spawn() {
     FM_FAKE_BRIEF_REAL="$(cd "$home/data/$id" && pwd -P)/brief.md" \
     FM_HERMES_READY_POLLS=2 FM_HERMES_DELIVERY_POLLS=2 \
     FM_HERMES_POLL_INTERVAL=0 PATH="$fakebin:$BASE_PATH" \
-    "$SPAWN" "$id" "$project" --harness hermes "$@" 2>&1
+    "$SPAWN" "$id" "$project" "$@" 2>&1
 }
 
 test_hermes_launch_then_send_is_verified() {
@@ -164,7 +167,7 @@ test_hermes_launch_then_send_is_verified() {
   record=$(make_spawn_case success "$id")
   read_spawn_record "$record"
   output=$(run_spawn "$CASE_DIR" "$HOME_DIR" "$PROJ_DIR" "$WT_DIR" "$FAKEBIN_DIR" \
-    "$id" --model poolside/laguna-s-2.1:free --effort high)
+    "$id" --harness hermes --model poolside/laguna-s-2.1:free --effort high)
   expect_code 0 "$?" "verified Hermes launch-then-send should succeed"
   assert_contains "$output" "spawned $id harness=hermes" "Hermes spawn did not report success"
 
@@ -184,6 +187,24 @@ test_hermes_launch_then_send_is_verified() {
   assert_grep 'token=' "$WT_DIR/.fm-hermes-turnend" "Hermes spawn did not write its token pointer"
   assert_present "$HOME_DIR/state/$id.hermes-turnend-token" "Hermes spawn did not record its token"
   pass "fm-spawn: Hermes launches interactively, receives its brief, and registers a turn-end token"
+}
+
+test_hermes_raw_launch_registers_token_without_registry() {
+  local id record output token
+  id="hermes-raw-z5-$$"
+  HERMES_RUNTIME_TASK_TMP="$HERMES_RUNTIME_TASK_TMP /tmp/fm-$id"
+  record=$(make_spawn_case raw-launch "$id")
+  read_spawn_record "$record"
+  assert_absent "$HOME_DIR/.hermes/fm-turn-end.d" "raw-launch case started with a pre-created registry"
+  output=$(run_spawn "$CASE_DIR" "$HOME_DIR" "$PROJ_DIR" "$WT_DIR" "$FAKEBIN_DIR" \
+    "$id" --harness 'hermes --cli --yolo --accept-hooks')
+  expect_code 0 "$?" "raw Hermes launch should survive a missing turn-end registry"
+  assert_contains "$output" "spawned $id harness=hermes" "raw Hermes spawn did not report success"
+  token=$(sed -n 's/^token=//p' "$WT_DIR/.fm-hermes-turnend")
+  [ -n "$token" ] || fail "raw Hermes spawn did not write its token pointer"
+  assert_present "$HOME_DIR/.hermes/fm-turn-end.d/$token" "raw Hermes spawn did not register its token"
+  assert_present "$HOME_DIR/state/$id.hermes-turnend-token" "raw Hermes spawn did not record its token state"
+  pass "fm-spawn: a raw Hermes launch registers its token when the registry does not exist yet"
 }
 
 test_hermes_hook_is_surgical_idempotent_and_authenticated() {
@@ -395,7 +416,7 @@ test_hermes_teardown_removes_pointer_and_registry_token() {
   id=hermes-teardown-z8
   record=$(make_spawn_case teardown "$id")
   read_spawn_record "$record"
-  output=$(run_spawn "$CASE_DIR" "$HOME_DIR" "$PROJ_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id")
+  output=$(run_spawn "$CASE_DIR" "$HOME_DIR" "$PROJ_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" --harness hermes)
   expect_code 0 "$?" "Hermes spawn should succeed before teardown"
   token=$(sed -n 's/^token=//p' "$WT_DIR/.fm-hermes-turnend")
 
@@ -412,6 +433,7 @@ test_hermes_teardown_removes_pointer_and_registry_token() {
 }
 
 test_hermes_launch_then_send_is_verified
+test_hermes_raw_launch_registers_token_without_registry
 test_hermes_hook_is_surgical_idempotent_and_authenticated
 test_hermes_hook_restores_no_newline_and_refuses_malformed_yaml
 test_hermes_busy_composer_detection_and_liveness_are_scoped

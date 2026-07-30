@@ -1675,6 +1675,7 @@ EOF
       HERMES_AUTH_DIR="${HERMES_HOME:-$HOME/.hermes}/fm-turn-end.d"
       old_umask=$(umask)
       umask 077
+      mkdir -p "$HERMES_AUTH_DIR"
       auth_file=$(mktemp "$HERMES_AUTH_DIR/fm.XXXXXXXXXXXX")
       umask "$old_umask"
       printf '%s\n' "$TURNEND" > "$auth_file"
