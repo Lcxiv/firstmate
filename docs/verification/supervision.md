@@ -171,7 +171,7 @@ Observed shapes, with the daemon parented to init and outliving every session:
 
 A shell hosted by a pooled spare sourced the daemon's own startup shell snapshot rather than the claiming session's, so a pooled worker's ancestry and inherited environment both describe the daemon and carry no evidence of the session that claimed it.
 `bin/fm-session-lock-lib.sh` therefore treats the daemon and its pooled workers as non-session shapes: the ancestry walk resolves no identity through them and fails closed, and a lock recorded against one is a reclaimable owner rather than a live competing session.
-The versioned executable is still recognized as a session, so resumed, forked, and app-hosted sessions resolve their own per-session pid instead of the daemon above them.
+The versioned executable is newly recognized as a session: its command name is the version rather than `claude`, so resumed, forked, and app-hosted sessions previously matched no harness shape at all and resolved the daemon-owned worker above them, and now resolve their own per-session pid.
 
 Deterministic entry points:
 
