@@ -13,16 +13,19 @@
 #   - Identity: only when THIS session's harness ancestor holds state/.lock.
 #     A recorded owner that is dead, not a session shape, or - by the shared
 #     session-id contract in bin/fm-session-lock-lib.sh - the SAME logical
-#     session in a replaced process (a fork/relaunch successor) is recovered
-#     through bin/fm-lock.sh, then ownership is re-verified. A live owner from
-#     another session never lets this hook arm, rewake for a watcher close, or
-#     touch the lock; but when supervision is needed and away mode is off, that
-#     foreign-owner state wakes the model ONCE per distinct holder (exit 2,
-#     deduped via state/.claude-autoarm-foreign-lock) with the real diagnosis,
-#     because silent inertness is exactly how a fork handover went unnoticed:
-#     the working session's hooks land here while the superseded pre-fork
-#     process keeps the lock alive. Missing or malformed locks and unresolved
-#     ancestry stay inert.
+#     session in a replaced process (a successor that KEPT its session id) is
+#     recovered through bin/fm-lock.sh, then ownership is re-verified. A live
+#     owner from another session never lets this hook arm, rewake for a
+#     watcher close, or touch the lock; but when supervision is needed and
+#     away mode is off, that foreign-owner state wakes the model ONCE per
+#     distinct holder (exit 2, deduped via state/.claude-autoarm-foreign-lock)
+#     with the real diagnosis, because silent inertness is exactly how a fork
+#     handover went unnoticed: Claude Code's --fork-session mints the working
+#     successor a NEW session id, so its hooks land here - unable to prove
+#     same-session - while the superseded pre-fork process keeps the lock
+#     alive. The notice plus the ordinary stale reclaim once that process
+#     exits IS the fork-successor path; same-session re-keying never covers
+#     it. Missing or malformed locks and unresolved ancestry stay inert.
 #   - AFK: while state/.afk exists the away daemon owns the watcher and triage;
 #     this hook exits 0 and NEVER rewakes the primary (checked again at
 #     translation time so a mid-cycle AFK transition is honored).

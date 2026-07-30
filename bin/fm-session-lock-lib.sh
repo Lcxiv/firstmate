@@ -9,17 +9,23 @@
 # This file is sourced by scripts and has no side effects on source.
 #
 # Identity has two layers, because a harness can replace a session's PROCESS
-# while the LOGICAL session continues (observed live on Claude Code 2.1.220:
-# a mid-conversation fork/relaunch leaves the pre-fork pid alive as an idle
-# interactive process while a new pid carries the working conversation):
+# while the captain's work continues (observed live on Claude Code 2.1.220:
+# a mid-conversation fork left the pre-fork pid alive as an idle interactive
+# process while a new pid carried the working conversation):
 #   state/.lock          the owning harness process pid (the incarnation).
 #   state/.lock-session  optional sidecar: the owning harness SESSION id (the
 #                        logical session). Written and cleared only by
 #                        bin/fm-lock.sh under its acquisition mutex.
 # A lock whose recorded session id equals the current session's id names the
-# SAME logical session in a new process, so bin/fm-lock.sh may re-key the pid;
-# a live holder with a different or unresolvable session id is a competing
-# session and is never reclaimed, inherited, or forced.
+# SAME logical session in a new process, so bin/fm-lock.sh may re-key the pid.
+# That covers only successions that KEEP the session id (e.g. a plain --resume
+# relaunch overlapping its predecessor's exit). Claude Code's --fork-session
+# mints the successor a NEW session id (docs/verification/supervision.md), so
+# a fork successor can never prove same-session: while the pre-fork process
+# lives it gets the loud foreign-owner diagnosis instead of the lock, and the
+# ordinary stale path completes the handover automatically the moment that
+# process exits. A live holder with a different or unresolvable session id is
+# treated as a competing session and is never reclaimed, inherited, or forced.
 #
 # The current session's id resolves only from sources the harness itself
 # plants, in trust order:
@@ -300,9 +306,10 @@ fm_session_lock_holder_session_id() {
 #   self          the recorded pid is this session's own harness pid
 #   same-session  a different pid, but the recorded session id equals this
 #                 session's trusted id: the same logical session in a new
-#                 process (a fork/relaunch successor), safe to re-key
+#                 process (an id-keeping relaunch successor), safe to re-key
 #   live-other    a live competing session, or a live holder whose succession
-#                 cannot be proven - never reclaimable while it lives
+#                 cannot be proven - never reclaimable while it lives; an
+#                 id-minting fork successor lands here by design
 #   stale         the recorded pid is dead or not a harness session shape
 # Missing either session id fails toward live-other, never toward takeover.
 fm_session_lock_relation() {

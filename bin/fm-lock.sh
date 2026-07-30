@@ -5,9 +5,12 @@
 # PID of any one tool call, which is dead moments after it is written.
 # When the current session's harness session id resolves from a trusted source
 # (bin/fm-session-lock-lib.sh owns that contract), it is recorded in the
-# state/.lock-session sidecar so a fork or relaunch successor of the SAME
-# logical session can re-key the pid; a live holder from a different session
-# still refuses, now naming the holder and any fork lineage it can see.
+# state/.lock-session sidecar so a successor that KEPT its session id can
+# re-key the pid. A live holder from a different session still refuses, now
+# naming the holder and any fork lineage it can see - Claude Code's
+# --fork-session mints a NEW session id, so a fork successor takes this
+# refusal while the pre-fork process lives and reclaims through the ordinary
+# stale path the moment it exits.
 # Usage: fm-lock.sh           acquire; exit 1 unless ownership is verified
 #        fm-lock.sh status    print holder and liveness; always exits 0
 set -u

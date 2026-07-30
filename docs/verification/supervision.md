@@ -185,7 +185,8 @@ created Jul 29 15:42:09 2026  cfaf5775-... (pre-fork session; its last user reco
 created Jul 29 16:51:46 2026  42ed4142-... (successor, created at the fork moment and carrying its id in argv per the table above)
 ```
 
-The lock still recorded pid 25274, so the working session owned nothing, `fm_session_lock_owned_by_self` failed, and the auto-arm stayed silently inert - the gap now closed by the `state/.lock-session` sidecar plus the auto-arm's foreign-owner notice.
+The lock still recorded pid 25274, so the working session owned nothing, `fm_session_lock_owned_by_self` failed, and the auto-arm stayed silently inert.
+Because the fork mints a NEW session id, this shape is closed by the auto-arm's loud foreign-owner notice plus the ordinary stale reclaim once the superseded pid exits, never by same-session re-keying; the `state/.lock-session` sidecar re-keys only successions that keep their session id.
 Claude Code plants the working session's identity into every tool shell, verified live in the same home on 2026-07-30:
 
 ```sh

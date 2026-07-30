@@ -252,8 +252,10 @@ test_foreign_live_owner_notifies_once_without_arm_or_reclaim() {
   # the working session's hooks kept landing here while the superseded pre-fork
   # process held the lock. The first firing wakes the model once with the
   # foreign-owner diagnosis; every later firing for the same holder is silent.
-  out=$(printf '%s\n' '{"session_id":"s"}' | FM_HOME="$dir" "$FAKE_CLAUDE" -c '"$FM_HOME/bin/fm-claude-stop-autoarm.sh"' 2>&1); status=$?
-  out2=$(printf '%s\n' '{"session_id":"s"}' | FM_HOME="$dir" "$FAKE_CLAUDE" -c '"$FM_HOME/bin/fm-claude-stop-autoarm.sh"' 2>&1); status2=$?
+  # The trailing exit keeps each body multi-command so bash cannot
+  # tail-exec-collapse the fake harness away from the hook's ancestry walk.
+  out=$(printf '%s\n' '{"session_id":"s"}' | FM_HOME="$dir" "$FAKE_CLAUDE" -c '"$FM_HOME/bin/fm-claude-stop-autoarm.sh"; rc=$?; exit "$rc"' 2>&1); status=$?
+  out2=$(printf '%s\n' '{"session_id":"s"}' | FM_HOME="$dir" "$FAKE_CLAUDE" -c '"$FM_HOME/bin/fm-claude-stop-autoarm.sh"; rc=$?; exit "$rc"' 2>&1); status2=$?
   owner_after=$(cat "$dir/state/.lock")
   kill "$other" 2>/dev/null || true
   wait "$other" 2>/dev/null || true
@@ -280,7 +282,7 @@ test_foreign_owner_notice_respects_afk_and_need_gates() {
   "$FAKE_CLAUDE" -c 'sleep 60; :' &
   other=$!
   printf '%s\n' "$other" > "$dir/state/.lock"
-  out=$(printf '%s\n' '{"session_id":"s"}' | FM_HOME="$dir" "$FAKE_CLAUDE" -c '"$FM_HOME/bin/fm-claude-stop-autoarm.sh"' 2>&1); status=$?
+  out=$(printf '%s\n' '{"session_id":"s"}' | FM_HOME="$dir" "$FAKE_CLAUDE" -c '"$FM_HOME/bin/fm-claude-stop-autoarm.sh"; rc=$?; exit "$rc"' 2>&1); status=$?
   expect_code 0 "$status" "the foreign-owner notice must not fire while AFK owns triage"
   [ -z "$out" ] || fail "foreign owner under AFK produced output: $out"
   [ ! -e "$dir/state/.claude-autoarm-foreign-lock" ] || fail "foreign marker written despite AFK"
@@ -291,7 +293,7 @@ test_foreign_owner_notice_respects_afk_and_need_gates() {
   dir=$(make_primary_dir "$TMP_ROOT/foreign-idle")
   write_arm_fixture "$dir" actionable
   printf '%s\n' "$other" > "$dir/state/.lock"
-  out=$(printf '%s\n' '{"session_id":"s"}' | FM_HOME="$dir" "$FAKE_CLAUDE" -c '"$FM_HOME/bin/fm-claude-stop-autoarm.sh"' 2>&1); status=$?
+  out=$(printf '%s\n' '{"session_id":"s"}' | FM_HOME="$dir" "$FAKE_CLAUDE" -c '"$FM_HOME/bin/fm-claude-stop-autoarm.sh"; rc=$?; exit "$rc"' 2>&1); status=$?
   kill "$other" 2>/dev/null || true
   wait "$other" 2>/dev/null || true
   expect_code 0 "$status" "the foreign-owner notice must not fire without supervision need"
@@ -306,11 +308,12 @@ test_same_session_successor_rekeys_and_arms() {
   dir=$(make_primary_dir "$TMP_ROOT/fork-successor")
   : > "$dir/state/task.meta"
   write_arm_fixture "$dir" actionable
-  # The fork-handover shape: a live pre-fork process still holds the lock, but
-  # the sidecar records the logical session id and the Stop payload of the
-  # firing session proves the same id, so this is the SAME session in a new
-  # process. The hook must re-key the pid through fm-lock.sh and arm, exactly
-  # like the stale-owner path, instead of treating its own session as foreign.
+  # The id-KEEPING relaunch shape (NOT Claude's fork, which mints a new id):
+  # a live predecessor process still holds the lock, the sidecar records the
+  # logical session id, and the Stop payload of the firing session proves the
+  # same id, so this is the SAME session in a new process. The hook must
+  # re-key the pid through fm-lock.sh and arm, exactly like the stale-owner
+  # path, instead of treating its own session as foreign.
   "$FAKE_CLAUDE" -c 'sleep 60; :' &
   old=$!
   printf '%s\n' "$old" > "$dir/state/.lock"
@@ -330,7 +333,49 @@ test_same_session_successor_rekeys_and_arms() {
   [ "$(cat "$dir/state/.lock-session")" = "$sid" ] || fail "re-keying lost the recorded session id"
   [ -e "$dir/state/arm-ran" ] || fail "hook did not arm after the same-session re-key"
   [ "$(epoch_outcome "$dir")" = rewake ] || fail "same-session re-key must record outcome=rewake"
-  pass "auto-arm: a fork/relaunch successor of the recorded session re-keys the lock and arms"
+  pass "auto-arm: an id-keeping relaunch successor of the recorded session re-keys the lock and arms"
+}
+
+test_fork_successor_gets_notice_then_reclaims_when_holder_exits() {
+  local dir old sid_old sid_new out out2 status status2 expected_owner
+  sid_old='88888888-8888-8888-8888-888888888888'
+  sid_new='99999999-9999-9999-9999-999999999999'
+  dir=$(make_primary_dir "$TMP_ROOT/fork-new-sid")
+  : > "$dir/state/task.meta"
+  write_arm_fixture "$dir" actionable
+  # The production fork shape from docs/verification/supervision.md: Claude
+  # Code's --fork-session mints the working successor a NEW session id, so the
+  # sidecar (pre-fork id) can never match the successor's payload id and
+  # same-session re-keying must NOT fire. While the pre-fork process lives,
+  # the successor gets exactly the loud foreign-owner diagnosis and mutates
+  # nothing...
+  "$FAKE_CLAUDE" -c 'sleep 60; :' &
+  old=$!
+  printf '%s\n' "$old" > "$dir/state/.lock"
+  printf '%s\n' "$sid_old" > "$dir/state/.lock-session"
+  out=$(printf '%s\n' "{\"session_id\":\"$sid_new\"}" \
+    | FM_HOME="$dir" "$FAKE_CLAUDE" -c '"$FM_HOME/bin/fm-claude-stop-autoarm.sh"; rc=$?; exit "$rc"' 2>&1); status=$?
+  expect_code 2 "$status" "a fork successor must get the foreign-owner notice while the pre-fork process lives"
+  assert_contains "$out" "held by another live session (pid $old, session $sid_old)" "the notice must name the pre-fork holder and its recorded session"
+  [ "$(cat "$dir/state/.lock")" = "$old" ] || fail "a fork successor mutated the lock despite the live pre-fork holder"
+  [ "$(cat "$dir/state/.lock-session")" = "$sid_old" ] || fail "a fork successor mutated the sidecar despite the live pre-fork holder"
+  [ ! -e "$dir/state/arm-ran" ] || fail "a fork successor armed while the pre-fork process held the lock"
+  # ...and the moment the superseded process exits, the ordinary stale path
+  # completes the handover: reclaim, re-key to the successor's identity, arm.
+  kill "$old" 2>/dev/null || true
+  wait "$old" 2>/dev/null || true
+  out2=$(printf '%s\n' "{\"session_id\":\"$sid_new\"}" \
+    | FM_HOME="$dir" "$FAKE_CLAUDE" -c '
+        printf "%s\n" "$$" > "$FM_HOME/state/expected-owner"
+        "$FM_HOME/bin/fm-claude-stop-autoarm.sh"
+      ' 2>&1); status2=$?
+  expected_owner=$(cat "$dir/state/expected-owner")
+  expect_code 2 "$status2" "the firing after the pre-fork process exits must reclaim and arm: $out2"
+  [ "$(cat "$dir/state/.lock")" = "$expected_owner" ] || fail "stale reclaim did not re-key the lock to the fork successor"
+  [ "$(cat "$dir/state/.lock-session")" = "$sid_new" ] || fail "stale reclaim did not record the successor's own session id"
+  [ -e "$dir/state/arm-ran" ] || fail "the fork successor did not arm after reclaiming"
+  [ "$(epoch_outcome "$dir")" = rewake ] || fail "fork-successor reclaim must record outcome=rewake"
+  pass "auto-arm: a fork successor (new session id) gets the loud notice, then reclaims automatically once the pre-fork process exits"
 }
 
 test_inert_when_afk() {
@@ -636,6 +681,7 @@ test_reclaims_live_daemon_owner_before_arming
 test_foreign_live_owner_notifies_once_without_arm_or_reclaim
 test_foreign_owner_notice_respects_afk_and_need_gates
 test_same_session_successor_rekeys_and_arms
+test_fork_successor_gets_notice_then_reclaims_when_holder_exits
 test_inert_when_afk
 test_stale_lock_recovery_preserves_afk_and_need_gates
 test_resolves_outermost_claude_pid_in_nested_bgspare_chain
