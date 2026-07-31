@@ -68,7 +68,7 @@
 #   profile consultation. A --secondmate spawn is exempt and resolves the SECONDMATE
 #   harness (config/secondmate-harness -> config/crew-harness -> own), so the
 #   secondmate-vs-crewmate split is DURABLE across every respawn (recovery,
-#   /updatefirstmate, restart). A bare adapter name (claude|codex|opencode|pi|pi-signed|grok|kimi)
+#   /updatefirstmate, restart). A bare adapter name (claude|codex|opencode|pi|pi-signed|grok|kimi|hermes)
 #   overrides it for this spawn (either kind). A non-flag string containing
 #   whitespace is treated as a RAW launch command - the escape hatch for verifying
 #   new adapters. pi-signed launches that exact executable name from PATH and
@@ -423,7 +423,7 @@ FIRSTMATE_HOME=
 
 if [ "$KIND" = secondmate ]; then
   case "${POS[1]:-}" in
-    ''|claude|codex|opencode|pi|pi-signed|grok|kimi)
+    ''|claude|codex|opencode|pi|pi-signed|grok|kimi|hermes)
       ARG3=${POS[1]:-}
       ;;
     *' '*)
@@ -489,6 +489,10 @@ launch_template() {
     # Its turn-end signal is a globally configured Stop hook plus a guarded
     # per-task worktree token, so no launch placeholder belongs here.
     kimi) printf '%s' '__KIMIBIN__ __MODELFLAG__--auto' ;;
+    # Hermes rejects positional input for a persistent interactive session.
+    # Launch bare, bypass every approval prompt, pre-accept configured shell
+    # hooks, then deliver the absolute brief pointer after the readiness gate.
+    hermes) printf '%s' '__HERMESBIN__ --cli __MODELFLAG__--yolo --accept-hooks' ;;
     *) return 1 ;;
   esac
 }
@@ -608,12 +612,34 @@ resolve_kimi_binary() {
   return 1
 }
 
+resolve_hermes_binary() {
+  local candidate dir
+  candidate=$(command -v hermes 2>/dev/null || true)
+  if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+    case "$candidate" in
+      /*) printf '%s\n' "$candidate"; return 0 ;;
+      *)
+        dir=$(cd "$(dirname "$candidate")" 2>/dev/null && pwd -P) || dir=
+        if [ -n "$dir" ]; then
+          printf '%s/%s\n' "$dir" "$(basename "$candidate")"
+          return 0
+        fi
+        ;;
+    esac
+  fi
+  echo "error: hermes executable not found on PATH" >&2
+  return 1
+}
+
 model_flag_for_harness() {
   local harness=$1 model=$2
   [ -n "$model" ] && [ "$model" != default ] || return 0
   case "$harness" in
     claude|codex|opencode|pi|pi-signed|grok|kimi)
       printf -- '--model %s ' "$(shell_quote "$model")"
+      ;;
+    hermes)
+      printf -- '-m %s ' "$(shell_quote "$model")"
       ;;
   esac
 }
@@ -654,7 +680,7 @@ effort_flag_for_harness() {
     # opencode's interactive `opencode --prompt` launch has a verified --model
     # flag but no verified effort flag. Its `opencode run --variant` flag belongs
     # to a different, non-interactive launch mode, so fm-spawn does not pass it.
-    # kimi likewise has no reasoning-effort flag; the requested axis stays in
+    # kimi and hermes likewise have no reasoning-effort flag; the requested axis stays in
     # task metadata but never reaches the launch command.
   esac
 }
@@ -666,6 +692,16 @@ case "$LAUNCH" in
     if [ "$KIND" != secondmate ]; then
       "$FM_ROOT/bin/fm-kimi-turnend-hook.sh" install || {
         echo "error: refusing Kimi spawn because the global turn-end hook could not be installed safely" >&2
+        exit 1
+      }
+    fi
+    ;;
+  *__HERMESBIN__*)
+    HERMES_BIN=$(resolve_hermes_binary) || exit 1
+    LAUNCH=${LAUNCH//__HERMESBIN__/$(shell_quote "$HERMES_BIN")}
+    if [ "$KIND" != secondmate ]; then
+      FM_HERMES_BINARY="$HERMES_BIN" "$FM_ROOT/bin/fm-hermes-turnend-hook.sh" install || {
+        echo "error: refusing Hermes spawn because the global turn-end hook could not be installed safely" >&2
         exit 1
       }
     fi
@@ -1294,6 +1330,54 @@ kimi_spawn_fail() {  # <detail>
   echo "error: $1; inspect window $T" >&2
 }
 
+hermes_capture() {
+  fm_backend_capture "$BACKEND" "$T" 120 "$W" 2>/dev/null || true
+}
+
+hermes_capture_has_empty_composer() {  # <plain-pane-capture>
+  printf '%s\n' "$1" | grep -Eq '^[[:space:]]*❯[[:space:]]*$'
+}
+
+hermes_wait_for_ready() {
+  local pane i=0 max=${FM_HERMES_READY_POLLS:-60} interval=${FM_HERMES_POLL_INTERVAL:-0.5}
+  while [ "$i" -lt "$max" ]; do
+    pane=$(hermes_capture)
+    if printf '%s\n' "$pane" | grep -Fq 'Welcome to Hermes Agent!' \
+       || hermes_capture_has_empty_composer "$pane"; then
+      return 0
+    fi
+    i=$((i + 1))
+    [ "$i" -ge "$max" ] || sleep "$interval"
+  done
+  return 1
+}
+
+hermes_delivery_is_confirmed() {  # <plain-pane-capture>
+  local pane=$1
+  if printf '%s\n' "$pane" | grep -Fq 'Read the brief at' \
+     && { hermes_capture_has_empty_composer "$pane" \
+          || printf '%s\n' "$pane" | grep -Fq 'Ctrl+C cancel'; }; then
+    return 0
+  fi
+  printf '%s\n' "$pane" | grep -Eq 'ctx[[:space:]]+[0-9]+%'
+}
+
+hermes_wait_for_delivery() {
+  local pane i=0 max=${FM_HERMES_DELIVERY_POLLS:-40} interval=${FM_HERMES_POLL_INTERVAL:-0.5}
+  while [ "$i" -lt "$max" ]; do
+    pane=$(hermes_capture)
+    hermes_delivery_is_confirmed "$pane" && return 0
+    i=$((i + 1))
+    [ "$i" -ge "$max" ] || sleep "$interval"
+  done
+  return 1
+}
+
+hermes_spawn_fail() {  # <detail>
+  printf 'failed: %s\n' "$1" >> "$STATE/$ID.status"
+  echo "error: $1; inspect window $T" >&2
+}
+
 if [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
   spawn_send_text_line "$WT_TARGET" 'treehouse get'
 
@@ -1584,6 +1668,21 @@ EOF
       printf 'token=%s\n' "${auth_file##*/}" > "$WT/.fm-kimi-turnend"
       exclude_path '.fm-kimi-turnend'
       ;;
+    hermes*)
+      # Hermes's post_llm_call hook is global, but it is inert unless the hook
+      # payload cwd contains this task's token pointer and that token resolves
+      # through Firstmate's private registry.
+      HERMES_AUTH_DIR="${HERMES_HOME:-$HOME/.hermes}/fm-turn-end.d"
+      old_umask=$(umask)
+      umask 077
+      mkdir -p "$HERMES_AUTH_DIR"
+      auth_file=$(mktemp "$HERMES_AUTH_DIR/fm.XXXXXXXXXXXX")
+      umask "$old_umask"
+      printf '%s\n' "$TURNEND" > "$auth_file"
+      printf '%s\n' "${auth_file##*/}" > "$STATE/$ID.hermes-turnend-token"
+      printf 'token=%s\n' "${auth_file##*/}" > "$WT/.fm-hermes-turnend"
+      exclude_path '.fm-hermes-turnend'
+      ;;
   esac
 fi
 
@@ -1674,6 +1773,9 @@ LAUNCH=${LAUNCH//__OPINPUT__/$sq_opinput}
 if [ "$HARNESS" = claude ] && [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then
   LAUNCH="CLAUDE_CONFIG_DIR=$(shell_quote "$CLAUDE_CONFIG_DIR") $LAUNCH"
 fi
+if [ "$HARNESS" = hermes ] && [ -n "${HERMES_HOME:-}" ]; then
+  LAUNCH="HERMES_HOME=$(shell_quote "$HERMES_HOME") $LAUNCH"
+fi
 if [ "$KIND" = secondmate ]; then
   sq_home=$(shell_quote "$PROJ_ABS")
   sq_primary_home=$(shell_quote "$FM_HOME")
@@ -1712,6 +1814,30 @@ if [ "$HARNESS" = kimi ]; then
   fi
   if ! kimi_wait_for_delivery; then
     kimi_spawn_fail "kimi brief pointer delivery was not confirmed"
+    exit 1
+  fi
+fi
+if [ "$HARNESS" = hermes ]; then
+  if ! hermes_wait_for_ready; then
+    hermes_spawn_fail "Hermes did not show a verified ready signal before brief delivery"
+    exit 1
+  fi
+  HERMES_POINTER="Read the brief at $BRIEF_REAL and follow it exactly."
+  HERMES_SUBMIT_RETRIES=${FM_HERMES_SUBMIT_RETRIES:-3}
+  HERMES_SUBMIT_SLEEP=${FM_HERMES_SUBMIT_SLEEP:-${FM_HERMES_POLL_INTERVAL:-0.5}}
+  HERMES_SUBMIT_SETTLE=${FM_HERMES_SUBMIT_SETTLE:-0}
+  HERMES_SUBMIT_VERDICT=$(fm_backend_send_text_submit \
+    "$BACKEND" "$T" "$HERMES_POINTER" "$HERMES_SUBMIT_RETRIES" \
+    "$HERMES_SUBMIT_SLEEP" "$HERMES_SUBMIT_SETTLE" "$W") || {
+    hermes_spawn_fail "Hermes brief pointer could not be submitted"
+    exit 1
+  }
+  if [ "$HERMES_SUBMIT_VERDICT" = send-failed ]; then
+    hermes_spawn_fail "Hermes brief pointer could not be submitted"
+    exit 1
+  fi
+  if ! hermes_wait_for_delivery; then
+    hermes_spawn_fail "Hermes brief pointer delivery was not confirmed"
     exit 1
   fi
 fi

@@ -85,6 +85,11 @@ That warning uses `bin/fm-supervision-instructions.sh --repair-line`, so it alwa
 - The hook remains inert unless the payload `cwd` contains a per-task token pointer that resolves through Firstmate's private registry to one `state/<id>.turn-ended` marker.
 - Installation refuses before writing unless `python3` with `tomllib` and `jq` are available.
 - If `jq` is removed after installation, the hook remains silent and exits 0, turn-end wakes stop, and Kimi crews fall back to idle detection.
+- Hermes Agent 0.19.0 exposes a global `post_llm_call` shell hook in `${HERMES_HOME:-$HOME/.hermes}/config.yaml`.
+- Hermes remains outside the primary guard integrations above, and its hook fires only after a successful non-interrupted tool-calling turn.
+- Hermes crew wake support uses `bin/fm-hermes-turnend-hook.sh` to edit one marker-delimited Firstmate region without serializing foreign YAML and install a silent always-zero hook.
+- The hook remains inert unless a `post_llm_call` payload `cwd` contains a per-task token pointer that resolves through Firstmate's private registry to one `state/<id>.turn-ended` marker.
+- Installation refuses before writing unless `python3`, `jq`, and Hermes's own config loader are available, and `fm-spawn.sh` passes `--accept-hooks` to bypass the first-use shell-hook consent prompt.
 - Unreadable hook input remains fail-open.
 - No harness adapter uses a shell ampersand to manufacture supervision.
 
@@ -92,6 +97,7 @@ That warning uses `bin/fm-supervision-instructions.sh --repair-line`, so it alwa
 
 `tests/fm-turnend-guard.test.sh` covers the predicate, main and secondmate primary scope, child-worktree exclusion, `FM_HOME` and `FM_STATE_OVERRIDE` precedence, the cooperative `--claude` claim wait, epoch allow, re-block budget, Pi logical-run latching, missing-`jq` behavior, all five primary registrations, Grok native and legacy selection, typed field precedence, malformed input, and exactly-one-path safety.
 `tests/fm-kimi-harness.test.sh` covers the separate Kimi crew hook's format preservation, idempotence, refusal cases, token guard, spawn registration, and teardown cleanup.
+`tests/fm-hermes-harness.test.sh` covers the separate Hermes crew hook's YAML preservation, idempotence, token guard, spawn registration, busy/composer classification, detection, and teardown cleanup.
 `tests/fm-supervision-instructions.test.sh` covers recovery-line ownership and pi-signed's identity-preserving reuse of Pi's protocol.
 `FM_PI_LIVE_E2E=1 tests/fm-pi-primary-live-e2e.test.sh` is the opt-in isolated Pi path.
 [`verification/supervision.md`](verification/supervision.md#turn-end-guard) records the active cross-harness empirical evidence, including the 2026-07-24 Claude `asyncRewake` revalidation.

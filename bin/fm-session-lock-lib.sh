@@ -43,7 +43,7 @@
 # pid-only and every behavior below degrades to the pid-only contract.
 
 # Known harness command names; extend when a new adapter is verified.
-FM_HARNESS_RE='claude|codex|opencode|grok|kimi|^pi$|^pi-signed$'
+FM_HARNESS_RE='claude|codex|opencode|grok|kimi|hermes|^pi$|^pi-signed$'
 
 # Claude Code process shapes that are NOT a session, matched in argv subcommand
 # position or in a worker's own process title.

@@ -1,6 +1,6 @@
 ---
 name: harness-adapters
-description: Agent-only reference for firstmate harness operations. Use before spawning or recovering a crewmate or secondmate, handling a trust dialog, sending a harness-specific skill invocation, interrupting or exiting an agent, resuming an exited agent, or verifying a new harness adapter. Contains verified facts for claude, codex, opencode, pi, pi-signed, grok, and kimi.
+description: Agent-only reference for firstmate harness operations. Use before spawning or recovering a crewmate or secondmate, handling a trust dialog, sending a harness-specific skill invocation, interrupting or exiting an agent, resuming an exited agent, or verifying a new harness adapter. Contains verified facts for claude, codex, opencode, pi, pi-signed, grok, kimi, and hermes.
 user-invocable: false
 metadata:
   internal: true
@@ -57,7 +57,7 @@ The primary integrations for `claude`, `codex`, `opencode`, `pi`, `pi-signed`, a
 `claude` and `codex` block directly through Stop hooks that preserve exit status 2 and stderr from `bin/fm-turnend-guard.sh`.
 `opencode`, `pi`, and `pi-signed` expose passive lifecycle callbacks and force one bounded follow-up when the shared predicate blocks.
 Grok selects native blocking or its pre-native bounded resume fallback from the exact running Stop payload; [`docs/turnend-guard.md`](../../../docs/turnend-guard.md) owns that contract.
-Kimi is outside the primary turn-end guard scope, while `docs/turnend-guard.md` owns its separate guarded global hook for crew wake signals.
+Kimi and Hermes are outside the primary turn-end guard scope, while `docs/turnend-guard.md` owns their separate guarded global hooks for crew wake signals.
 The exact hook files, commands, scoping rules, and fail-open tradeoffs are owned by `docs/turnend-guard.md`.
 `docs/verification/supervision.md` "Turn-end guard" owns active validation evidence.
 When changing any primary turn-end hook, validate the real harness behavior in a scratch project or throwaway home before trusting it, then update that doc and the relevant concise fact below.
@@ -127,6 +127,7 @@ The supported launch-profile flags below are verified locally; each row records 
 | pi / pi-signed | `--model <model>` | `--thinking <low\|medium\|high\|xhigh\|max>` | Verified 2026-07-27 on Pi and pi-signed 0.82.0. Both expose the same accepted thinking levels and completed the same model-qualified max-thinking smoke. |
 | opencode | `--model <provider/model>` | none for firstmate's interactive launch | Verified on opencode 1.17.6. `opencode run` has `--variant`, but firstmate launches the interactive `opencode --prompt` path, which has no verified effort flag. |
 | kimi | `--model <model>` | none | Verified 2026-07-25 on Kimi Code CLI 0.29.1. |
+| hermes | `-m <model>` | none | Verified 2026-07-30 on Hermes Agent 0.19.0. |
 
 The concrete `harness` field owns adapter identity independently of the model provider: `harness=pi` with `model=xai/grok-*` is Pi using xAI, not `harness=grok`, and does not require Grok CLI login; `harness=grok` remains the standalone Grok Build CLI adapter.
 `bin/fm-auth-preflight.sh` enforces that split deterministically, resolving a tuple's authentication surface from quota-axi's emitted auth sources rather than from a harness or model name; use it instead of reasoning about which credential store a tuple reads.
@@ -144,6 +145,7 @@ Use the discovery surface in the current authenticated environment because suppo
 | pi / pi-signed | Run the selected executable as `<executable> --list-models [search]`; Pi's installed `docs/models.md` owns how built-in, extension-registered, and custom provider/model entries reach that list. |
 | grok | Run `grok models`, which lists the models available to the current Grok installation and account. |
 | kimi | Run `kimi provider list --json`, which lists the current provider and model configuration. |
+| hermes | Read `~/.hermes/cache/model_catalog.json`, which is the installed catalog of provider and model entries. |
 
 For an unfamiliar harness or model namespace, establish support and provider identity from that harness's authoritative CLI help, model listing, or current documentation rather than guessing from a name or prefix.
 If those sources do not establish the relationship needed for dispatch, fail loudly and report the unresolved candidate.
@@ -162,6 +164,7 @@ Natural language is acceptable if uncertain.
 - pi and pi-signed: no separate verified skill invocation beyond normal command behavior; use natural language if the exact skill command is uncertain.
 - grok: `/<skill>`, for example `/no-mistakes` (same form as claude). Verified end to end: grok discovers the user-level `no-mistakes` skill, `/no-mistakes` invokes it, and grok drives a real `no-mistakes axi run`. Like codex's `$`/`/` popups, typing `/<skill>` opens grok's slash-autocomplete, so a too-fast Enter selects the popup entry instead of sending, and for an argument-taking command (like `/no-mistakes`'s optional task-first argument) that first Enter only expands the popup selection into an argument-hint placeholder rather than submitting - a genuine second Enter is required (see the grok section below for the 2026-07-03 incident and fix). `fm_tmux_submit_core`'s retried Enter (used by `fm-send` on the tmux backend) handles this through the structural composer reader; the herdr backend needed a dedicated fix (`fm_backend_herdr_composer_state`, docs/herdr-backend.md) because its prior delta-based verification false-positived on that same popup-close content change.
 - kimi: `/<skill>`, for example `/no-mistakes`.
+- hermes: no separate verified skill invocation beyond normal composer input; use natural language.
 
 ## Submission acknowledgement hazards
 
@@ -396,3 +399,49 @@ The delivery-only spinner match covers the full moon-phase glyph set rather than
 Each Kimi crew worktree receives a gitignored `.fm-kimi-turnend` token pointer, and the global hook touches that task's `state/<id>.turn-ended` only when the Stop payload's `cwd`, pointer, and registry entry all agree.
 A guarded silent hook cannot be verified from absence of effect, so prove invocation with an unguarded probe before concluding that the hook did not fire.
 The guarded turn-end signal remains a wake notification; standalone Kimi has no busy-state source until one is live-verified.
+
+## hermes (VERIFIED 2026-07-30, Hermes Agent 0.19.0)
+
+Hermes Agent launches from the absolute `hermes` executable resolved from `PATH`.
+When `HERMES_HOME` is set, Firstmate forwards that exact home into the worker pane so hook installation, credentials, and runtime state stay on the same store.
+
+| Fact | Value |
+|---|---|
+| Binary | Executable `hermes` from `PATH`; spawning refuses if it is unavailable. |
+| Persistent launch | Bare classic interactive CLI with `--cli --yolo --accept-hooks`, optional `-m <model>`, followed by readiness-gated brief-pointer delivery. |
+| One-shot launch | `hermes --cli -m <model> -z "<prompt>"` runs the prompt with tool use in the launch cwd and exits. |
+| Scriptable query | `hermes chat --cli -Q -q "<query>"` runs one query, exits, and prints `session_id:` on completion. |
+| Busy-pane signature | Exact ASCII-stable token `Ctrl+C cancel` inside the running-turn row `⚕ ❯ msg=interrupt · /queue · /bg · /steer · Ctrl+C cancel`; the row is absent when idle. |
+| Exit command | `/exit`, which cleanly prints the session id and exact `hermes --resume <session-id>` command. |
+| Interrupt | Single `Ctrl+C`; Hermes prints `⚡ Interrupting agent... (press Ctrl+C again to force exit)`, interrupts an active shell tool with exit 130, and returns to the composer. |
+| Steering | Ordinary text followed by Enter works both idle and mid-turn; mid-turn input prints `↪ Redirected current turn: '<instruction>'` and redirects the run after any already-running tool returns. |
+| Resume | `hermes --resume <session-id>` restores that session, while `hermes --continue` restores the most recent session for the cwd. |
+| Autonomy | `--yolo` sets Hermes's bypass mode for every approval prompt; Firstmate also passes `--accept-hooks` so the managed shell hook never opens its first-use consent prompt. |
+| Default consent | Safe shell and file tools ran without a dialog on this machine, but default mode retains dangerous-command approval and is not the unattended worker launch. |
+| Trust dialog | None on a clean first launch in a fresh pooled worktree. |
+| Environment marker | `HERMES_INTERACTIVE=1`, set in interactive CLI sessions and inherited by tool subprocesses. |
+| Process ancestry | The wrapper runs Python with an argument path ending in `/hermes`; detection recognizes that interpreter argument shape. |
+| Composer | Three-row separator form with no placeholder: an upper `────` row, a bare `❯ ` row, and a lower `────` row. |
+| Effort | No reasoning-effort flag exists, so requested effort is recorded in task metadata but omitted from launch. |
+| Fresh cwd | A fresh session uses the launch cwd; `--no-restore-cwd` concerns resume and continue, not fresh launches. |
+
+`fm-spawn.sh` launches Hermes bare because a one-shot prompt exits instead of leaving a steerable worker.
+It waits for `Welcome to Hermes Agent!` or the empty `❯` composer, sends only `Read the brief at <absolute-path> and follow it exactly.`, and requires the echoed pointer plus either the busy row or returned empty composer, or a nonempty `ctx` percentage, before accepting delivery.
+No popup or Enter-settle hazard was observed.
+Mid-turn steering does not necessarily cancel an already-running tool immediately, so use the interrupt key when cancellation rather than redirection is required.
+
+The live verification used `hermes --cli -m poolside/laguna-s-2.1:free --yolo` in an isolated pooled worktree with the free Nous model.
+The idle composer capture was exactly `───────────────────────────────────────────────────────────────────────────────`, then `❯ `, then the same separator.
+The initial prompt returned `HERMES_INITIAL_OK` and the process remained alive at that composer.
+Idle steering returned `HERMES_STEER_OK`.
+Mid-turn text plus Enter printed the redirect acknowledgement and returned `HERMES_MIDTURN_STEER_OK`.
+After `/exit`, `hermes --cli -m poolside/laguna-s-2.1:free --yolo --resume 20260730_161036_e42bfa` returned `HERMES_RESUME_OK`, and a subsequent `--continue` restored the same history.
+The version command printed `Hermes Agent v0.19.0 (2026.7.20) · upstream 524ab539`.
+With the managed hook installed only in a throwaway Hermes home, `HERMES_HOME=<throwaway> hermes --cli -m poolside/laguna-s-2.1:free --yolo --accept-hooks -z 'Reply with exact token HERMES_HOOK_OK. Do not use tools.'` printed `HERMES_HOOK_OK`, exited zero, and created the registered turn-ended marker.
+
+Hermes exposes a global `post_llm_call` shell hook in `${HERMES_HOME:-$HOME/.hermes}/config.yaml`.
+It fires once after a successful tool-calling turn and does not fire for an interrupted or empty response.
+`fm-hermes-turnend-hook.sh` validates YAML through Hermes's own config loader, preserves foreign config bytes, and installs one marker-delimited Firstmate entry plus one silent always-zero hook script and private token registry.
+Each Hermes crew worktree receives a gitignored `.fm-hermes-turnend` pointer, and the hook touches that task's `state/<id>.turn-ended` only when the payload event is `post_llm_call` and its `cwd`, pointer, and registry entry all agree.
+The hook supplements stale-pane detection for successful turns, while interrupted turns continue to rely on pane-state supervision.
+Standalone Hermes has no semantic busy-state source under `bin/fm-busy-lib.sh`'s contract, so it classifies unknown; the ASCII cancel row remains a delivery-only signature in the shared tmux matcher.
