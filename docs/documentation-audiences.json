@@ -200,6 +200,10 @@
       "audience": "maintainer-architecture"
     },
     {
+      "path": "docs/board.md",
+      "audience": "operator-current"
+    },
+    {
       "path": "docs/calm-mode-feasibility.md",
       "audience": "maintainer-verification"
     },
