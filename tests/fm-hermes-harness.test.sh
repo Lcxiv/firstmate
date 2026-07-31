@@ -325,7 +325,7 @@ test_hermes_busy_composer_detection_and_liveness_are_scoped() {
   pass "Hermes busy, composer, and tmux liveness signatures are correctly scoped"
 }
 
-test_watcher_scopes_hermes_busy_row_to_recorded_harness() (
+test_watcher_never_classifies_hermes_from_its_rendered_row() (
   local state="$TMP_ROOT/watch-state"
   local busy_capture='⚕ ❯ msg=interrupt · /queue · /bg · /steer · Ctrl+C cancel'
   mkdir -p "$state"
@@ -338,13 +338,23 @@ test_watcher_scopes_hermes_busy_row_to_recorded_harness() (
   . "$ROOT/bin/fm-watch.sh"
   # shellcheck disable=SC2329 # Runtime override called by the sourced watcher.
   fm_backend_busy_state() { printf 'unknown'; }
-  window_is_busy fake "$busy_capture" \
-    || fail "fm-watch did not recognize Hermes's real busy row"
+  # Standalone Hermes has no verified semantic busy source, so it classifies
+  # unknown - and unknown is never working. Its ASCII cancel row stays a
+  # delivery-only signature in fm-tmux-lib.sh rather than a task-state source.
+  if window_is_busy fake "$busy_capture"; then
+    fail "fm-watch classified a Hermes task busy from its rendered row instead of unknown"
+  fi
+  [ "$(fm_busy_classify tmux fake hermes hermes-watch "$state" "$busy_capture")" = "unknown missing" ] \
+    || fail "a Hermes task must classify unknown missing"
   printf 'window=fake\nharness=codex\n' > "$state/hermes-watch.meta"
   if window_is_busy fake "$busy_capture"; then
-    fail "fm-watch applied Hermes's busy signature to a recorded Codex task"
+    fail "fm-watch applied Hermes's rendered row to a recorded Codex task"
   fi
-  pass "fm-watch scopes Hermes's ASCII busy row to recorded Hermes tasks"
+  printf 'window=fake\nharness=grok\n' > "$state/hermes-watch.meta"
+  if window_is_busy fake "$busy_capture"; then
+    fail "Hermes's rendered row classified a recorded Grok task through its isolated fallback"
+  fi
+  pass "fm-watch classifies Hermes as unknown rather than from its rendered row, and Grok's fallback stays isolated"
 )
 
 test_hermes_detection_prefers_verified_marker_and_supports_ancestry() {
@@ -437,7 +447,7 @@ test_hermes_raw_launch_registers_token_without_registry
 test_hermes_hook_is_surgical_idempotent_and_authenticated
 test_hermes_hook_restores_no_newline_and_refuses_malformed_yaml
 test_hermes_busy_composer_detection_and_liveness_are_scoped
-test_watcher_scopes_hermes_busy_row_to_recorded_harness
+test_watcher_never_classifies_hermes_from_its_rendered_row
 test_hermes_detection_prefers_verified_marker_and_supports_ancestry
 test_hermes_session_lock_identity
 test_hermes_teardown_removes_pointer_and_registry_token

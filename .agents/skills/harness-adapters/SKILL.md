@@ -444,3 +444,4 @@ It fires once after a successful tool-calling turn and does not fire for an inte
 `fm-hermes-turnend-hook.sh` validates YAML through Hermes's own config loader, preserves foreign config bytes, and installs one marker-delimited Firstmate entry plus one silent always-zero hook script and private token registry.
 Each Hermes crew worktree receives a gitignored `.fm-hermes-turnend` pointer, and the hook touches that task's `state/<id>.turn-ended` only when the payload event is `post_llm_call` and its `cwd`, pointer, and registry entry all agree.
 The hook supplements stale-pane detection for successful turns, while interrupted turns continue to rely on pane-state supervision.
+Standalone Hermes has no semantic busy-state source under `bin/fm-busy-lib.sh`'s contract, so it classifies unknown; the ASCII cancel row remains a delivery-only signature in the shared tmux matcher.
