@@ -406,6 +406,46 @@ The session-start digest separately prints an "Public commitments awaiting deliv
 `FM_PF_RETRY_BACKOFF_SECS` (default 900) sets the next-attempt time recorded with a retryable delivery error.
 See [verification/public-followup.md](verification/public-followup.md) for the current maintainer evidence behind the restart end-to-end and the relay-disabled zero-overhead guarantee.
 
+## Phone notifications (.env)
+
+Phone notifications mirror a captain-facing outcome message that firstmate has already composed into a chat channel the captain reads on their phone.
+The flow is outbound only: there is no inbound control path, no polling, and no new background process, and the message is sent by the live session as part of the turn that composed it.
+If no session is running, nothing is sent until the next session start, which then reconciles and reports as usual.
+`bin/fm-notify.sh` is a dumb sender; AGENTS.md section 9 remains the single owner of what is worth telling the captain and of the wording.
+
+Notifications are off until the firstmate home's gitignored `.env` sets a non-empty `FM_NOTIFY_TARGET`.
+With no target a well-formed call prints nothing, writes nothing, contacts nothing, and exits 0, so an unconfigured home is completely unaffected.
+A malformed call is still a usage error even when unconfigured, so a caller bug stays visible during development.
+
+Setup is three steps and takes about two minutes.
+In the Discord server, open the target channel's settings, choose Integrations, then New Webhook, name it, and use Copy Webhook URL.
+Put that URL into `$FM_HOME/.env` as `FM_NOTIFY_TARGET=<url>`, and keep that file at mode 0600 like every other secret this home holds.
+Send a test line with `bin/fm-notify.sh --event update "test from firstmate"` and confirm it lands in the channel.
+
+Every `FM_NOTIFY_*` key is read from `$FM_HOME/.env` unless the same name is set explicitly in the environment, which wins; the names and defaults are listed under "Environment variables" below.
+`FM_NOTIFY_TARGET` holds either a bare Discord webhook URL or the explicit `<channel>:<address>` form, and `FM_NOTIFY_ENV_FILE` redirects the file read for direct invocations and tests.
+
+The event classes are `dispatched`, `needs-decision`, `blocked`, `failed`, `pr-ready`, `merged`, `done`, and `update`.
+The default set is every class except `dispatched`, because section 9 suppresses routine progress in captain chat, so mirroring dispatches to the phone is an explicit captain preference that `FM_NOTIFY_EVENTS` has to record.
+Add it with `FM_NOTIFY_EVENTS=all` or by listing the wanted classes, for example `FM_NOTIFY_EVENTS=dispatched,pr-ready,merged,blocked,needs-decision`.
+
+Each message is one embed whose title carries an emoji and an uppercase state word alongside the matching colour, so the colour never carries the state alone.
+Discord's caps are enforced before sending rather than left for the API to reject: 256 characters of title, 4096 of description, and 6000 across one message.
+An oversized body is split on line and word boundaries into at most `FM_NOTIFY_MAX_PARTS` numbered messages, with the last kept part marked by an ellipsis, so a full `https://` URL is never broken across parts.
+Run `bin/fm-notify.sh --help` for the exact flags, exit codes, and channel-seam contract.
+
+Losing a notification never blocks or delays fleet work.
+A rate limit is retried once, honouring the reported wait clamped by `FM_NOTIFY_RETRY_CAP_SECS`; a forbidden or missing target and any other delivery failure exit non-zero with one short line on stderr, with no further retry and no write anywhere under this home's state.
+Only the Discord webhook channel is implemented today, behind a thin internal seam so a second channel can be added later without changing the caller contract or these keys.
+
+Opt out by deleting `FM_NOTIFY_TARGET` from `.env`, which restores the silent no-op immediately, and by deleting the webhook in Discord so the URL stops working for anyone who still holds it.
+There is no generated state to clean up.
+
+Security surface, stated plainly: the webhook URL is a write-only capability for one channel.
+Someone who obtains it can post fake notifications into that channel, which is why it belongs only in the gitignored 0600 `.env` and never in the repo, a commit, or a task note.
+It grants no read access to the channel, no access to the rest of the Discord server, and no path of any kind back into firstmate, because nothing here accepts inbound messages.
+Revoke on suspicion by deleting the webhook in Discord and creating a new one.
+
 ## Environment variables
 
 Runtime tuning via environment variables (defaults shown):
@@ -455,6 +495,12 @@ FMX_X_THREAD_MAX=25     # maximum messages in one auto-split reply thread
 FMX_FOLLOWUP_MAX_AGE_SECS=604800   # local window for posting X-mode completion follow-ups (7 days)
 FMX_FOLLOWUP_MAX_COUNT=3   # local cap on X-mode completion follow-ups per linked mention
 FM_PF_RETRY_BACKOFF_SECS=900   # seconds before the next attempt after a retryable promised-public-reply delivery error
+FM_NOTIFY_TARGET=        # phone-notification channel; a bare Discord webhook URL or "<channel>:<address>"; presence is the .env opt-in, absence is a silent no-op
+FM_NOTIFY_EVENTS=        # comma-separated event classes to mirror, or "all", or "none"; empty means every class except dispatched
+FM_NOTIFY_TIMEOUT_SECS=10   # per-request phone-notification transport timeout; values outside 1..120 clamp into range
+FM_NOTIFY_RETRY_CAP_SECS=5   # upper bound on an honoured phone-notification rate-limit wait; values outside 0..30 clamp into range
+FM_NOTIFY_MAX_PARTS=4    # maximum messages one oversized notification body is split into; values outside 1..10 clamp into range
+FM_NOTIFY_ENV_FILE=      # optional alternate .env file for direct fm-notify invocations; the .env opt-in is unchanged
 FM_LOCK_STALE_AFTER=2   # seconds before dead-pid lock records can be reclaimed; mid-acquire locks keep at least 2s grace
 FM_GUARD_GRACE=300      # seconds before guard warnings, arm health checks, and the primary turn-end guard treat a watcher beacon as stale
 FM_CLAUDE_AUTOARM_SYNC_WAIT_MS=800   # milliseconds the --claude turn-end guard waits for the Stop auto-arm's claim, health, or fresh rewake epoch before re-blocking
