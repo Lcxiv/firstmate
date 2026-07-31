@@ -143,6 +143,14 @@ test_board_renders_columns_and_cards() {
   assert_contains "$html" "2 decided" "effort-map decided count must render"
   assert_contains "$html" "1 open" "effort-map open count must render"
 
+  # Long metadata badges (effort-map fog, out-of-scope) exceed one badge line;
+  # DaisyUI's fixed-height, no-wrap badge clips them without this override.
+  local wrap_rule
+  wrap_rule=${html#*".meta-row .badge"}
+  wrap_rule=${wrap_rule%%\}*}
+  assert_contains "$wrap_rule" "height:auto" "meta badges must grow past one line"
+  assert_contains "$wrap_rule" "white-space:normal" "meta badge text must wrap instead of clipping"
+
   assert_contains "$html" 'draggable="true"' "cards must be draggable"
   assert_contains "$html" "fbDrop" "columns must accept drops that queue move orders"
   pass "board renders all five columns, cards, decision panels, and effort maps"
