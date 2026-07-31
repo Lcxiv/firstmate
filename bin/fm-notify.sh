@@ -73,7 +73,8 @@
 #
 # EXIT CODES
 #   0  delivered, or inert (no target configured), or the class is filtered out
-#   2  usage error (bad flag, unknown event class, empty message, bad --url)
+#   2  usage error (bad flag, unknown event class, missing or empty message,
+#      bad --url)
 #   3  misconfiguration (unrecognised target form, or curl/jq missing)
 #   4  delivery failed (transport error, or an unexpected HTTP status)
 #   5  the target rejected us (403/404) - the webhook is gone or revoked
@@ -267,6 +268,27 @@ fm_notify_split_body() {
   '
 }
 
+# --- shared transport helper ------------------------------------------------
+
+# fm_notify_stage_curl_target <address>: write <address> into a fresh 0600 curl
+# config file and print its path. The address is a write capability that lives
+# only in the home's gitignored .env, so it is handed to curl through a file
+# rather than through argv, where the process table would expose it to every
+# local user. This mirrors fmx_auth_header_file in bin/fm-x-lib.sh.
+# shellcheck disable=SC2329 # Reached only from a channel-seam deliver function.
+fm_notify_stage_curl_target() {
+  local address=$1 file escaped
+  case "$address" in
+    *$'\n'*|*$'\r'*) return 1 ;;
+  esac
+  escaped=${address//\\/\\\\}
+  escaped=${escaped//\"/\\\"}
+  file=$(umask 077; mktemp "${TMPDIR:-/tmp}/fm-notify-target.XXXXXX") || return 1
+  chmod 600 "$file" 2>/dev/null || { rm -f "$file"; return 1; }
+  printf 'url = "%s"\n' "$escaped" > "$file" || { rm -f "$file"; return 1; }
+  printf '%s\n' "$file"
+}
+
 # --- channel: discord-webhook -----------------------------------------------
 #
 # The three functions below are reached by name through the channel seam, which
@@ -298,13 +320,23 @@ fm_notify_payload_discord_webhook() {
 # One POST, plus one retry on 429 honouring a clamped retry_after. Bounded by
 # construction: at most two requests, each with a hard transport timeout, plus
 # at most FM_NOTIFY_RETRY_CAP seconds of waiting.
+#
+# The body runs in a subshell so its own scratch files are cleaned by traps that
+# cover the signal paths too, without disturbing the caller's traps.
 # shellcheck disable=SC2329 # Invoked through the channel seam by name.
-fm_notify_deliver_discord_webhook() {
+fm_notify_deliver_discord_webhook() (
   local address=$1 payload_file=$2
-  local body_file code rc delay attempt=0
+  local body_file='' target_file='' code rc delay attempt=0
+
+  trap 'rm -f "$body_file" "$target_file"' EXIT
+  trap 'rm -f "$body_file" "$target_file"; exit 143' HUP INT TERM
 
   body_file=$(mktemp "${TMPDIR:-/tmp}/fm-notify-body.XXXXXX") || {
     warn "cannot create a temporary response file"
+    return 4
+  }
+  target_file=$(fm_notify_stage_curl_target "$address") || {
+    warn "cannot stage the delivery target"
     return 4
   }
 
@@ -315,27 +347,23 @@ fm_notify_deliver_discord_webhook() {
       -H 'Content-Type: application/json' \
       -H "User-Agent: $FM_NOTIFY_UA" \
       --data-binary "@$payload_file" \
-      "$address" 2>/dev/null)
+      --config "$target_file" 2>/dev/null)
     rc=$?
     if [ "$rc" != 0 ]; then
-      rm -f "$body_file"
       warn "delivery failed: transport error"
       return 4
     fi
 
     case "$code" in
       2[0-9][0-9])
-        rm -f "$body_file"
         return 0
         ;;
       403|404)
-        rm -f "$body_file"
         warn "target rejected the message (HTTP $code); the webhook may be deleted or revoked"
         return 5
         ;;
       429)
         if [ "$attempt" -ge 1 ]; then
-          rm -f "$body_file"
           warn "delivery failed: still rate limited after one retry"
           return 4
         fi
@@ -356,13 +384,12 @@ fm_notify_deliver_discord_webhook() {
         attempt=$((attempt + 1))
         ;;
       *)
-        rm -f "$body_file"
         warn "delivery failed: HTTP $code"
         return 4
         ;;
     esac
   done
-}
+)
 
 # --- argument parsing -------------------------------------------------------
 
@@ -423,6 +450,11 @@ fi
 
 if [ "$HAVE_ARGS" = 1 ]; then
   MESSAGE=$ARGTEXT
+elif [ -t 0 ]; then
+  # Reading stdin here would wait for an EOF an interactive caller never sends,
+  # so a call that names a class but forgets the text is a usage error instead.
+  warn "no message given; pass the text as arguments or pipe it on stdin"
+  exit 2
 else
   MESSAGE=$(cat)
 fi

@@ -31,10 +31,12 @@ make_home() {  # <name>
 #!/usr/bin/env bash
 # Capturing stand-in for curl: understands only the flags fm-notify.sh sends.
 out=; payload=; url=
+printf '%s\n' "$@" >> "$FM_NOTIFY_TEST_CAPTURE/argv"
 while [ "$#" -gt 0 ]; do
   case "$1" in
     -o) out=$2; shift 2 ;;
     --data-binary) payload=${2#@}; shift 2 ;;
+    -K|--config) url=$(sed -n 's/^url = "\(.*\)"$/\1/p' "$2"); shift 2 ;;
     -w|-m|--connect-timeout|-H|-X) shift 2 ;;
     -s) shift ;;
     *) url=$1; shift ;;
@@ -71,6 +73,39 @@ run_notify() {
     FM_STATE_OVERRIDE="$home/state" \
     FM_NOTIFY_TEST_CAPTURE="$home/capture" \
     "$NOTIFY" "$@"
+}
+
+# run_notify_on_a_tty <home> -- <args...>: invoke the sender with stdin attached
+# to a pseudo-terminal, so the interactive-caller path can be exercised. The
+# child is bounded, so a regression that blocks fails the test with exit 124
+# instead of hanging the suite.
+run_notify_on_a_tty() {
+  local home=$1
+  shift
+  [ "${1:-}" = "--" ] && shift
+  PATH="$home/fakebin:$PATH" \
+    FM_HOME="$home" \
+    FM_STATE_OVERRIDE="$home/state" \
+    FM_NOTIFY_TEST_CAPTURE="$home/capture" \
+    python3 -c '
+import os, subprocess, sys
+master, slave = os.openpty()
+try:
+    child = subprocess.Popen(sys.argv[1:], stdin=slave,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+finally:
+    os.close(slave)
+try:
+    err = child.communicate(timeout=15)[1]
+except subprocess.TimeoutExpired:
+    child.kill()
+    child.wait()
+    os.close(master)
+    sys.exit(124)
+os.close(master)
+sys.stderr.buffer.write(err)
+sys.exit(child.returncode)
+' "$NOTIFY" "$@"
 }
 
 configure() {  # <home> <target> [events]
@@ -158,6 +193,24 @@ test_empty_message_is_a_usage_error() {
   expect_code 2 "$rc" "empty message"
   [ "$(sent_count "$home")" = 0 ] || fail "empty message was still sent"
   pass "an empty message is refused before any delivery"
+}
+
+test_missing_message_on_a_terminal_is_a_usage_error() {
+  local home rc out
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "skip: python3 not found; the interactive-stdin case needs a pty"
+    return 0
+  fi
+  home=$(make_home input-missing-tty)
+  configure "$home" "$FAKE_HOOK"
+  out=$(run_notify_on_a_tty "$home" -- --event update 2>&1)
+  rc=$?
+  [ "$rc" != 124 ] || fail "a missing message on a terminal blocked instead of failing fast"
+  expect_code 2 "$rc" "missing message on a terminal"
+  [ "$(sent_count "$home")" = 0 ] || fail "a missing message was still delivered"
+  [ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" = 1 ] \
+    || fail "expected one short diagnostic line, got: $out"
+  pass "a missing message on an interactive terminal is a usage error, not a hang"
 }
 
 test_unknown_event_class_is_a_usage_error() {
@@ -519,6 +572,38 @@ SH
   pass "the wire request carries the JSON content type, User-Agent, and a timeout"
 }
 
+test_webhook_address_never_reaches_the_process_arguments() {
+  local home
+  # The webhook is a write capability that lives only in the home's gitignored
+  # .env, so it must not be visible in `ps` for the life of the request.
+  home=$(make_home transport-argv-secrecy)
+  configure "$home" "$FAKE_HOOK"
+  run_notify "$home" -- --event merged "merged" >/dev/null || fail "send failed"
+  assert_grep "$FAKE_HOOK" "$home/capture/urls" "the request did not reach the target"
+  assert_no_grep "$FAKE_HOOK" "$home/capture/argv" \
+    "the webhook address must not be passed to curl as a command-line argument"
+  assert_grep '--config' "$home/capture/argv" \
+    "the target should be handed to curl through a config file"
+  pass "the webhook address is handed to curl by file, never through argv"
+}
+
+test_delivery_leaves_no_temporary_files_behind() {
+  local home scratch left
+  # The staged target and the response body are both scratch files; a failed
+  # delivery must clean up after itself just as a successful one does.
+  home=$(make_home transport-tempfiles)
+  scratch="$home/scratch"
+  mkdir -p "$scratch"
+  configure "$home" "$FAKE_HOOK"
+  TMPDIR="$scratch" run_notify "$home" -- --event merged "merged" >/dev/null \
+    || fail "send failed"
+  TMPDIR="$scratch" FM_NOTIFY_TEST_CODE=500 \
+    run_notify "$home" -- --event failed "boom" >/dev/null 2>&1
+  left=$(find "$scratch" -type f | LC_ALL=C sort)
+  [ -z "$left" ] || fail "delivery left temporary files behind: $left"
+  pass "delivery leaves no staged target or response file behind"
+}
+
 # --- help -------------------------------------------------------------------
 
 test_help_and_list_events_need_no_config() {
@@ -536,6 +621,7 @@ test_inert_when_env_has_no_target
 test_inert_leaves_fleet_state_untouched
 test_message_from_argv_and_stdin
 test_empty_message_is_a_usage_error
+test_missing_message_on_a_terminal_is_a_usage_error
 test_unknown_event_class_is_a_usage_error
 test_unknown_option_and_bad_url_refused
 test_environment_wins_over_env_file
@@ -557,4 +643,6 @@ test_forbidden_and_missing_targets_are_tolerated_quietly
 test_transport_and_server_failures_are_quiet_and_non_zero
 test_failure_leaves_no_state_and_stays_bounded
 test_wire_request_carries_the_required_headers
+test_webhook_address_never_reaches_the_process_arguments
+test_delivery_leaves_no_temporary_files_behind
 test_help_and_list_events_need_no_config
