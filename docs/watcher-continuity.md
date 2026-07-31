@@ -11,10 +11,12 @@ A failed follow-up never cancels continuity restoration.
 Pi same-process session replacement follows the generation-owner contract in `.pi/extensions/fm-primary-pi-watch.ts`.
 Claude's `.claude/settings.json` Stop `asyncRewake` hook (`bin/fm-claude-stop-autoarm.sh`) owns routine tokenless re-arm.
 The hook fires on every Stop, and an eligible primary with supervision need admits one home-scoped owner that foregrounds `bin/fm-watch-arm.sh` inside the hook-owned process tree.
-A numeric session-lock owner that fails the shared `fm_harness_pid_alive` predicate is reclaimed through `bin/fm-lock.sh` before auto-arm state changes, while a live owner, absent lock, or malformed lock keeps the competing hook inert.
-That predicate, not process liveness alone, decides ownership: `bin/fm-session-lock-lib.sh` owns which harness process shapes count as a session, and a running process that is not one of them is a reclaimable owner rather than a competing session.
+A numeric session-lock owner that fails the shared `fm_harness_pid_alive` predicate, or that the shared session-id contract proves to be the SAME logical session in a replaced process (a successor that kept its session id), is reclaimed through `bin/fm-lock.sh` before auto-arm state changes; an absent or malformed lock keeps the hook inert.
+`bin/fm-session-lock-lib.sh`, not process liveness alone, decides ownership: it owns which harness process shapes count as a session and how the session id recorded beside the lock proves same-session succession, and a running process that is not a session shape is a reclaimable owner rather than a competing session.
+A live owner from another session still never lets the hook arm, rewake for a watcher close, or touch the lock, but it no longer stays silent: once per distinct holder, after the AFK and supervision-need gates pass, the hook wakes the idle session with the foreign-owner diagnosis, because silent inertness is how a mid-conversation process handover left supervision down unnoticed while the superseded pre-fork process kept the lock alive.
+A Claude fork successor carries a NEW session id, so it can never prove same-session succession: its path is exactly that one loud notice while the pre-fork process lives, then the ordinary stale reclaim the moment that process exits.
 A firing whose own ancestry resolves no session pid, because every candidate is Claude's shared daemon infrastructure, fails closed and stays inert for that Stop; a later firing that does resolve its own session pid performs the reclaim.
-The stale-owner claim occurs only after the existing AFK and supervision-need gates pass.
+The stale-owner and same-session claims occur only after the existing AFK and supervision-need gates pass.
 While supervision is still needed and away mode remains inactive, an actionable close or typed failure wakes the idle session through exit 2.
 
 ## Actionable wake ordering
@@ -58,7 +60,8 @@ Only the watcher process touches `state/.last-watcher-beat`; no helper process c
 The same suite covers ordinary same-process session replacement for `/new`, `/resume`, and `/fork`, same-instance shutdown-plus-start, stale prior-generation callbacks, repeated transitions with exactly one live cycle, disappearance of the shutting-down refusal after a valid replacement activates, and terminal quit still refusing late rearm.
 `tests/fm-watcher-lock.test.sh` covers verified-successor attach, the typed self-eviction failure, bounded and successor-linked lifecycle rows, and a SIGSTOP counterfactual that distinguishes a live PID from a stale beacon before classifying termination.
 `tests/fm-subagent-pretool-check.test.sh` proves Claude retains only the non-status Bash seatbelts.
-`tests/fm-claude-stop-autoarm.test.sh` covers the auto-arm's scope, stale and live session owners, unchanged AFK and need boundaries, single-flight, and exit-2 translation.
+`tests/fm-claude-stop-autoarm.test.sh` covers the auto-arm's scope, stale and live session owners, the once-per-holder foreign-owner notice, id-keeping same-session re-keying, the end-to-end fork-successor path (new session id: notice while the pre-fork process lives, automatic reclaim once it exits), unchanged AFK and need boundaries, single-flight, and exit-2 translation.
+`tests/fm-session-lock-identity.test.sh` additionally covers the session-id trust boundaries and the holder-relation classification behind that re-keying.
 `FM_CLAUDE_LIVE_E2E=1 tests/fm-claude-stop-autoarm-live-e2e.test.sh` starts with the reproduced stale-lock state, runs session start first, completes two tokenless cycles, and checks the competing-live-owner negative control.
 `tests/fm-turnend-guard.test.sh` covers the cooperative `--claude` guard.
 

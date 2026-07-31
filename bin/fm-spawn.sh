@@ -27,6 +27,15 @@
 #   A backend spawn refusal (missing dependency, version gate, unauthenticated
 #   socket, or unsupported secondmate mode) is terminal for that selected backend;
 #   callers must surface it instead of silently retrying another backend.
+#   A herdr crewmate or scout is placed in the exact workspace of the firstmate
+#   or secondmate process launching it, resolved from that process's own herdr
+#   pane rather than from a workspace label (herdr enforces no label uniqueness,
+#   so a label cannot tell two "firstmate" workspaces apart). A claimed parent
+#   identity that is unreadable, contradictory, stale, or from another herdr
+#   session stops the spawn before any worker endpoint exists. A launcher
+#   outside herdr has no workspace to inherit and uses this home's own labeled
+#   workspace, which must then match exactly one. --secondmate is the deliberate
+#   exception: it stands up that secondmate home's own workspace.
 #   Herdr additionally supports a default-off presentation-only layout when the
 #   local config/herdr-presentation-spaces flag exists. A clean fresh task first
 #   writes state/<id>.herdr-presentation atomically, then creates a disposable
@@ -59,7 +68,7 @@
 #   profile consultation. A --secondmate spawn is exempt and resolves the SECONDMATE
 #   harness (config/secondmate-harness -> config/crew-harness -> own), so the
 #   secondmate-vs-crewmate split is DURABLE across every respawn (recovery,
-#   /updatefirstmate, restart). A bare adapter name (claude|codex|opencode|pi|pi-signed|grok|kimi)
+#   /updatefirstmate, restart). A bare adapter name (claude|codex|opencode|pi|pi-signed|grok|kimi|hermes)
 #   overrides it for this spawn (either kind). A non-flag string containing
 #   whitespace is treated as a RAW launch command - the escape hatch for verifying
 #   new adapters. pi-signed launches that exact executable name from PATH and
@@ -115,7 +124,10 @@ set -eu
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 usage() {
-  sed -n '2,78p' "$0" | sed 's/^# \{0,1\}//'
+  # The whole leading comment block, ending at the first line that is not a
+  # comment. Derived rather than a fixed line range, which silently truncated
+  # this help mid-sentence every time the header above grew.
+  sed -n '2,${/^#/!q;p;}' "$0" | sed 's/^# \{0,1\}//'
 }
 
 case "${1:-}" in
@@ -159,6 +171,8 @@ SUB_HOME_MARKER=".fm-secondmate-home"
 . "$SCRIPT_DIR/fm-backend.sh"
 # shellcheck source=bin/fm-gate-refuse-lib.sh
 . "$SCRIPT_DIR/fm-gate-refuse-lib.sh"
+# shellcheck source=bin/fm-busy-lib.sh
+. "$SCRIPT_DIR/fm-busy-lib.sh"
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
 # Fail closed before any fleet mutation: a no-mistakes gate agent must never spawn
@@ -409,7 +423,7 @@ FIRSTMATE_HOME=
 
 if [ "$KIND" = secondmate ]; then
   case "${POS[1]:-}" in
-    ''|claude|codex|opencode|pi|pi-signed|grok|kimi)
+    ''|claude|codex|opencode|pi|pi-signed|grok|kimi|hermes)
       ARG3=${POS[1]:-}
       ;;
     *' '*)
@@ -432,7 +446,7 @@ fi
 [ -z "$HARNESS_ARG" ] || ARG3=$HARNESS_ARG
 
 # The verified launch command per adapter. The knowledge half of each adapter
-# (busy signature, exit command, dialogs, quirks) lives in the harness-adapters skill.
+# (busy-state source, exit command, dialogs, quirks) lives in the harness-adapters skill.
 launch_template() {
   local harness=$1 kind=${2:-ship}
   # shellcheck disable=SC2016  # single quotes are deliberate: $(cat ...) expands in the crewmate pane, not here
@@ -475,6 +489,10 @@ launch_template() {
     # Its turn-end signal is a globally configured Stop hook plus a guarded
     # per-task worktree token, so no launch placeholder belongs here.
     kimi) printf '%s' '__KIMIBIN__ __MODELFLAG__--auto' ;;
+    # Hermes rejects positional input for a persistent interactive session.
+    # Launch bare, bypass every approval prompt, pre-accept configured shell
+    # hooks, then deliver the absolute brief pointer after the readiness gate.
+    hermes) printf '%s' '__HERMESBIN__ --cli __MODELFLAG__--yolo --accept-hooks' ;;
     *) return 1 ;;
   esac
 }
@@ -594,12 +612,34 @@ resolve_kimi_binary() {
   return 1
 }
 
+resolve_hermes_binary() {
+  local candidate dir
+  candidate=$(command -v hermes 2>/dev/null || true)
+  if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+    case "$candidate" in
+      /*) printf '%s\n' "$candidate"; return 0 ;;
+      *)
+        dir=$(cd "$(dirname "$candidate")" 2>/dev/null && pwd -P) || dir=
+        if [ -n "$dir" ]; then
+          printf '%s/%s\n' "$dir" "$(basename "$candidate")"
+          return 0
+        fi
+        ;;
+    esac
+  fi
+  echo "error: hermes executable not found on PATH" >&2
+  return 1
+}
+
 model_flag_for_harness() {
   local harness=$1 model=$2
   [ -n "$model" ] && [ "$model" != default ] || return 0
   case "$harness" in
     claude|codex|opencode|pi|pi-signed|grok|kimi)
       printf -- '--model %s ' "$(shell_quote "$model")"
+      ;;
+    hermes)
+      printf -- '-m %s ' "$(shell_quote "$model")"
       ;;
   esac
 }
@@ -640,7 +680,7 @@ effort_flag_for_harness() {
     # opencode's interactive `opencode --prompt` launch has a verified --model
     # flag but no verified effort flag. Its `opencode run --variant` flag belongs
     # to a different, non-interactive launch mode, so fm-spawn does not pass it.
-    # kimi likewise has no reasoning-effort flag; the requested axis stays in
+    # kimi and hermes likewise have no reasoning-effort flag; the requested axis stays in
     # task metadata but never reaches the launch command.
   esac
 }
@@ -652,6 +692,16 @@ case "$LAUNCH" in
     if [ "$KIND" != secondmate ]; then
       "$FM_ROOT/bin/fm-kimi-turnend-hook.sh" install || {
         echo "error: refusing Kimi spawn because the global turn-end hook could not be installed safely" >&2
+        exit 1
+      }
+    fi
+    ;;
+  *__HERMESBIN__*)
+    HERMES_BIN=$(resolve_hermes_binary) || exit 1
+    LAUNCH=${LAUNCH//__HERMESBIN__/$(shell_quote "$HERMES_BIN")}
+    if [ "$KIND" != secondmate ]; then
+      FM_HERMES_BINARY="$HERMES_BIN" "$FM_ROOT/bin/fm-hermes-turnend-hook.sh" install || {
+        echo "error: refusing Hermes spawn because the global turn-end hook could not be installed safely" >&2
         exit 1
       }
     fi
@@ -985,9 +1035,18 @@ case "$BACKEND" in
     # to PROJ_ABS for just these two calls (bash restores it automatically
     # after each prefixed simple-command call) so the secondmate's tab lands
     # in the secondmate's own workspace, not the primary's "firstmate" one.
+    #
+    # Placement, separately from labeling: a crewmate/scout belongs in the
+    # EXACT herdr workspace this launching process is itself running in, which
+    # only its own herdr pane identity can name (a same-labeled sibling
+    # workspace must never be adopted). A --secondmate launch is the exception -
+    # it stands up a DIFFERENT home's own workspace by design - so it asks for
+    # the per-home container instead of inheriting this launcher's.
     HERDR_LABEL_HOME=$FM_HOME
+    HERDR_LAUNCHER_RELATIONSHIP=launcher-home
     if [ "$KIND" = secondmate ]; then
       HERDR_LABEL_HOME=$PROJ_ABS
+      HERDR_LAUNCHER_RELATIONSHIP=other-home
     fi
     HERDR_PRESENTATION_JOURNAL=$(fm_backend_herdr_projection_journal_path "$STATE" "$ID")
     HERDR_PROJECTED=0
@@ -1042,8 +1101,21 @@ case "$BACKEND" in
         if ! fm_backend_herdr_server_ensure "$HERDR_SES"; then
           echo "warning: herdr presentation could not ensure its session server; using the ordinary flat layout without projection" >&2
         elif spawn_herdr_presentation_order_lock_acquire "$HERDR_SES"; then
-          HERDR_PARENT_WORKSPACE_ID=$(fm_backend_herdr_projection_parent_workspace_exact \
-            "$HERDR_SES" "$HERDR_PARENT_LABEL" 2>/dev/null || true)
+          # The projected child is placed and bound UNDER this launcher's exact
+          # parent workspace. Its own herdr pane identity names that workspace
+          # directly; the label lookup is only the fallback for a launcher with
+          # no herdr ancestry at all. A claimed-but-broken identity refuses here
+          # rather than projecting under a guessed parent.
+          set +e
+          fm_backend_herdr_launcher_identity "$HERDR_SES"
+          HERDR_LAUNCHER_STATUS=$?
+          set -e
+          case "$HERDR_LAUNCHER_STATUS" in
+            0) HERDR_PARENT_WORKSPACE_ID=$FM_BACKEND_HERDR_LAUNCHER_WORKSPACE_ID ;;
+            2) HERDR_PARENT_WORKSPACE_ID=$(fm_backend_herdr_projection_parent_workspace_exact \
+                 "$HERDR_SES" "$HERDR_PARENT_LABEL" 2>/dev/null || true) ;;
+            *) spawn_herdr_presentation_order_lock_release; exit 1 ;;
+          esac
           if [ -z "$HERDR_PARENT_WORKSPACE_ID" ]; then
             echo "warning: herdr presentation parent is absent or ambiguous; using the ordinary flat layout without projection" >&2
             spawn_herdr_presentation_order_lock_release
@@ -1071,7 +1143,7 @@ case "$BACKEND" in
             HERDR_PROJECTION_ABORT_TASK_PANE=$HERDR_PANE_ID
             HERDR_PROJECTION_ABORT_SEEDED_PANE=$FM_BACKEND_HERDR_PROJECTION_SEEDED_PANE_ID
             fm_backend_herdr_projection_order_best_effort \
-              "$HERDR_SES" "$HERDR_WORKSPACE_ID" "$HERDR_PARENT_LABEL"
+              "$HERDR_SES" "$HERDR_WORKSPACE_ID" "$HERDR_PARENT_LABEL" "$HERDR_PARENT_WORKSPACE_ID"
             HERDR_HOME_ID=$(fm_backend_herdr_projection_home_identity "$HERDR_LABEL_HOME" 2>/dev/null || true)
             if [ -n "$HERDR_HOME_ID" ] \
                && fm_backend_herdr_projection_live_binding_matches \
@@ -1093,7 +1165,7 @@ case "$BACKEND" in
       fi
     fi
     if [ "$HERDR_PROJECTED" -ne 1 ]; then
-      HERDR_CONTAINER_RAW=$(FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_container_ensure "$PROJ_ABS") || exit 1
+      HERDR_CONTAINER_RAW=$(FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_container_ensure "$PROJ_ABS" "$HERDR_LAUNCHER_RELATIONSHIP") || exit 1
       # fm_backend_herdr_container_ensure echoes "<session>:<workspace_id>\t<seeded_default_tab_id>"
       # (the second field empty when this call ADOPTED a pre-existing workspace
       # rather than creating a fresh one). Split on the guaranteed single tab
@@ -1258,6 +1330,54 @@ kimi_spawn_fail() {  # <detail>
   echo "error: $1; inspect window $T" >&2
 }
 
+hermes_capture() {
+  fm_backend_capture "$BACKEND" "$T" 120 "$W" 2>/dev/null || true
+}
+
+hermes_capture_has_empty_composer() {  # <plain-pane-capture>
+  printf '%s\n' "$1" | grep -Eq '^[[:space:]]*❯[[:space:]]*$'
+}
+
+hermes_wait_for_ready() {
+  local pane i=0 max=${FM_HERMES_READY_POLLS:-60} interval=${FM_HERMES_POLL_INTERVAL:-0.5}
+  while [ "$i" -lt "$max" ]; do
+    pane=$(hermes_capture)
+    if printf '%s\n' "$pane" | grep -Fq 'Welcome to Hermes Agent!' \
+       || hermes_capture_has_empty_composer "$pane"; then
+      return 0
+    fi
+    i=$((i + 1))
+    [ "$i" -ge "$max" ] || sleep "$interval"
+  done
+  return 1
+}
+
+hermes_delivery_is_confirmed() {  # <plain-pane-capture>
+  local pane=$1
+  if printf '%s\n' "$pane" | grep -Fq 'Read the brief at' \
+     && { hermes_capture_has_empty_composer "$pane" \
+          || printf '%s\n' "$pane" | grep -Fq 'Ctrl+C cancel'; }; then
+    return 0
+  fi
+  printf '%s\n' "$pane" | grep -Eq 'ctx[[:space:]]+[0-9]+%'
+}
+
+hermes_wait_for_delivery() {
+  local pane i=0 max=${FM_HERMES_DELIVERY_POLLS:-40} interval=${FM_HERMES_POLL_INTERVAL:-0.5}
+  while [ "$i" -lt "$max" ]; do
+    pane=$(hermes_capture)
+    hermes_delivery_is_confirmed "$pane" && return 0
+    i=$((i + 1))
+    [ "$i" -ge "$max" ] || sleep "$interval"
+  done
+  return 1
+}
+
+hermes_spawn_fail() {  # <detail>
+  printf 'failed: %s\n' "$1" >> "$STATE/$ID.status"
+  echo "error: $1; inspect window $T" >&2
+}
+
 if [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
   spawn_send_text_line "$WT_TARGET" 'treehouse get'
 
@@ -1331,42 +1451,158 @@ exclude_path() {
   grep -qxF "$rel" "$EXCL" 2>/dev/null || echo "$rel" >> "$EXCL"
 }
 if [ "$KIND" != secondmate ]; then
+  # Arm the semantic busy-state contract (bin/fm-busy-lib.sh) for every
+  # adapter with a verified semantic source. The launch brief sent below IS a
+  # submitted turn, so the seed record is busy/fm-spawn. The minted gen is
+  # embedded into each adapter's wiring so an event from a superseded
+  # incarnation is rejected as stale. Grok stays on its isolated rendered-tail
+  # fallback and standalone Kimi stays unknown until fm_busy_kimi_verified
+  # opens, so neither is armed here.
+  BUSY_GEN=
+  case "$HARNESS" in
+    codex*)
+      if fm_busy_codex_semantic_source; then
+        echo "error: codex semantic busy-state wiring is not implemented; extend the probe only together with verified wiring" >&2
+        exit 1
+      fi
+      ;;
+  esac
+  case "$HARNESS" in
+    claude*|opencode*|pi|pi-signed)
+      BUSY_GEN=$("$FM_ROOT/bin/fm-busy-event.sh" arm "$STATE_REAL" "$ID") || {
+        echo "error: failed to arm the busy-state contract for $ID" >&2
+        exit 1
+      }
+      ;;
+    kimi*)
+      # Standalone Kimi stays unknown until fm_busy_kimi_verified opens on a
+      # live-verified installed version (bin/fm-busy-lib.sh owns the gate and
+      # the required evidence). Arming without wiring would seed a busy record
+      # nothing can ever clear, so the arm waits for the wiring.
+      if fm_busy_kimi_verified; then
+        echo "error: kimi semantic busy-state wiring is not implemented; open the gate only together with verified wiring" >&2
+        exit 1
+      fi
+      ;;
+  esac
   case "$HARNESS" in
     claude*)
+      # Semantic busy-state hooks (bin/fm-busy-lib.sh): UserPromptSubmit opens
+      # a turn; Stop (normal completion), StopFailure (API-error turn end),
+      # and SessionEnd (process shutdown) all close it, so an abnormal end can
+      # never leave a stale busy record. Claude fires no hook for a manual
+      # interrupt, so the firstmate-controlled interruption procedure
+      # (harness-adapters) records idle/fm-interrupt itself. Stop keeps the
+      # turn-ended NOTIFICATION touch for the watcher. Every hook command
+      # tolerates a refused event (|| true) so a stale-gen writer can never
+      # break Claude's own lifecycle.
       mkdir -p "$WT/.claude"
+      busy_cmd_prefix="$(shell_quote "$FM_ROOT/bin/fm-busy-event.sh") apply $(shell_quote "$STATE_REAL") $(shell_quote "$ID")"
+      busy_suffix="--gen $(shell_quote "$BUSY_GEN") --source claude-hook"
+      j_submit=$(json_escape "$busy_cmd_prefix busy $busy_suffix --event user-prompt-submit 2>/dev/null || true")
+      j_stop=$(json_escape "touch $(shell_quote "$TURNEND"); $busy_cmd_prefix idle $busy_suffix --event stop 2>/dev/null || true")
+      j_stopfail=$(json_escape "$busy_cmd_prefix idle $busy_suffix --event stop-failure 2>/dev/null || true")
+      j_sessionend=$(json_escape "$busy_cmd_prefix idle $busy_suffix --event session-end 2>/dev/null || true")
       cat > "$WT/.claude/settings.local.json" <<EOF
-{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"touch '$TURNEND'"}]}]}}
+{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"$j_submit"}]}],"Stop":[{"hooks":[{"type":"command","command":"$j_stop"}]}],"StopFailure":[{"hooks":[{"type":"command","command":"$j_stopfail"}]}],"SessionEnd":[{"hooks":[{"type":"command","command":"$j_sessionend"}]}]}}
 EOF
       exclude_path '.claude/settings.local.json'
       ;;
     opencode*)
       mkdir -p "$WT/.opencode/plugins"
-      cat > "$WT/.opencode/plugins/fm-turn-end.js" <<EOF
-export const FmTurnEnd = async ({ \$ }) => ({
-  event: async ({ event }) => {
-    if (event.type === "session.idle") await \$\`touch $TURNEND\`
-  },
-})
+      cat > "$WT/.opencode/plugins/fm-busy-state.js" <<EOF
+// Firstmate semantic busy-state events + turn-end notification; written by
+// fm-spawn under the contract owned by bin/fm-busy-lib.sh.
+// Semantic state comes from OpenCode's session.status events: busy and retry
+// are active, idle is inactive. Scoping latches the first session that
+// reports activity (the worker's main session - a subagent child session can
+// only start while the main session is already busy) and ignores other
+// sessions' status until the latched session settles, so a child's idle can
+// never clear the worker's busy state. The session.idle touch stays the
+// watcher's wake NOTIFICATION, never current-state truth.
+import { execFile } from "node:child_process";
+const busyEvent = (state, event) =>
+  new Promise((resolve) => {
+    execFile("$FM_ROOT/bin/fm-busy-event.sh", [
+      "apply", "$STATE_REAL", "$ID", state,
+      "--gen", "$BUSY_GEN", "--source", "opencode-plugin", "--event", event,
+    ], () => resolve());
+  });
+export const FmBusyState = async () => {
+  let activeSession = null;
+  return {
+    event: async ({ event }) => {
+      if (event.type === "session.status") {
+        const sessionID = event.properties.sessionID;
+        const statusType = event.properties.status && event.properties.status.type;
+        if (statusType === "busy" || statusType === "retry") {
+          if (activeSession === null) activeSession = sessionID;
+          if (sessionID === activeSession) await busyEvent("busy", "session-" + statusType);
+          return;
+        }
+        if (statusType === "idle" && sessionID === activeSession) {
+          activeSession = null;
+          await busyEvent("idle", "session-status-idle");
+        }
+        return;
+      }
+      if (event.type === "session.idle") {
+        if (event.properties.sessionID === activeSession) {
+          activeSession = null;
+          await busyEvent("idle", "session-idle");
+        }
+        await new Promise((resolve) => {
+          execFile("touch", ["$TURNEND"], () => resolve());
+        });
+      }
+    },
+  };
+};
 EOF
-      exclude_path '.opencode/plugins/fm-turn-end.js'
+      exclude_path '.opencode/plugins/fm-busy-state.js'
       ;;
     pi|pi-signed)
       # Written OUTSIDE the worktree: pi's project-trust gate fires on any extension
       # loaded from inside the project (verified live), but an explicit -e path
       # elsewhere loads without a dialog. Lives in state/, cleaned by teardown.
       cat > "$STATE/$ID.pi-ext.ts" <<EOF
-// Firstmate turn-end signal; written by fm-spawn.
-// Use "turn_end" (fires after each turn the agent finishes), not "agent_end"
-// (fires once, only when the whole run exits): the watcher needs a signal at
-// every turn boundary so an idle crewmate is surfaced, not just at shutdown.
+// Firstmate semantic busy-state events + turn-end notification; written by
+// fm-spawn under the contract owned by bin/fm-busy-lib.sh.
+// Semantic state: "agent_start" -> busy when a low-level agent run begins;
+// "agent_settled" -> idle only when ctx.isIdle() confirms Pi will not
+// continue automatically - auto-retries, auto-compaction retries, tool
+// loops, and queued continuations all keep the run un-settled, and a settle
+// that raced another extension's fresh run keeps state busy via isIdle().
+// "turn_end" fires at every inner turn boundary (one LLM response plus its
+// tool calls) and stays a wake NOTIFICATION touch for the watcher, never
+// current-state truth.
 import { execFile } from "node:child_process";
+const busyEvent = (state: string, event: string) =>
+  new Promise<void>((resolve) => {
+    execFile("$FM_ROOT/bin/fm-busy-event.sh", [
+      "apply", "$STATE_REAL", "$ID", state,
+      "--gen", "$BUSY_GEN", "--source", "pi-ext", "--event", event,
+    ], () => resolve());
+  });
 export default function (pi: any) {
+  pi.on("agent_start", () => busyEvent("busy", "agent-start"));
+  pi.on("agent_settled", (_event: any, ctx: any) => {
+    if (ctx && typeof ctx.isIdle === "function" && !ctx.isIdle()) return;
+    return busyEvent("idle", "agent-settled");
+  });
   pi.on("turn_end", () => execFile("touch", ["$TURNEND"]));
 }
 EOF
       ;;
     codex*)
-      # codex: turn-end rides the launch command via -c notify=[...] and __TURNEND__.
+      # Semantic busy-state source negotiation (bin/fm-busy-lib.sh owns the
+      # probes and the evidence). Neither Codex path is usable on the
+      # installed binary: a pane worker's turns are not observable through
+      # the app-server protocol, and its lifecycle hooks did not fire for a
+      # firstmate-launched worker. Codex therefore classifies unknown with
+      # an explicit reason rather than falling back to idle, and no busy
+      # wiring is installed. The turn-end NOTIFICATION marker still rides
+      # the launch command via -c notify=[...] and __TURNEND__.
       ;;
     grok*)
       # grok fires a Stop hook at every turn boundary (verified, grok 0.2.73), the
@@ -1432,6 +1668,21 @@ EOF
       printf 'token=%s\n' "${auth_file##*/}" > "$WT/.fm-kimi-turnend"
       exclude_path '.fm-kimi-turnend'
       ;;
+    hermes*)
+      # Hermes's post_llm_call hook is global, but it is inert unless the hook
+      # payload cwd contains this task's token pointer and that token resolves
+      # through Firstmate's private registry.
+      HERMES_AUTH_DIR="${HERMES_HOME:-$HOME/.hermes}/fm-turn-end.d"
+      old_umask=$(umask)
+      umask 077
+      mkdir -p "$HERMES_AUTH_DIR"
+      auth_file=$(mktemp "$HERMES_AUTH_DIR/fm.XXXXXXXXXXXX")
+      umask "$old_umask"
+      printf '%s\n' "$TURNEND" > "$auth_file"
+      printf '%s\n' "${auth_file##*/}" > "$STATE/$ID.hermes-turnend-token"
+      printf 'token=%s\n' "${auth_file##*/}" > "$WT/.fm-hermes-turnend"
+      exclude_path '.fm-hermes-turnend'
+      ;;
   esac
 fi
 
@@ -1465,6 +1716,7 @@ META_WINDOW=$T
   echo "tasktmp=$TASK_TMP"
   echo "model=${MODEL:-default}"
   echo "effort=${EFFORT:-default}"
+  [ -z "${BUSY_GEN:-}" ] || echo "busy_gen=$BUSY_GEN"
   # backend= is written only for a non-default (non-tmux) backend, so the
   # default path's meta stays byte-identical (absent backend= means tmux;
   # data/fm-backend-design-d7's P1 compatibility contract).
@@ -1521,9 +1773,13 @@ LAUNCH=${LAUNCH//__OPINPUT__/$sq_opinput}
 if [ "$HARNESS" = claude ] && [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then
   LAUNCH="CLAUDE_CONFIG_DIR=$(shell_quote "$CLAUDE_CONFIG_DIR") $LAUNCH"
 fi
+if [ "$HARNESS" = hermes ] && [ -n "${HERMES_HOME:-}" ]; then
+  LAUNCH="HERMES_HOME=$(shell_quote "$HERMES_HOME") $LAUNCH"
+fi
 if [ "$KIND" = secondmate ]; then
   sq_home=$(shell_quote "$PROJ_ABS")
-  LAUNCH="FM_ROOT_OVERRIDE= FM_STATE_OVERRIDE= FM_DATA_OVERRIDE= FM_PROJECTS_OVERRIDE= FM_CONFIG_OVERRIDE= FM_HOME=$sq_home $LAUNCH"
+  sq_primary_home=$(shell_quote "$FM_HOME")
+  LAUNCH="FM_ROOT_OVERRIDE= FM_STATE_OVERRIDE= FM_DATA_OVERRIDE= FM_PROJECTS_OVERRIDE= FM_CONFIG_OVERRIDE= FM_PUBLIC_FOLLOWUP_PRIMARY_HOME=$sq_primary_home FM_HOME=$sq_home $LAUNCH"
 fi
 # Export GOTMPDIR into the crewmate's pane shell so the agent and every child
 # process (go build, go test, ...) inherit it. Sent before the launch command so
@@ -1558,6 +1814,30 @@ if [ "$HARNESS" = kimi ]; then
   fi
   if ! kimi_wait_for_delivery; then
     kimi_spawn_fail "kimi brief pointer delivery was not confirmed"
+    exit 1
+  fi
+fi
+if [ "$HARNESS" = hermes ]; then
+  if ! hermes_wait_for_ready; then
+    hermes_spawn_fail "Hermes did not show a verified ready signal before brief delivery"
+    exit 1
+  fi
+  HERMES_POINTER="Read the brief at $BRIEF_REAL and follow it exactly."
+  HERMES_SUBMIT_RETRIES=${FM_HERMES_SUBMIT_RETRIES:-3}
+  HERMES_SUBMIT_SLEEP=${FM_HERMES_SUBMIT_SLEEP:-${FM_HERMES_POLL_INTERVAL:-0.5}}
+  HERMES_SUBMIT_SETTLE=${FM_HERMES_SUBMIT_SETTLE:-0}
+  HERMES_SUBMIT_VERDICT=$(fm_backend_send_text_submit \
+    "$BACKEND" "$T" "$HERMES_POINTER" "$HERMES_SUBMIT_RETRIES" \
+    "$HERMES_SUBMIT_SLEEP" "$HERMES_SUBMIT_SETTLE" "$W") || {
+    hermes_spawn_fail "Hermes brief pointer could not be submitted"
+    exit 1
+  }
+  if [ "$HERMES_SUBMIT_VERDICT" = send-failed ]; then
+    hermes_spawn_fail "Hermes brief pointer could not be submitted"
+    exit 1
+  fi
+  if ! hermes_wait_for_delivery; then
+    hermes_spawn_fail "Hermes brief pointer delivery was not confirmed"
     exit 1
   fi
 fi

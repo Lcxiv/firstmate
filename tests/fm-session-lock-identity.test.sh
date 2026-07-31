@@ -7,7 +7,8 @@
 # daemon plus a pool of daemon-owned workers, all named "claude", so these tests
 # drive both predicates through a fake ps whose process table reproduces the
 # real shapes observed live on Claude Code 2.1.220. No real process, harness, or
-# fleet state is involved: a fake ps and a fake kill are the whole fixture.
+# fleet state is involved: a fake ps, a fake kill, and throwaway state dirs for
+# the session-id sidecar are the whole fixture.
 # shellcheck disable=SC2016 # single quotes are deliberate: the sourced lib, not this shell, expands nothing here
 
 set -u
@@ -299,6 +300,96 @@ test_plain_session_and_non_claude_harness_unchanged() {
   pass "session-lock identity: an ordinary session ancestry and live holder are unchanged"
 }
 
+# ---------------------------------------------------------------------------
+# C) session-id trust boundaries and holder-relation classification
+# ---------------------------------------------------------------------------
+
+SID_A='11111111-1111-1111-1111-111111111111'
+SID_B='22222222-2222-2222-2222-222222222222'
+
+# Resolve the current session's id under fully controlled hint/env sources.
+# $2 = resolved harness pid, $3 = hook-payload hint, $4/$5 = env pair.
+my_sid_for() {
+  local fakebin=$1 pid=$2 hint=$3 env_sid=$4 env_pid=$5
+  PATH="$fakebin:$BASE_PATH" FM_CLAUDE_SESSION_ID_HINT="$hint" \
+    CLAUDE_CODE_SESSION_ID="$env_sid" CLAUDE_PID="$env_pid" \
+    bash -c '. "$0/bin/fm-session-lock-lib.sh"; fm_session_lock_my_session_id "$1"' "$ROOT" "$pid"
+}
+
+# Classify the relation between a state dir's recorded holder and a current
+# process, with kill stubbed so fake-table pids read as running.
+relation_for() {
+  local fakebin=$1 state=$2 lock_pid=$3 my_pid=$4 env_sid=$5 env_pid=$6
+  PATH="$fakebin:$BASE_PATH" FM_CLAUDE_SESSION_ID_HINT='' \
+    CLAUDE_CODE_SESSION_ID="$env_sid" CLAUDE_PID="$env_pid" \
+    bash -c '. "$0/bin/fm-session-lock-lib.sh"; kill() { return 0; }; fm_session_lock_relation "$1" "$2" "$3"' \
+    "$ROOT" "$state" "$lock_pid" "$my_pid"
+}
+
+test_my_session_id_accepts_only_trusted_sources() {
+  local fakebin got
+  fakebin=$(fm_fakebin "$TMP_ROOT/my-sid")
+  make_ps "$fakebin"
+  # The hook-payload hint is harness-planted and wins outright.
+  got=$(my_sid_for "$fakebin" 600 "$SID_A" "$SID_B" 600)
+  [ "$got" = "$SID_A" ] || fail "a well-formed payload hint must win, got '$got'"
+  # The env pair is accepted only when CLAUDE_PID names the resolved pid, so an
+  # environment inherited from an unrelated outer session (the live shape when a
+  # test or crewmate runs inside a real Claude session) can never leak in.
+  got=$(my_sid_for "$fakebin" 600 '' "$SID_B" 600)
+  [ "$got" = "$SID_B" ] || fail "a pid-matched env pair must resolve, got '$got'"
+  if got=$(my_sid_for "$fakebin" 600 '' "$SID_B" 79174); then
+    fail "an env pair whose CLAUDE_PID is not the resolved pid resolved '$got'"
+  fi
+  if got=$(my_sid_for "$fakebin" 600 '' "$SID_B" ''); then
+    fail "an env session id without CLAUDE_PID resolved '$got'"
+  fi
+  # Free text is never an identity: a malformed hint falls through to the env
+  # pair, and a malformed env id resolves nothing.
+  got=$(my_sid_for "$fakebin" 600 'not-a-uuid' "$SID_B" 600)
+  [ "$got" = "$SID_B" ] || fail "a malformed hint must fall through to the env pair, got '$got'"
+  if got=$(my_sid_for "$fakebin" 600 '' 'not-a-uuid' 600); then
+    fail "a malformed env session id resolved '$got'"
+  fi
+  pass "session-lock identity: session ids resolve only from the payload hint or the pid-matched env pair"
+}
+
+test_holder_relation_classification() {
+  local fakebin state got
+  fakebin=$(fm_fakebin "$TMP_ROOT/relation")
+  make_ps "$fakebin"
+  state="$TMP_ROOT/relation-state"
+  mkdir -p "$state"
+  # Same pid: self, regardless of any recorded session id.
+  got=$(relation_for "$fakebin" "$state" 600 600 '' '')
+  [ "$got" = self ] || fail "pid-equal relation was '$got', expected self"
+  # A live session holder with a matching recorded session id is the SAME
+  # logical session in a new process: the fork/relaunch successor shape.
+  printf '%s\n' "$SID_A" > "$state/.lock-session"
+  got=$(relation_for "$fakebin" "$state" 600 800 "$SID_A" 800)
+  [ "$got" = same-session ] || fail "same-session successor classified as '$got'"
+  # A different session id, an unresolvable own id, and a missing or malformed
+  # sidecar all fail toward live-other: succession is proven, never assumed.
+  got=$(relation_for "$fakebin" "$state" 600 800 "$SID_B" 800)
+  [ "$got" = live-other ] || fail "different-session holder classified as '$got'"
+  got=$(relation_for "$fakebin" "$state" 600 800 '' '')
+  [ "$got" = live-other ] || fail "holder with unresolvable own id classified as '$got'"
+  printf '%s\n' 'not-a-uuid' > "$state/.lock-session"
+  got=$(relation_for "$fakebin" "$state" 600 800 "$SID_A" 800)
+  [ "$got" = live-other ] || fail "malformed sidecar classified as '$got'"
+  rm -f "$state/.lock-session"
+  got=$(relation_for "$fakebin" "$state" 600 800 "$SID_A" 800)
+  [ "$got" = live-other ] || fail "absent sidecar classified as '$got'"
+  # A dead or non-session holder stays the reclaimable stale case, and the
+  # shared daemon is still never a live holder even with a matching sidecar.
+  got=$(relation_for "$fakebin" "$state" 999 800 "$SID_A" 800)
+  [ "$got" = stale ] || fail "non-harness holder classified as '$got', expected stale"
+  printf '%s\n' "$SID_A" > "$state/.lock-session"
+  got=$(relation_for "$fakebin" "$state" 400 800 "$SID_A" 800)
+  [ "$got" = stale ] || fail "shared-daemon holder classified as '$got', expected stale"
+  pass "session-lock identity: holder relations classify self, same-session, live-other, and stale correctly"
+}
+
 test_pooled_worker_ancestry_never_resolves_the_daemon
 test_daemon_identity_is_not_shared_across_sessions
 test_every_daemon_origin_is_rejected
@@ -310,3 +401,5 @@ test_unrelated_program_under_a_claude_directory_is_not_a_harness
 test_daemon_under_a_spaced_executable_path_is_rejected
 test_interpreter_hosted_daemon_is_rejected_and_session_resolves
 test_plain_session_and_non_claude_harness_unchanged
+test_my_session_id_accepts_only_trusted_sources
+test_holder_relation_classification

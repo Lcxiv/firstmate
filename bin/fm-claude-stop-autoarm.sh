@@ -11,10 +11,21 @@
 #     secondmate home) with AGENTS.md, bin/, and the effective state dir - the
 #     exact fm-turnend-guard.sh scope. Child crew/scout worktrees stay inert.
 #   - Identity: only when THIS session's harness ancestor holds state/.lock.
-#     When an existing numeric owner fails the shared harness-liveness predicate,
-#     the hook delegates guarded recovery to bin/fm-lock.sh and then re-verifies
-#     ownership. A live owner, missing lock, malformed lock, or unresolved
-#     ancestry remains inert, so a competing session never arms or rewakes.
+#     A recorded owner that is dead, not a session shape, or - by the shared
+#     session-id contract in bin/fm-session-lock-lib.sh - the SAME logical
+#     session in a replaced process (a successor that KEPT its session id) is
+#     recovered through bin/fm-lock.sh, then ownership is re-verified. A live
+#     owner from another session never lets this hook arm, rewake for a
+#     watcher close, or touch the lock; but when supervision is needed and
+#     away mode is off, that foreign-owner state wakes the model ONCE per
+#     distinct holder (exit 2, deduped via state/.claude-autoarm-foreign-lock)
+#     with the real diagnosis, because silent inertness is exactly how a fork
+#     handover went unnoticed: Claude Code's --fork-session mints the working
+#     successor a NEW session id, so its hooks land here - unable to prove
+#     same-session - while the superseded pre-fork process keeps the lock
+#     alive. The notice plus the ordinary stale reclaim once that process
+#     exits IS the fork-successor path; same-session re-keying never covers
+#     it. Missing or malformed locks and unresolved ancestry stay inert.
 #   - AFK: while state/.afk exists the away daemon owns the watcher and triage;
 #     this hook exits 0 and NEVER rewakes the primary (checked again at
 #     translation time so a mid-cycle AFK transition is honored).
@@ -63,27 +74,44 @@ EPOCH="$STATE/.claude-autoarm-epoch"
 # shellcheck source=bin/fm-session-lock-lib.sh
 . "$SCRIPT_DIR/fm-session-lock-lib.sh"
 
-# Consume the Stop payload once. The decisions below are state-based; the
-# payload is read so a slow writer can never wedge on a full pipe.
-cat >/dev/null 2>&1 || true
+# Consume the Stop payload once. The gates below are state-based; the only
+# field read is the harness-planted session_id, exported as the trusted
+# identity hint for the shared session-lock lib (which re-validates its shape).
+# Any parse doubt degrades to no hint, never to a wedge or a wrong identity.
+PAYLOAD=$(cat 2>/dev/null || true)
+FM_CLAUDE_SESSION_ID_HINT=$(printf '%s' "$PAYLOAD" \
+  | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([0-9a-fA-F-]\{36\}\)".*/\1/p' \
+  | head -n 1)
+export FM_CLAUDE_SESSION_ID_HINT
 
 # --- scope: genuine primary checkout only -----------------------------------
 fm_primary_scope_matches "$FM_ROOT" "$STATE" || exit 0
 
 # --- identity: only the lock-owning session's hooks may arm ------------------
-# A prior session may have died after leaving its numeric harness pid in .lock.
-# Use the shared liveness predicate to recognize only that stale-owner case.
-# Defer the mutating claim until after the unchanged AFK and need gates, so an
+# Classify a non-owned numeric lock through the shared relation predicate:
+# a stale owner or a same-session successor (fork/relaunch, proven by the
+# recorded session id) is recoverable through fm-lock.sh; a live owner from
+# another session is never touched but may deserve one loud notice below.
+# Defer every mutating step until after the unchanged AFK and need gates, so an
 # idle or away home remains byte-for-byte inert. Missing or malformed locks are
 # uncertainty rather than stale-owner evidence and remain inert.
 RECOVER_SESSION_LOCK=0
+FOREIGN_LIVE_LOCK=0
+FOREIGN_HOLDER_SID=''
 if ! fm_session_lock_owned_by_self "$STATE"; then
   LOCK_PID=$(cat "$STATE/.lock" 2>/dev/null || true)
   case "$LOCK_PID" in
     ''|*[!0-9]*) exit 0 ;;
   esac
-  fm_harness_pid_alive "$LOCK_PID" && exit 0
-  RECOVER_SESSION_LOCK=1
+  MY_PID=$(fm_harness_ancestry_pid) || exit 0
+  case "$(fm_session_lock_relation "$STATE" "$LOCK_PID" "$MY_PID")" in
+    stale|same-session) RECOVER_SESSION_LOCK=1 ;;
+    live-other)
+      FOREIGN_LIVE_LOCK=1
+      FOREIGN_HOLDER_SID=$(fm_session_lock_holder_session_id "$STATE") || FOREIGN_HOLDER_SID=''
+      ;;
+    *) exit 0 ;;
+  esac
 fi
 
 # --- AFK: the away daemon owns the watcher and triage; never rewake ----------
@@ -95,10 +123,10 @@ need_supervision() {
 }
 need_supervision || exit 0
 
-# --- stale session-lock recovery ---------------------------------------------
-# Delegate the claim to fm-lock.sh so its live-owner refusal and write semantics
-# remain the single acquisition owner, then re-verify current-session identity
-# before touching any auto-arm state.
+# --- stale or same-session lock recovery ---------------------------------------
+# Delegate the claim to fm-lock.sh so its live-owner refusal, same-session
+# re-key, and write semantics remain the single acquisition owner, then
+# re-verify current-session identity before touching any auto-arm state.
 if [ "$RECOVER_SESSION_LOCK" -eq 1 ]; then
   "$SCRIPT_DIR/fm-lock.sh" >/dev/null 2>&1 || exit 0
   fm_session_lock_owned_by_self "$STATE" || exit 0
@@ -124,6 +152,26 @@ write_epoch() {  # <outcome>
     && mv -f "$tmp" "$EPOCH" 2>/dev/null
   rm -f "$tmp" 2>/dev/null || true
 }
+
+# --- foreign live owner: one loud notice, never an arm or a reclaim -----------
+# The competing-session boundary holds: no arm, no rewake-for-a-close, no lock
+# mutation. But a silent exit here is how a fork handover went unnoticed for
+# hours, so with supervision needed and away mode off, tell the model once per
+# distinct holder that supervision is not running from this session and how
+# ownership recovers. The single-flight owner lock above serializes the marker.
+if [ "$FOREIGN_LIVE_LOCK" -eq 1 ]; then
+  FOREIGN_MARK="$STATE/.claude-autoarm-foreign-lock"
+  FOREIGN_KEY="$LOCK_PID ${FOREIGN_HOLDER_SID:-unknown}"
+  [ "$(cat "$FOREIGN_MARK" 2>/dev/null)" = "$FOREIGN_KEY" ] && exit 0
+  printf '%s\n' "$FOREIGN_KEY" > "$FOREIGN_MARK" 2>/dev/null || true
+  write_epoch rewake
+  {
+    printf 'firstmate supervision is NOT running from this session: the home lock is held by another live session (pid %s%s).\n' \
+      "$LOCK_PID" "${FOREIGN_HOLDER_SID:+, session $FOREIGN_HOLDER_SID}"
+    printf 'If this session is the working session (e.g. Claude Code forked or relaunched it from the recorded one), the recorded process is superseded: run bin/fm-session-start.sh for the exact diagnostic, report the blocker to the captain, and stay read-only until the recorded process exits - ownership and supervision then recover automatically.\n'
+  } >&2
+  exit 2
+fi
 
 write_epoch arming
 

@@ -47,6 +47,7 @@ It never tears down a task, merges a PR, dispatches new work, steers a worker, a
 2. **Compose the four-section chat digest from the fresh snapshot.**
    The gather step is deterministic; your judgment is scoped to ranking the command's facts by what matters right now and writing scannable captain-facing prose.
    The chat response uses the four complete sections in the chat-response contract below, in the same order, each always present.
+   When active effort maps exist under `data/maps/`, surface each map's Destination plus its newest Decisions so far entries in the digest; `effort-maps` owns the map contract.
    Plain mode stops here and writes no report artifact.
 
 3. **In explicit file mode only, compose and replace the detailed report file.**

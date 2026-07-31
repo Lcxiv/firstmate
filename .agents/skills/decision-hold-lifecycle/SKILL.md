@@ -34,7 +34,8 @@ Bearings reads the resulting structured state and must never compensate by scrap
 5. Relay the choices to the captain as decisions from Bearings' Captain's Call section under `AGENTS.md` section 9; do not use the word hold in captain chat.
 6. After the captain decides, record dependent work with normal tasks-axi commands and block it by the hold identity.
 7. Put the captain's exact durable decision in a file and use the script's `resolve` command with every routed task.
-8. Confirm Bearings no longer shows the closed hold and that routed work remains in structured backlog state.
+8. If the originating effort has an active map under `data/maps/`, append the resolved decision to that map's Decisions so far index per `effort-maps`.
+9. Confirm Bearings no longer shows the closed hold and that routed work remains in structured backlog state.
 
 `bin/fm-decision-hold.sh --help` owns command syntax, identity construction, completion attestation, retry behavior, and close ordering.
 `docs/decision-hold-lifecycle.md` records the mechanism and regression evidence without restating this policy.

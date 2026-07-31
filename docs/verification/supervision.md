@@ -60,6 +60,40 @@ The Ahoy first-message boundary was reverified on 2026-07-22 with Pi 0.81.1 and 
 Marked current operational input and the two exact legacy compatibility shapes selected Bearings, while genuine near-miss captain messages remained real boundaries.
 The detailed reconciliation and task chronology stay in the private audit report and PR evidence.
 
+## Semantic busy state
+
+The per-adapter semantic sources behind [`bin/fm-busy-lib.sh`](../../bin/fm-busy-lib.sh) were live-verified on 2026-07-28 against firstmate-launched workers wired exactly as `fm-spawn` writes them.
+Each pass polled `state/<id>.busy-state` while a real turn ran.
+
+| Harness | Version verified | Semantic source | Observed result |
+| --- | --- | --- | --- |
+| Pi | 0.82.0 | Extension `agent_start` / `agent_settled` with `ctx.isIdle()` | The spawn seed `busy source=fm-spawn`, then `busy source=pi-ext event=agent-start`, then `idle source=pi-ext event=agent-settled`; the turn-end marker was still touched. |
+| OpenCode | 1.17.18 | Plugin `session.status` | In a real TUI pane: seed, then `busy source=opencode-plugin event=session-busy`, then `idle source=opencode-plugin event=session-status-idle`. |
+| Claude | 2.1.220 (Claude Code) | Hooks `UserPromptSubmit`, `Stop`, `StopFailure`, `SessionEnd` | `UserPromptSubmit` fired for the argv launch prompt and each steer, and `Stop` closed every completed turn. A mid-stream Escape interrupt fired no closing hook, which is why the firstmate-controlled clear exists. `StopFailure` and `SessionEnd` are wired from the four hook names present in the installed binary; only the abnormal paths they cover were not reproduced live. |
+| Codex | codex-cli 0.145.0 | None usable | See below; classifies `unknown codex-unverified`. |
+| Kimi (standalone) | not installed | None usable | No binary on `PATH`, so the gate stays closed and it classifies `unknown kimi-unverified`. |
+| Grok | 0.2.112 | Isolated rendered-tail fallback | Retained unconverted; the approved audit could not credit a live structured-lifecycle run. |
+
+Codex was probed two ways, both refused:
+
+```sh
+codex app-server daemon start
+codex exec --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust 'Reply with exactly PROBE2.'
+```
+
+The daemon refused with `managed standalone Codex install not found`, and an interactive TUI worker neither starts nor attaches to the app-server control socket, so no client can observe its turns.
+Firstmate-written project hooks under `<worktree>/.codex/hooks.json` fired for neither an interactive pane whose directory trust was granted nor `codex exec`, in both cases with `--dangerously-bypass-hook-trust`, while global `~/.codex/hooks.json` `SessionStart` hooks fired in the same runs.
+Codex also exposes no `StopFailure` hook, so an API-error turn end would need separate coverage even after hook discovery works.
+The app-server protocol schema does define the required lifecycle (`turn/started`, plus a `turn/completed` status of `completed`, `interrupted`, `failed`, or `inProgress`), so the gate is a reachability problem rather than a protocol gap.
+
+Deterministic entry points:
+
+```sh
+tests/fm-busy-state.test.sh
+tests/fm-busy-adapter-wiring.test.sh
+tests/fm-crew-state.test.sh
+```
+
 ## Turn-end guard
 
 The direct and passive mechanisms were validated across all five harnesses on 2026-07-08 through 2026-07-12, with Claude's replacement Stop-owned path revalidated on 2026-07-24.
@@ -172,6 +206,33 @@ Observed shapes, with the daemon parented to init and outliving every session:
 A shell hosted by a pooled spare sourced the daemon's own startup shell snapshot rather than the claiming session's, so a pooled worker's ancestry and inherited environment both describe the daemon and carry no evidence of the session that claimed it.
 `bin/fm-session-lock-lib.sh` therefore treats the daemon and its pooled workers as non-session shapes: the ancestry walk resolves no identity through them and fails closed, and a lock recorded against one is a reclaimable owner rather than a live competing session.
 The versioned executable is newly recognized as a session: its command name is the version rather than `claude`, so resumed, forked, and app-hosted sessions previously matched no harness shape at all and resolved the daemon-owned worker above them, and now resolve their own per-session pid.
+
+The fork-handover gap behind the session-id sidecar was measured on 2026-07-30 in the same Claude Code 2.1.220 home, using the fork already visible in the table above: pid 80210 was launched at 16:51 as a `--fork-session --resume` successor while the pre-fork interactive session (pid 25274) stayed alive.
+The two sessions' transcripts prove the handover was real and that the fork minted a NEW session id:
+
+```sh
+stat -f 'created %SB' ~/.claude/projects/-Users-louiscondevaux-firstmate/{cfaf5775-*,42ed4142-*}.jsonl
+```
+
+```text
+created Jul 29 15:42:09 2026  cfaf5775-... (pre-fork session; its last user record is stamped 2026-07-29T23:51:26Z, i.e. 16:51 local, with no turn after)
+created Jul 29 16:51:46 2026  42ed4142-... (successor, created at the fork moment and carrying its id in argv per the table above)
+```
+
+The lock still recorded pid 25274, so the working session owned nothing, `fm_session_lock_owned_by_self` failed, and the auto-arm stayed silently inert.
+Because the fork mints a NEW session id, this shape is closed by the auto-arm's loud foreign-owner notice plus the ordinary stale reclaim once the superseded pid exits, never by same-session re-keying; the `state/.lock-session` sidecar re-keys only successions that keep their session id.
+Claude Code plants the working session's identity into every tool shell, verified live in the same home on 2026-07-30:
+
+```sh
+env | grep -E '^CLAUDE_(CODE_SESSION_ID|PID)='
+```
+
+```text
+CLAUDE_CODE_SESSION_ID=585af80a-d320-4c39-bcce-71f415cc0bdb
+CLAUDE_PID=79174
+```
+
+`CLAUDE_PID` equaled the pid the ancestry walk resolved for that shell, which is the cross-check `bin/fm-session-lock-lib.sh` requires before trusting the pair, and Claude Stop payloads carry the same value in their `session_id` field, which is the hint source `bin/fm-claude-stop-autoarm.sh` exports.
 
 Deterministic entry points:
 
