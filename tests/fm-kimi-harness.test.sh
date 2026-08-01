@@ -11,11 +11,16 @@ KIMI_HOOK="$ROOT/bin/fm-kimi-turnend-hook.sh"
 TMP_ROOT=$(fm_test_tmproot fm-kimi-harness)
 KIMI_RUNTIME_TASK_TMP=
 PYTHON_BIN=$(command -v python3) || fail "test needs python3"
-if ! "$PYTHON_BIN" -c 'import tomllib' >/dev/null 2>&1; then
-  echo "skip: python3 at $PYTHON_BIN lacks tomllib (Python 3.11+ required by Kimi config validation)"
-  exit 0
-fi
 PYTHON_BIN_DIR=$(dirname "$PYTHON_BIN")
+
+# bin/fm-kimi-turnend-hook.sh validates config.toml with python3's tomllib, so
+# every path that reaches its install/remove action needs Python 3.11+. Only
+# those cases skip; the Kimi cases that never parse TOML still run.
+need_tomllib() {  # <case-name>
+  "$PYTHON_BIN" -c 'import tomllib' >/dev/null 2>&1 && return 0
+  echo "skip: python3 at $PYTHON_BIN lacks tomllib, Python 3.11+ required by Kimi config validation ($1)"
+  return 1
+}
 JQ_BIN=$(command -v jq) || fail "test needs jq"
 BASE_PATH=${FM_TEST_BASE_PATH:-$PYTHON_BIN_DIR:/usr/bin:/bin:/usr/sbin:/sbin}
 
@@ -181,6 +186,7 @@ EOF
 }
 
 test_kimi_launch_then_send_is_verified() {
+  need_tomllib test_kimi_launch_then_send_is_verified || return 0
   local id rec out rc launch pointer brief_real meta task_tmp
   id="kimi-success-z1-$$"
   task_tmp="/tmp/fm-$id"
@@ -221,6 +227,7 @@ test_kimi_launch_then_send_is_verified() {
 }
 
 test_kimi_hook_install_is_surgical_idempotent_and_removable() {
+  need_tomllib test_kimi_hook_install_is_surgical_idempotent_and_removable || return 0
   local home config original once stripped count
   home="$TMP_ROOT/config-surgery"
   config="$home/.kimi-code/config.toml"
@@ -266,6 +273,7 @@ EOF
 }
 
 test_kimi_hook_remove_preserves_owned_newline_boundary() {
+  need_tomllib test_kimi_hook_remove_preserves_owned_newline_boundary || return 0
   local appended config expected home original
   home="$TMP_ROOT/config-owned-newline"
   config="$home/.kimi-code/config.toml"
@@ -303,6 +311,7 @@ PY
 }
 
 test_kimi_hook_fails_closed_on_missing_malformed_or_partial_config() {
+  need_tomllib test_kimi_hook_fails_closed_on_missing_malformed_or_partial_config || return 0
   local missing malformed partial out rc
   missing="$TMP_ROOT/config-missing"
   malformed="$TMP_ROOT/config-malformed"
@@ -359,6 +368,7 @@ test_kimi_hook_install_refuses_without_jq() {
 }
 
 test_kimi_hook_is_silent_and_requires_registered_workspace_token() {
+  need_tomllib test_kimi_hook_is_silent_and_requires_registered_workspace_token || return 0
   local id rec out rc hook target token no_token snapshot_before snapshot_after fakebin
   id=kimi-hook-auth-z6
   rec=$(make_spawn_case hook-auth "$id")
@@ -404,6 +414,7 @@ test_kimi_hook_is_silent_and_requires_registered_workspace_token() {
 }
 
 test_kimi_spawn_refuses_unsafe_global_config_before_pane_creation() {
+  need_tomllib test_kimi_spawn_refuses_unsafe_global_config_before_pane_creation || return 0
   local id rec out rc
   id=kimi-config-refuse-z7
   rec=$(make_spawn_case config-refuse "$id")
@@ -420,6 +431,7 @@ test_kimi_spawn_refuses_unsafe_global_config_before_pane_creation() {
 }
 
 test_kimi_teardown_removes_pointer_and_registry_token() {
+  need_tomllib test_kimi_teardown_removes_pointer_and_registry_token || return 0
   local id rec out rc token
   id=kimi-teardown-z8
   rec=$(make_spawn_case teardown "$id")
@@ -441,6 +453,7 @@ test_kimi_teardown_removes_pointer_and_registry_token() {
 }
 
 test_kimi_falls_back_to_expanded_home_binary() {
+  need_tomllib test_kimi_falls_back_to_expanded_home_binary || return 0
   local id rec out rc launch fallback
   id=kimi-fallback-z4
   rec=$(make_spawn_case fallback "$id")
@@ -477,6 +490,7 @@ test_kimi_missing_binary_refuses_before_pane_creation() {
 }
 
 test_kimi_unconfirmed_delivery_fails_loudly() {
+  need_tomllib test_kimi_unconfirmed_delivery_fails_loudly || return 0
   local id rec out rc
   id=kimi-drop-z2
   rec=$(make_spawn_case drop "$id")
@@ -493,6 +507,7 @@ test_kimi_unconfirmed_delivery_fails_loudly() {
 }
 
 test_kimi_readiness_gate_precedes_pointer() {
+  need_tomllib test_kimi_readiness_gate_precedes_pointer || return 0
   local id rec out rc
   id=kimi-not-ready-z3
   rec=$(make_spawn_case not-ready "$id")

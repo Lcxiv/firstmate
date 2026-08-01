@@ -1704,6 +1704,7 @@ fi
 
 META_WINDOW=$T
 [ "$BACKEND" = orca ] && META_WINDOW=$W
+: > "$STATE/$ID.meta" || exit 1
 {
   echo "window=$META_WINDOW"
   echo "endpoint_task_id=$ID"
@@ -1744,7 +1745,7 @@ META_WINDOW=$T
     echo "home=$PROJ_ABS"
     echo "projects=$SECONDMATE_PROJECTS"
   fi
-} > "$STATE/$ID.meta" || exit 1
+} >> "$STATE/$ID.meta"
 [ "$BACKEND" = orca ] && ORCA_ABORT_CLEANUP=0
 
 sq_brief=$(shell_quote "$BRIEF")
