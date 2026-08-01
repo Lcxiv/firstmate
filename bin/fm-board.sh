@@ -28,7 +28,12 @@
 # Lavish prompts that come back to firstmate as exact orders, and the captain
 # releases them with Send to Agent. Approval panels are rendered as siblings
 # AFTER each card's todo <ul>, never inside it - nesting <details> inside the
-# list is the known clipping bug shape.
+# list is the known clipping bug shape. The `.meta-row .badge` style rule is
+# the second clipping defense: DaisyUI's .badge is fixed-height and does not
+# wrap, so long map metadata (fog, out of scope) is clipped without it. The
+# ellipsis truncation those fields already get is not a substitute - even
+# truncated they exceed one badge line. tests/fm-board.test.sh asserts the
+# rule in the emitted HTML.
 #
 # Output: $FM_HOME/.lavish/fleet-board.html by default; --out overrides.
 # The file is a generated view - regenerate rather than edit it.
@@ -425,6 +430,7 @@ page = f"""<!doctype html>
   .todos {{ font-size: 0.72rem; line-height: 1.35; }}
   .todos li {{ list-style: none; }}
   .meta-row {{ display:flex; flex-wrap:wrap; gap:0.3rem; margin:0.25rem 0; }}
+  .meta-row .badge {{ height:auto; min-height:1.1rem; white-space:normal; text-align:left; line-height:1.3; padding-top:0.1rem; padding-bottom:0.1rem; }}
   .approval {{ background: oklch(30% 0.06 60 / 0.4); border: 1px solid oklch(75% 0.18 60 / 0.7); border-radius: 0.4rem; padding: 0.25rem 0.45rem; margin: 0.25rem 0; }}
   .approval summary {{ font-weight: 700; color: oklch(85% 0.16 70); cursor: pointer; font-size: 0.7rem; }}
   .approval textarea {{ width:100%; font-size:0.7rem; margin-top:0.2rem; }}
