@@ -256,6 +256,22 @@ Because a terminal event's id is derived from its identity tuple rather than gen
 Reconciliation rides the existing relay poll and the session-start digest instead of a new watcher, daemon, or timer, and both are gated on the same `.env` activation contract so a home that never opted into the relay executes none of it.
 The [X mode configuration reference](configuration.md#promised-public-replies-statepublic-followup) owns the operator-facing contract, and the `fmx-respond` skill owns the procedure.
 
+## Optional phone notifications
+
+Phone notifications are an opt-in outbound mirror of the captain-facing outcomes firstmate already sends in chat.
+A user enables it by putting `FM_NOTIFY_TARGET` in the firstmate home's gitignored `.env`; without it every well-formed call is a silent no-op, so a home that never opted in executes none of this.
+`bin/fm-notify.sh` is called by firstmate in the same turn that composes the outcome, so the feature adds no daemon, no watcher path, and no timer.
+The stated consequence is that nothing is sent while no session is running; the next session start reconciles and reports as usual.
+
+The sender is deliberately dumb.
+[`AGENTS.md`](../AGENTS.md) section 9 remains the single owner of what is worth escalating and of the wording, and the caller names the event class rather than letting the script invent, classify, re-word, or suppress anything on its own judgement.
+The watcher deliberately does not get its own send path, because that would fork section 9's single ownership of escalation policy and leak internal wake labels to the captain's phone.
+
+Inside the script the channel seam is resolve-target, format-payload, deliver.
+Only the Discord webhook channel is implemented; a second channel can be added later as one resolver arm plus its three functions, without changing the caller contract or the configuration surface.
+Delivery is best-effort by design: every failure is quiet, bounded, and non-blocking, and nothing is written anywhere under the fleet's state.
+The [phone notification configuration reference](configuration.md#phone-notifications-env) owns the setup steps, keys, defaults, event classes, caps, opt-out, and security surface.
+
 ## Project memory belongs to projects
 
 Durable project-intrinsic agent knowledge lives in each project's committed `AGENTS.md`, with `CLAUDE.md` as a symlink.
