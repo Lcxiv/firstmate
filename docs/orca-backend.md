@@ -46,6 +46,7 @@ worktree=<absolute Orca worktree path>
 ## Current lifecycle and safety
 
 Spawn registers the repository, creates an independent worktree, reuses only the verified `result.terminal.handle` returned by Orca or creates a terminal explicitly, installs harness hooks, records metadata, and launches the selected harness.
+A spawn that cannot publish `state/<id>.meta` fails there instead of continuing, and its abort path closes the created terminal and releases the Orca worktree.
 Exact command flags and response parsing are owned by `bin/backends/orca.sh` and script help.
 
 `fm-peek.sh` reads with `orca terminal read`.
