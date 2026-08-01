@@ -353,7 +353,8 @@ EOF
     ;;
   *)  # no-mistakes (default)
     SETUP2="
-2. Run \`no-mistakes doctor\`; if it reports the repo is not initialized here, run \`no-mistakes init\`."
+2. Run \`no-mistakes doctor\`; if it reports the repo is not initialized here, run \`no-mistakes init\`.
+3. Run \`$FM_ROOT/bin/fm-pr-target-check.sh .\`; if it refuses the registered PR base, append \`blocked: {the diagnostic}\` and stop."
     RULE1='1. Never push to the default branch. Never merge a PR.'
     IFS= read -r -d '' DOD <<EOF || true
 # Definition of done
