@@ -70,7 +70,7 @@ Every new skill needs its load trigger declared inline: section 13 for agent-onl
 State the trigger as a condition ("load before X", "load on Y wake"), never as a vague pointer.
 Briefs for tasks that touch firstmate's own tracked material should tell the crewmate to load this skill.
 `bin/fm-brief.sh`'s `REPO` argument is a caller-supplied string with no reliable signal that it names firstmate's own repo, unlike a project registered in `data/projects.md`, so there is no clean point inside the scaffold to detect this case automatically.
-Firstmate adds this skill's load instruction to firstmate-repo briefs by hand instead.
+Firstmate passes the explicit `--firstmate-repo` flag so the scaffold emits the worker boundary and this skill's load instruction without relying on a repo-name heuristic.
 `CONTRIBUTING.md`'s "Development" section carries the same instruction as a durable reminder.
 
 ## Compatibility and enforcement
