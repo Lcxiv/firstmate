@@ -5,15 +5,15 @@
 # Lcxiv/firstmate but retained kunchenguid/firstmate as its registered PR base,
 # so no-mistakes passed the parent to `gh pr create --repo` and opened PR 1438
 # there.
-# The public checker and the gate-context lint integration must both refuse that
-# split routing before no-mistakes reaches its push and PR steps.
+# The checker runs in an initialized task worktree - the boundary the generated
+# no-mistakes brief preflights - and must refuse that split routing before
+# no-mistakes reaches its push and PR steps.
 set -u
 
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 CHECK="$ROOT/bin/fm-pr-target-check.sh"
-LINT="$ROOT/bin/fm-lint.sh"
 TMP_ROOT=$(fm_test_tmproot fm-pr-target-check)
 FAKEBIN=$(fm_fakebin "$TMP_ROOT")
 
@@ -28,15 +28,7 @@ fi
 printf '    gate:  /fixture/gate.git\n'
 printf '  daemon:  running\n'
 SH
-
-cat > "$FAKEBIN/shellcheck" <<'SH'
-#!/usr/bin/env bash
-if [ "${1:-}" = --version ]; then
-  printf 'ShellCheck - shell script analysis tool\nversion: 0.11.0\n'
-fi
-exit 0
-SH
-chmod +x "$FAKEBIN/no-mistakes" "$FAKEBIN/shellcheck"
+chmod +x "$FAKEBIN/no-mistakes"
 
 make_repo() {
   local path=$1 origin=$2
@@ -91,32 +83,30 @@ SH
   pass "PR-base guard fails closed when no-mistakes omits the PR base"
 }
 
-test_gate_lint_refuses_before_shellcheck() {
-  local out rc=0
-  out=$(env -u FM_GATE_REFUSE_BYPASS \
-    NO_MISTAKES_GATE=1 \
-    NM_STATUS_REMOTE=https://github.com/kunchenguid/firstmate.git \
-    NM_STATUS_FORK=https://github.com/Lcxiv/firstmate.git \
-    PATH="$FAKEBIN:$PATH" \
-    "$LINT" "$CHECK" 2>&1) || rc=$?
-  [ "$rc" -ne 0 ] || fail "gate-context lint passed a stale parent PR base"
-  assert_contains "$out" "refusing no-mistakes delivery" \
-    "gate-context lint did not invoke the PR-base guard"
-  pass "gate-context lint blocks the stale PR base before delivery"
-}
-
-test_normal_lint_does_not_require_gate_state() {
-  local out
-  out=$(env -u NO_MISTAKES_GATE -u FM_GATE_REFUSE_BYPASS \
-    NM_STATUS_REMOTE=https://github.com/kunchenguid/firstmate.git \
-    PATH="$FAKEBIN:$PATH" \
-    "$LINT" "$CHECK" 2>&1) \
-    || fail "ordinary lint was coupled to local no-mistakes routing"$'\n'"$out"
-  pass "ordinary lint and CI remain independent of local gate state"
+# git writes sideband progress to stderr with lines that literally start with
+# "remote: ", so merging stderr into the parsed text used to manufacture extra
+# PR bases and refuse delivery for a reason unrelated to the registration.
+test_ignores_remote_prefixed_stderr_noise() {
+  local repo noisy out
+  repo="$TMP_ROOT/noisy-status"
+  noisy="$TMP_ROOT/noisy-bin"
+  make_repo "$repo" https://github.com/Lcxiv/firstmate.git
+  mkdir -p "$noisy"
+  cat > "$noisy/no-mistakes" <<'SH'
+#!/usr/bin/env bash
+printf 'remote: Enumerating objects: 41, done.\n' >&2
+printf 'remote: Counting objects: 100%% (41/41), done.\n' >&2
+printf '  remote:  https://github.com/Lcxiv/firstmate.git\n'
+SH
+  chmod +x "$noisy/no-mistakes"
+  out=$(PATH="$noisy:$PATH" "$CHECK" "$repo" 2>&1) \
+    || fail "PR-base guard mistook git sideband progress for a PR base"$'\n'"$out"
+  assert_contains "$out" "matches origin" \
+    "PR-base guard did not compare the registration it read from stdout"
+  pass "PR-base guard parses status stdout only"
 }
 
 test_refuses_stale_parent_base
 test_accepts_the_origin_repository
 test_fails_closed_on_unreadable_registration
-test_gate_lint_refuses_before_shellcheck
-test_normal_lint_does_not_require_gate_state
+test_ignores_remote_prefixed_stderr_noise

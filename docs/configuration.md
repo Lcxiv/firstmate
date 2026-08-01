@@ -119,7 +119,6 @@ See [`wedge-alarm.md`](wedge-alarm.md) for the current channel reference, [`veri
 ## Gate defaults (.no-mistakes.yaml)
 
 The tracked `.no-mistakes.yaml` keeps test evidence outside the repo and pins `commands.lint` to `bin/fm-lint.sh` so local lint matches CI.
-In a real no-mistakes gate context, that lint entry point first runs `bin/fm-pr-target-check.sh` and refuses delivery when the gate's stored PR base differs from the worktree's `origin`.
 That evidence policy is specific to the firstmate repo: target projects may legitimately commit `.no-mistakes/evidence/` from their own no-mistakes pipeline, but firstmate keeps `.no-mistakes/` local and CI rejects tracked entries under that path.
 It does not set `commands.test` to a complete `tests/*.test.sh` walk.
 See [CONTRIBUTING.md](../CONTRIBUTING.md) for the firstmate-specific local test policy and entry points.
@@ -275,7 +274,7 @@ Secondmate homes inherit this file from the primary, so a secondmate's own crewm
 On session start the first mate detects what its required toolchain is missing or too old and lists each problem with either an exact install command or manual instructions.
 It installs automatically supported tools only after you say go; manual-only tools remain for you to install from the printed instructions.
 Required tools come in two parts: a universal toolchain every home needs regardless of backend, and a per-backend delta that follows the runtime backend actually resolved for this home.
-The universal toolchain is node, git, gh with GitHub auth via `gh auth login`, no-mistakes v1.31.2 or newer, gh-axi, chrome-devtools-axi, lavish-axi, compatible tasks-axi per "Backlog backend" above, and quota-axi v0.1.16 or newer.
+The universal toolchain is node, git, gh with GitHub auth via `gh auth login`, no-mistakes v1.41.2 or newer, gh-axi, chrome-devtools-axi, lavish-axi, compatible tasks-axi per "Backlog backend" above, and quota-axi v0.1.16 or newer.
 This section is the single owner of that universal toolchain list; backend guides' prerequisites point here and add only their backend-specific tools.
 In that list, no-mistakes runs the validation pipeline, gh-axi, chrome-devtools-axi, and lavish-axi cover GitHub, browser, and rich-review operations, and tasks-axi plus quota-axi back backlog mutations and quota-aware array dispatch.
 The per-backend delta is required only for the backend resolved from `FM_BACKEND`, then `config/backend`, then runtime auto-detection, then default `tmux`, so a home is never told to install a tool an inactive backend or feature would need.

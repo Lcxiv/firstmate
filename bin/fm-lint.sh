@@ -32,9 +32,6 @@ SELF="$SELF_DIR/fm-lint.sh"
 ROOT="$(cd "$SELF_DIR/.." && pwd)"
 cd "$ROOT" || exit 1
 
-# shellcheck source=bin/fm-gate-refuse-lib.sh
-. "$SELF_DIR/fm-gate-refuse-lib.sh"
-
 FM_LINT_WORKER_SHELLCHECK_PID=
 # shellcheck disable=SC2329 # Registered by the private worker's signal traps.
 fm_lint_worker_stop() {
@@ -148,14 +145,6 @@ if [ "$LIST_FILES" -eq 1 ]; then
   }
   printf '%s\n' "${ROOTS[@]}"
   exit 0
-fi
-
-# no-mistakes owns PR creation, so its trusted lint step is firstmate's last
-# enforceable boundary before push and PR creation.
-# Refuse a stale registered base in a real gate context while leaving ordinary
-# local lint and CI independent of machine-local no-mistakes state.
-if fm_is_gate_agent "$ROOT"; then
-  "$SELF_DIR/fm-pr-target-check.sh" "$ROOT" || exit $?
 fi
 
 if ! command -v shellcheck >/dev/null 2>&1; then

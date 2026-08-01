@@ -17,8 +17,8 @@ GitHub Actions and Dependabot are exempt so their automation keeps working, but 
 
 1. Clone `Lcxiv/firstmate` as `origin`; `kunchenguid/firstmate` is an optional read-only `upstream` source for deliberate cherry-picks, not this repo's PR destination.
 2. Create a branch and make your changes.
-3. Run `no-mistakes init` when you can push to `Lcxiv/firstmate`; external contributors may fork `Lcxiv/firstmate` and instead run `no-mistakes init --fork-url git@github.com:<you>/firstmate.git` while keeping `origin` on `Lcxiv/firstmate` (firstmate expects **no-mistakes v1.31.2+**).
-4. Run `bin/fm-pr-target-check.sh .` and resolve any refusal before delivery; it verifies that no-mistakes' stored PR base still matches `origin`.
+3. Run `no-mistakes init` when you can push to `Lcxiv/firstmate`; external contributors may fork `Lcxiv/firstmate` and instead run `no-mistakes init --fork-url git@github.com:<you>/firstmate.git` while keeping `origin` on `Lcxiv/firstmate` (firstmate expects **no-mistakes v1.41.2+**).
+4. Run `bin/fm-pr-target-check.sh .` in that initialized checkout and resolve any refusal before delivery; it verifies that no-mistakes' stored PR base still matches `origin`.
 5. Commit your changes.
 6. Push through the gate instead of pushing to `origin`:
 
@@ -47,7 +47,6 @@ See the [no-mistakes quick start](https://kunchenguid.github.io/no-mistakes/star
   Each starts with a usage header comment; keep it accurate when you change behavior.
   Test scripts and helpers in `tests/` are plain bash too.
   `bin/fm-lint.sh` must pass: it is the single owner of the lint definition (the shellcheck file set, config, and pinned shellcheck version), and both CI and the no-mistakes pre-push gate run it, so local and CI can never diverge.
-  In a no-mistakes gate context it first invokes `bin/fm-pr-target-check.sh`, whose header owns the exact PR-base comparison and refusal mechanics.
   It pins one exact shellcheck version and refuses to run under any other; print it with `bin/fm-lint.sh --required-version` and install that build locally.
 - Changes to harness adapters (detection in `bin/fm-harness.sh`, launch and hook mechanics in `bin/fm-spawn.sh`, semantic busy sources and trust gates in `bin/fm-busy-lib.sh`, delivery-only rendered guards in `bin/fm-tmux-lib.sh`, cleanup in `bin/fm-teardown.sh`, and facts in `.agents/skills/harness-adapters/SKILL.md`) must be verified empirically against the real harness, never written from documentation alone.
 - Changes to runtime session backends (`bin/fm-backend.sh`, `bin/backends/`, and the scripts that dispatch through them) keep current setup and limits in the relevant backend guide and active empirical evidence in [`docs/verification/runtime-backends.md`](docs/verification/runtime-backends.md).

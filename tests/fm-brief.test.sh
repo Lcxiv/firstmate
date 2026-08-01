@@ -246,6 +246,7 @@ test_no_mistakes_brief_preflights_the_registered_pr_base() {
   brief="$home/data/$id/brief.md"
   assert_grep "$ROOT/bin/fm-pr-target-check.sh ." "$brief" \
     "no-mistakes brief did not require the repo-owned PR-base preflight"
+  # shellcheck disable=SC2016 # Backticks and braces are literal brief markup.
   assert_grep 'append `blocked: {the diagnostic}` and stop' "$brief" \
     "no-mistakes brief did not stop delivery after a PR-base refusal"
   pass "fm-brief.sh: no-mistakes tasks preflight the registered PR base"

@@ -48,7 +48,7 @@
 #          treehouse is also MISSING when its installed version lacks
 #          "treehouse get --lease" support.
 #          no-mistakes is also MISSING when its installed version is older than
-#          1.31.2.
+#          1.41.2.
 #          tasks-axi and quota-axi are required bootstrap tools (same class as
 #          lavish-axi). tasks-axi is also version and feature gated (0.1.1+
 #          with update --archive-body and mv [<id>...]); an installed but
@@ -535,7 +535,7 @@ if ! BACKEND_TOOLS=$(fm_backend_required_tools "$BACKEND"); then
   BACKEND_TOOLS=""
 fi
 TOOLS="$BACKEND_TOOLS $COMMON_TOOLS"
-NO_MISTAKES_MIN=1.31.2
+NO_MISTAKES_MIN=1.41.2
 
 treehouse_supports_lease() {
   treehouse get --help 2>&1 | grep -Eq '(^|[^[:alnum:]_-])--lease([^[:alnum:]_-]|$)'

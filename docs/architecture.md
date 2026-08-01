@@ -209,8 +209,8 @@ The `data/secondmates.md` line contract is owned by the [`secondmate-provisionin
 `data/projects.md` records each project's delivery mode and optional `+yolo` autonomy flag.
 `no-mistakes` projects run the full validation pipeline, `direct-PR` projects open PRs without that pipeline, and `local-only` projects stay local until firstmate performs an approved fast-forward merge.
 The external no-mistakes pipeline owns PR creation and chooses its GitHub `--repo` target from the gate's stored upstream URL rather than from `remote.pushDefault`, gh's default-repo setting, or firstmate's merge helpers.
-Every generated no-mistakes task preflights that stored PR base against the task worktree's `origin`, and the firstmate repo's trusted no-mistakes lint step repeats the check before push and PR creation.
-[`bin/fm-pr-target-check.sh`](../bin/fm-pr-target-check.sh)'s header owns URL normalization, failure behavior, and the deliberate retargeting procedure.
+Every generated no-mistakes task preflights that stored PR base against the task worktree's `origin` during setup, which is the boundary firstmate can enforce: the check reads the registration of the worktree it runs in, and only a crewmate's own initialized checkout has one.
+[`bin/fm-pr-target-check.sh`](../bin/fm-pr-target-check.sh)'s header owns URL normalization, failure behavior, the load-bearing `no-mistakes status` field, and the deliberate retargeting procedure.
 When a selected delivery path calls for a diff, `bin/fm-review-diff.sh` refreshes the authoritative base and, when task meta records `pr=`, always fetches and compares against `refs/pull/<n>/head` by default (recorded `pr_head=` is only an offline fallback) before falling back to the local branch with a warning.
 For target project repos shipped through their own no-mistakes pipeline, commits under `.no-mistakes/evidence/` are the pipeline's PR-viewable validation evidence and are expected to stay in the crew branch until the evidence-hosting design changes.
 The firstmate repo itself is the exception: its `.no-mistakes/` directory is local state, stays gitignored, and is rejected by CI if tracked.

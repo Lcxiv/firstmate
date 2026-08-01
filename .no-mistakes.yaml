@@ -27,9 +27,6 @@ document:
 # `bin/fm-lint.sh` owns the complete lint definition and
 # `.github/workflows/ci.yml` invokes it directly, with parity asserted by
 # `tests/fm-lint.test.sh`.
-# In a real gate context it also invokes the PR-base refusal owned by
-# `bin/fm-pr-target-check.sh`; ordinary local lint and CI skip machine-local
-# gate inspection.
 #
 # Do not set commands.test to a complete tests/*.test.sh walk. Local no-mistakes
 # Test is intent-targeted validation of whether the change meets its brief;
