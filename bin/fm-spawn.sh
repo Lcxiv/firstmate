@@ -1704,6 +1704,11 @@ fi
 
 META_WINDOW=$T
 [ "$BACKEND" = orca ] && META_WINDOW=$W
+# Create the metadata file with its own command and append below: a failing
+# redirect on a { } group does not trip errexit, so a group-only write would let
+# an unpublishable meta file continue past the ORCA_ABORT_CLEANUP=0 line and
+# leave a live endpoint with no cleanup binding on disk. Failing here keeps that
+# release in the abort trap (tests/fm-backend-orca.test.sh).
 : > "$STATE/$ID.meta" || exit 1
 {
   echo "window=$META_WINDOW"

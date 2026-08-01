@@ -721,6 +721,9 @@ SH
 
   pids=
   i=1
+  # Each worker needs its own pid as the fake harness identity, but BASHPID is
+  # unset in stock macOS Bash 3.2, so the parent publishes $! per worker and the
+  # worker waits for that file instead of reading BASHPID.
   while [ "$i" -le 40 ]; do
     (
       while [ ! -s "$home/worker-pids/$i" ]; do
