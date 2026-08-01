@@ -11,6 +11,10 @@ KIMI_HOOK="$ROOT/bin/fm-kimi-turnend-hook.sh"
 TMP_ROOT=$(fm_test_tmproot fm-kimi-harness)
 KIMI_RUNTIME_TASK_TMP=
 PYTHON_BIN=$(command -v python3) || fail "test needs python3"
+if ! "$PYTHON_BIN" -c 'import tomllib' >/dev/null 2>&1; then
+  echo "skip: python3 at $PYTHON_BIN lacks tomllib (Python 3.11+ required by Kimi config validation)"
+  exit 0
+fi
 PYTHON_BIN_DIR=$(dirname "$PYTHON_BIN")
 JQ_BIN=$(command -v jq) || fail "test needs jq"
 BASE_PATH=${FM_TEST_BASE_PATH:-$PYTHON_BIN_DIR:/usr/bin:/bin:/usr/sbin:/sbin}

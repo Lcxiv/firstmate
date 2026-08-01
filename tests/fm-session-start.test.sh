@@ -687,7 +687,7 @@ EOF
   ready="$home/ready"
   completed="$home/done"
   winners="$home/winners"
-  mkdir -p "$ready" "$completed"
+  mkdir -p "$ready" "$completed" "$home/worker-pids"
   : > "$winners"
   cat > "$fakebin/ps" <<'SH'
 #!/usr/bin/env bash
@@ -723,7 +723,10 @@ SH
   i=1
   while [ "$i" -le 40 ]; do
     (
-      harness_pid=$BASHPID
+      while [ ! -s "$home/worker-pids/$i" ]; do
+        sleep 0.01
+      done
+      harness_pid=$(cat "$home/worker-pids/$i")
       : > "$home/state/harness-$harness_pid"
       : > "$ready/$i"
       while [ "$(find "$ready" -type f | wc -l | tr -d ' ')" -lt 40 ]; do
@@ -739,7 +742,9 @@ SH
         sleep 0.01
       done
     ) &
-    pids="$pids $!"
+    pid=$!
+    printf '%s\n' "$pid" > "$home/worker-pids/$i"
+    pids="$pids $pid"
     i=$((i + 1))
   done
   for pid in $pids; do
