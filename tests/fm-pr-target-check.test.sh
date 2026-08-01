@@ -64,6 +64,10 @@ test_accepts_the_origin_repository() {
   pass "PR-base guard accepts a registered base matching origin"
 }
 
+# An uninitialized worktree is the likeliest refusal, and no-mistakes reports it
+# on STDOUT with rc=0, so the rc guard never fires. bin/fm-brief.sh records this
+# diagnostic verbatim as the crewmate's `blocked:` reason, so dropping the
+# captured cause would park the task with no way to resolve it.
 test_fails_closed_on_unreadable_registration() {
   local repo broken out rc=0
   repo="$TMP_ROOT/unreadable-registration"
@@ -72,7 +76,7 @@ test_fails_closed_on_unreadable_registration() {
   mkdir -p "$broken"
   cat > "$broken/no-mistakes" <<'SH'
 #!/usr/bin/env bash
-printf 'gate state unavailable\n'
+printf "repo not initialized (run 'no-mistakes init' first)\n"
 exit 0
 SH
   chmod +x "$broken/no-mistakes"
@@ -80,7 +84,34 @@ SH
   [ "$rc" -ne 0 ] || fail "PR-base guard passed without a registered remote"
   assert_contains "$out" "did not report a registered remote PR base" \
     "PR-base guard did not explain the unreadable registration"
-  pass "PR-base guard fails closed when no-mistakes omits the PR base"
+  assert_contains "$out" "repo not initialized (run 'no-mistakes init' first)" \
+    "PR-base guard discarded the actionable cause the crewmate records as blocked:"
+  pass "PR-base guard fails closed and reports why the PR base was unreadable"
+}
+
+test_bounds_the_reported_status_output() {
+  local repo noisy out quoted rc=0
+  repo="$TMP_ROOT/verbose-status"
+  noisy="$TMP_ROOT/verbose-bin"
+  make_repo "$repo" https://github.com/Lcxiv/firstmate.git
+  mkdir -p "$noisy"
+  cat > "$noisy/no-mistakes" <<'SH'
+#!/usr/bin/env bash
+awk 'BEGIN { while (i++ < 60) print "unregistered diagnostic line " i }'
+SH
+  chmod +x "$noisy/no-mistakes"
+  out=$(PATH="$noisy:$PATH" "$CHECK" "$repo" 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "PR-base guard passed without a registered remote"
+  [ "$(printf '%s\n' "$out" | wc -l)" -eq 1 ] \
+    || fail "PR-base guard spilled multi-line status into the blocked: diagnostic"
+  quoted=${out#*status said: }
+  [ "$quoted" != "$out" ] \
+    || fail "PR-base guard did not quote the status output at all"
+  [ "${#quoted}" -le 200 ] \
+    || fail "PR-base guard did not bound the status output it quoted"
+  assert_contains "$out" "unregistered diagnostic line 1" \
+    "PR-base guard did not quote the beginning of the status output"
+  pass "PR-base guard bounds the status output it quotes"
 }
 
 # git writes sideband progress to stderr with lines that literally start with
@@ -109,4 +140,5 @@ SH
 test_refuses_stale_parent_base
 test_accepts_the_origin_repository
 test_fails_closed_on_unreadable_registration
+test_bounds_the_reported_status_output
 test_ignores_remote_prefixed_stderr_noise

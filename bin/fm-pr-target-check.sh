@@ -39,6 +39,14 @@ die() {
   exit 1
 }
 
+bounded_status() {
+  local text
+  text=$(printf '%s' "$1" | LC_ALL=C tr -s '[:space:]' ' ' | cut -c1-200)
+  text=${text# }
+  text=${text% }
+  printf '%s\n' "${text:-(no output)}"
+}
+
 normalize_remote_identity() {
   local raw=$1 rest authority path identity
   raw=${raw%/}
@@ -85,7 +93,7 @@ STATUS=$(cd "$ROOT" && NO_COLOR=1 TERM=dumb no-mistakes status 2>"$STATUS_ERR") 
 REGISTERED=$(printf '%s\n' "$STATUS" \
   | sed -n 's/^[[:space:]]*remote:[[:space:]]*//p')
 [ -n "$REGISTERED" ] \
-  || die "no-mistakes status did not report a registered remote PR base"
+  || die "no-mistakes status did not report a registered remote PR base in $ROOT; status said: $(bounded_status "$STATUS")"
 case "$REGISTERED" in
   *$'\n'*) die "no-mistakes status reported more than one remote PR base" ;;
 esac
