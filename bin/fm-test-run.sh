@@ -169,7 +169,7 @@ family_for_basename() {
     fm-teardown-endpoint-safety.test.sh)
       printf '%s\n' backend-dispatch
       ;;
-    fm-pr-check-security.test.sh|fm-pr-merge.test.sh|fm-pr-target-check.test.sh|fm-review-diff.test.sh|\
+    fm-phone-mode.test.sh|fm-pr-check-security.test.sh|fm-pr-merge.test.sh|fm-pr-target-check.test.sh|fm-review-diff.test.sh|\
     fm-teardown.test.sh|fm-x-mode.test.sh)
       printf '%s\n' pr-forge
       ;;
@@ -667,7 +667,7 @@ families_for_changed_path() {
       printf '%s\n' session-bootstrap
       printf '%s\n' pure-contract-unit
       ;;
-    bin/fm-pr-*|bin/fm-merge-local.sh|bin/fm-teardown.sh|bin/fm-review-diff.sh|\
+    bin/fm-phone-*|bin/fm-pr-*|bin/fm-merge-local.sh|bin/fm-teardown.sh|bin/fm-review-diff.sh|\
     bin/fm-x-*|bin/fm-check*)
       printf '%s\n' pr-forge
       ;;

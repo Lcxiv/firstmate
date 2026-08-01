@@ -509,6 +509,17 @@ test_arms_for_x_mode_poll_need_without_inflight() {
   pass "auto-arm: X-mode poll need arms the cycle even with no tasks in flight"
 }
 
+test_arms_for_phone_mode_poll_need_without_inflight() {
+  local dir out status
+  dir=$(make_primary_dir "$TMP_ROOT/phone-need")
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$dir/state/phone-watch.check.sh"
+  write_arm_fixture "$dir" actionable
+  out=$(run_autoarm "$dir" 2>/dev/null); status=$?
+  expect_code 2 "$status" "a Discord phone poll need must keep the auto-arm active with zero tasks in flight"
+  [ -e "$dir/state/arm-ran" ] || fail "hook did not arm for the Discord phone poll need"
+  pass "auto-arm: Discord phone poll need arms the cycle even with no tasks in flight"
+}
+
 test_single_flight_admits_exactly_one_owner() {
   local dir rc1 rc2 count
   dir=$(make_primary_dir "$TMP_ROOT/single-flight")
@@ -690,6 +701,7 @@ test_actionable_close_rewakes_with_reason
 test_failed_close_rewakes_with_failure_banner
 test_clean_close_exits_silently
 test_arms_for_x_mode_poll_need_without_inflight
+test_arms_for_phone_mode_poll_need_without_inflight
 test_single_flight_admits_exactly_one_owner
 test_need_vanished_mid_cycle_closes_quietly
 test_afk_mid_cycle_suppresses_rewake

@@ -148,6 +148,10 @@
       "audience": "agent-runtime"
     },
     {
+      "path": ".agents/skills/fmphone-respond/SKILL.md",
+      "audience": "agent-runtime"
+    },
+    {
       "path": ".agents/skills/fmx-respond/SKILL.md",
       "audience": "agent-runtime"
     },

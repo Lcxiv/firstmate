@@ -14,12 +14,13 @@ HARNESS=
 READ_ONLY=0
 AFK=0
 X_MODE=0
+PHONE_MODE=0
 REPAIR_LINE=0
 QUEUE_PENDING=0
 
 usage() {
   cat <<'EOF'
-Usage: fm-supervision-instructions.sh [--harness <name>] [--read-only 0|1] [--afk 0|1] [--x-mode 0|1] [--repair-line] [--queue-pending 0|1]
+Usage: fm-supervision-instructions.sh [--harness <name>] [--read-only 0|1] [--afk 0|1] [--x-mode 0|1] [--phone-mode 0|1] [--repair-line] [--queue-pending 0|1]
 
 Print the current primary harness's supervision operating instructions.
 With --repair-line, print one concise repair instruction for guard and hook messages.
@@ -53,6 +54,11 @@ while [ "$#" -gt 0 ]; do
     --x-mode)
       [ "$#" -gt 1 ] || { echo "error: --x-mode requires 0 or 1" >&2; exit 2; }
       X_MODE=$(bool_value "$2")
+      shift 2
+      ;;
+    --phone-mode)
+      [ "$#" -gt 1 ] || { echo "error: --phone-mode requires 0 or 1" >&2; exit 2; }
+      PHONE_MODE=$(bool_value "$2")
       shift 2
       ;;
     --queue-pending)
@@ -91,6 +97,7 @@ checkpoint_seconds=${FM_CODEX_WATCH_CHECKPOINT:-180}
 pi_ext="$FM_ROOT/.pi/extensions/fm-primary-pi-watch.ts"
 pi_turnend_ext="$FM_ROOT/.pi/extensions/fm-primary-turnend-guard.ts"
 x_mode_env="$CONFIG/x-mode.env"
+phone_mode_env="$CONFIG/phone-mode.env"
 
 shell_quote() {
   printf "'"
@@ -98,10 +105,24 @@ shell_quote() {
   printf "'"
 }
 
-x_mode_env_sh=$(shell_quote "$x_mode_env")
-
 if [ "$X_MODE" -eq 0 ] && [ -f "$x_mode_env" ]; then
   X_MODE=1
+fi
+if [ "$PHONE_MODE" -eq 0 ] && [ -f "$phone_mode_env" ]; then
+  PHONE_MODE=1
+fi
+
+# Both generated files export the same 30-second watcher setting. Source one
+# deterministic active owner so the command stays concise when both modes are
+# enabled; X wins only as a stable tie-break, not as an authority distinction.
+cadence_env=$x_mode_env
+if [ "$X_MODE" -ne 1 ] && [ "$PHONE_MODE" -eq 1 ]; then
+  cadence_env=$phone_mode_env
+fi
+cadence_env_sh=$(shell_quote "$cadence_env")
+REMOTE_MODE=0
+if [ "$X_MODE" -eq 1 ] || [ "$PHONE_MODE" -eq 1 ]; then
+  REMOTE_MODE=1
 fi
 
 render_snippet() {
@@ -109,8 +130,8 @@ render_snippet() {
   while IFS= read -r line || [ -n "$line" ]; do
     line=${line//__FM_PI_EXT__/$pi_ext}
     line=${line//__FM_PI_TURNEND_EXT__/$pi_turnend_ext}
-    line=${line//__FM_X_MODE_ENV_SH__/$x_mode_env_sh}
-    line=${line//__FM_X_MODE_ENV__/$x_mode_env}
+    line=${line//__FM_CADENCE_ENV_SH__/$cadence_env_sh}
+    line=${line//__FM_CADENCE_ENV__/$cadence_env}
     printf '%s\n' "$line"
   done < "$SNIPPET"
 }
@@ -129,8 +150,8 @@ repair_line() {
   if [ "$QUEUE_PENDING" -eq 1 ]; then
     prefix='After draining queued wakes, '
   fi
-  if [ "$X_MODE" -eq 1 ]; then
-    prefix="${prefix}source ${x_mode_env_sh} first, then "
+  if [ "$REMOTE_MODE" -eq 1 ]; then
+    prefix="${prefix}source ${cadence_env_sh} first, then "
   fi
 
   case "$HARNESS" in
@@ -201,7 +222,15 @@ fi
 if [ "$X_MODE" -eq 1 ]; then
   printf '%s%s%s\n' '- X mode: active; source ' "$x_mode_env" ' before launching any watcher process so the 30s cadence is inherited.'
 else
-  printf '%s\n' '- X mode: inactive; use the default watcher cadence.'
+  printf '%s\n' '- X mode: inactive.'
+fi
+if [ "$PHONE_MODE" -eq 1 ]; then
+  printf '%s%s%s\n' '- Phone mode: active; source ' "$cadence_env" ' before launching any watcher process so the 30s cadence is inherited.'
+else
+  printf '%s\n' '- Phone mode: inactive.'
+fi
+if [ "$REMOTE_MODE" -eq 0 ]; then
+  printf '%s\n' '- Remote command polling: inactive; use the default watcher cadence.'
 fi
 ordinary_wake_line
 printf '\n'
