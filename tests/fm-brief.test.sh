@@ -237,6 +237,20 @@ test_faster_paths_use_configured_authority_without_stacked_review() {
   pass "fm-brief.sh: faster paths use configured authority without stacked review"
 }
 
+test_no_mistakes_brief_preflights_the_registered_pr_base() {
+  local home id brief
+  home="$TMP_ROOT/pr-target-home"
+  write_registry "$home"
+  id="brief-pr-target-a5"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" no-registry-proj >/dev/null 2>&1
+  brief="$home/data/$id/brief.md"
+  assert_grep "$ROOT/bin/fm-pr-target-check.sh ." "$brief" \
+    "no-mistakes brief did not require the repo-owned PR-base preflight"
+  assert_grep 'append `blocked: {the diagnostic}` and stop' "$brief" \
+    "no-mistakes brief did not stop delivery after a PR-base refusal"
+  pass "fm-brief.sh: no-mistakes tasks preflight the registered PR base"
+}
+
 # Pin the specific line the bug lived on: the no-mistakes DOD's no-mistakes
 # reference must render as plain prose with no dangling apostrophe artifact.
 test_no_mistakes_dod_wording() {
@@ -623,6 +637,7 @@ test_no_heredoc_in_command_substitution
 test_help_includes_entire_header
 test_ship_modes_generate_clean_briefs
 test_faster_paths_use_configured_authority_without_stacked_review
+test_no_mistakes_brief_preflights_the_registered_pr_base
 test_no_mistakes_dod_wording
 test_ship_project_memory_wording
 test_herdr_lab_contract_is_explicit_and_complete
