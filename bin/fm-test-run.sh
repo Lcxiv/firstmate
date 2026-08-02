@@ -694,6 +694,12 @@ families_for_changed_path() {
     bin/fm-ff-lib.sh|bin/fm-gotmp*|bin/*pretool*)
       printf '%s\n' pure-contract-unit
       ;;
+    .agents/skills/fmphone-respond/SKILL.md)
+      # The phone authority boundary is asserted by the phone suite, so an edit
+      # to the skill must re-run pr-forge as well as the doc-contract family.
+      printf '%s\n' pure-contract-unit
+      printf '%s\n' pr-forge
+      ;;
     .agents/skills/*/SKILL.md)
       printf '%s\n' pure-contract-unit
       ;;

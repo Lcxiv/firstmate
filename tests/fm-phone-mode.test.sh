@@ -430,6 +430,47 @@ test_partial_bootstrap_config_stays_off_without_leaking_values() {
   pass "partial Discord configuration stays off and reports no configured value"
 }
 
+# The remote authority boundary lives only in the handler skill, so assert each
+# honored and helm-only class by side. Losing a class, or moving one across the
+# boundary, must fail here rather than silently widening phone authority.
+test_authority_boundary_keeps_its_exact_classes() {
+  local skill honored refused item
+  skill="$ROOT/.agents/skills/fmphone-respond/SKILL.md"
+  assert_present "$skill" "the phone authority boundary lost its owning skill"
+  honored=$(awk '/^Honor these classes from the phone:/{s=1;next} /^Refuse these classes from the phone/{s=0} s' "$skill")
+  refused=$(awk '/^Refuse these classes from the phone/{s=1;next} /^This boundary is exact\./{s=0} s' "$skill")
+
+  for item in \
+    'Direction and priority changes.' \
+    'Questions about fleet state or work.' \
+    'Dispatching ordinary ships and scouts.' \
+    'Routine ask-user decisions that do not expand into a helm-only class.' \
+    'Explicit PR merge approval.'; do
+    assert_contains "$honored" "- $item" "the phone must still honor a routine class: $item"
+    assert_not_contains "$refused" "$item" "an honored phone class drifted into the refusal list: $item"
+  done
+
+  # shellcheck disable=SC2016 # Backticks are literal Markdown in the skill text.
+  for item in \
+    'Discarding unlanded work or forcing teardown.' \
+    'Force-pushing.' \
+    'Deleting a repository or project.' \
+    'Changing credentials, tokens, secrets, authentication, or security settings.' \
+    'Spending money or authorizing a purchase.' \
+    'Anything `AGENTS.md` section 9 classes as destructive, irreversible, or security-sensitive.'; do
+    assert_contains "$refused" "- $item" "the phone must still refuse a helm-only class: $item"
+    assert_not_contains "$honored" "$item" "a helm-only class drifted into the honored list: $item"
+  done
+
+  assert_grep 'Do not loosen it because the sender is authenticated' "$skill" \
+    "the skill dropped its rule against widening the boundary for authenticated senders"
+  assert_grep 'Do not partially execute a refused request.' "$skill" \
+    "the skill dropped its no-partial-execution rule for refused requests"
+  assert_grep 'This needs confirmation at the helm before I can proceed.' "$skill" \
+    "the skill dropped the helm-confirmation refusal reply"
+  pass "the remote authority boundary keeps its exact honored and helm-only classes"
+}
+
 test_inert_by_default
 test_two_part_filter_and_bot_loop_guard_are_silent
 test_accepted_message_stashes_acks_and_wakes
@@ -444,3 +485,4 @@ test_reply_reads_file_verbatim_and_suppresses_mentions
 test_generic_errors_never_echo_configuration
 test_bootstrap_generation_identity_and_opt_out
 test_partial_bootstrap_config_stays_off_without_leaking_values
+test_authority_boundary_keeps_its_exact_classes
