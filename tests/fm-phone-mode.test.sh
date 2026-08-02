@@ -259,7 +259,8 @@ test_first_sweep_baselines_instead_of_replaying_history() {
   inbox=$(find "$home/state/phone-inbox" -type f 2>/dev/null | wc -l | tr -d ' ')
   [ "$inbox" = 0 ] || fail "first sweep must not stash pre-existing channel history"
   cursor=$(cat "$home/state/phone-cursor")
-  [ "${#cursor}" -ge 17 ] || fail "first sweep must baseline the cursor at now, not at an old id: $cursor"
+  [ "$cursor" = 5002 ] \
+    || fail "first sweep must baseline at Discord's channel head, not a local clock value: $cursor"
 
   next=$((cursor + 1))
   body=$(jq -cn --arg captain "$CAPTAIN_ID" --arg channel "$CHANNEL_ID" --arg id "$next" '
@@ -267,7 +268,7 @@ test_first_sweep_baselines_instead_of_replaying_history() {
   ')
   out=$(FM_PHONE_ACK=0 FAKE_PHONE_POLL_BODY="$body" run_poll "$home" "$fakebin")
   [ "$out" = "phone-message $next" ] || fail "a command sent after the baseline must be delivered: $out"
-  pass "opt-in baselines the cursor at now instead of replaying channel history as commands"
+  pass "opt-in baselines at the channel head instead of replaying history or trusting the local clock"
 }
 
 test_baselined_empty_channel_still_delivers_the_next_command() {

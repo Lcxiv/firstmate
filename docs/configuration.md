@@ -491,7 +491,8 @@ The poller's only visible authentication/configuration failures are generic loca
 An authenticated captain message whose content is empty - the signature of a bot without Discord's message-content intent - is reported the same way, as `phone-mode-error Discord message content unavailable`, instead of being dropped without any local or channel-side signal.
 
 The monotonic decimal-string cursor lives at `state/phone-cursor`, avoiding numeric precision loss for Discord snowflakes.
-A home with no cursor has never been swept, so its first sweep only baselines that cursor at the current time and delivers nothing: opting in starts from "now" and never replays existing channel history - including an old merge approval - as live captain direction.
+A home with no cursor has never been swept, so its first sweep only baselines that cursor at the channel's newest existing message and delivers nothing: opting in starts from "now" and never replays existing channel history - including an old merge approval - as live captain direction.
+That head id comes from Discord's own response, so no local clock reading can place the baseline past a message the captain has already sent; only an empty channel, which has no head to anchor to, falls back to a locally synthesized snowflake.
 Deleting `state/phone-cursor` therefore skips whatever is already in the channel rather than re-reading it.
 Each accepted full message object is create-once at `state/phone-inbox/<message_id>.json`, and a repeated transport response at or below the cursor cannot create a second command.
 One `phone-message <message_id>` wake may represent several accepted objects, so `fmphone-respond` drains the whole inbox in oldest-id order.

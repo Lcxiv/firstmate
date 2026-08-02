@@ -229,9 +229,11 @@ fm_phone_cursor_set() {
 }
 
 # Print a Discord snowflake for the current local time using Discord's public
-# 2015-01-01 epoch and 22-bit shift. It is used only to baseline a missing
-# cursor at "now", never to identify a real message. Fails when the clock or
-# the shell's integer width cannot produce a plausible snowflake.
+# 2015-01-01 epoch and 22-bit shift. It is the last-resort baseline for a
+# missing cursor on a channel that has no message id to anchor to, never an
+# identifier for a real message, and never preferred over an id Discord itself
+# returned. Fails when the clock or the shell's integer width cannot produce a
+# plausible snowflake.
 fm_phone_now_snowflake() {
   local secs value
   secs=$(date +%s 2>/dev/null) || return 1

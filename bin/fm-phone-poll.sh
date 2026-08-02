@@ -141,14 +141,15 @@ if [ "$STASH_FAILED" = 1 ]; then
 fi
 
 if [ "$BASELINE" = 1 ]; then
-  # Start from "now" so an empty first page cannot swallow the command that
-  # arrives before the next sweep, and keep the newest returned id when the
-  # local clock trails Discord.
-  BASE_ID=$(fm_phone_now_snowflake) || BASE_ID=$MAX_ID
-  if fm_phone_id_newer "$MAX_ID" "$BASE_ID"; then
+  # The newest id on an unfiltered first page is Discord's own channel head, so
+  # it baselines exactly at "everything that already exists" with no dependence
+  # on the local clock. Only a genuinely empty channel has no head to use, and
+  # its synthesized fallback still keeps the next command from being swallowed.
+  if [ "$MAX_ID" != 0 ]; then
     BASE_ID=$MAX_ID
+  else
+    BASE_ID=$(fm_phone_now_snowflake) || exit 0
   fi
-  [ "$BASE_ID" != 0 ] || exit 0
   if ! fm_phone_cursor_set "$STATE" "$BASE_ID"; then
     emit_error_once "cannot record cursor"
     exit 0
