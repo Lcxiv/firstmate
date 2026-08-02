@@ -90,6 +90,16 @@ test_predicate_x_mode_needs_supervision() {
   pass "fm_supervision_needed: X-mode relay poll needs supervision without changing the task predicate"
 }
 
+test_predicate_phone_mode_needs_supervision() {
+  local state="$TMP_ROOT/pred-phone-mode/state"
+  mkdir -p "$state"
+  : > "$state/phone-watch.check.sh"
+  fm_supervision_needed "$state" 300 || fail "Discord phone poll did not register as supervision need"
+  [ "$FM_SUP_IN_FLIGHT" -eq 0 ] || fail "Discord phone poll must not count as an in-flight task"
+  [ "$FM_SUP_NEEDED" = true ] || fail "Discord phone poll must set FM_SUP_NEEDED"
+  pass "fm_supervision_needed: Discord phone poll needs supervision without fleet work"
+}
+
 # --- HOOK: bin/fm-turnend-guard.sh ------------------------------------------
 #
 # Each scenario gets its own directory carrying a copy of the two guard scripts
@@ -319,6 +329,19 @@ test_hook_x_mode_reason_sources_cadence() {
   expect_code 2 "$status" "hook must block when in-flight X-mode work has no live watcher"
   assert_contains "$out" "source '$home/config/x-mode.env' first" "block reason must source the effective X-mode cadence"
   pass "fm-turnend-guard: X-mode repair reason sources the cadence config"
+}
+
+test_hook_phone_mode_reason_sources_cadence() {
+  local dir home out status
+  dir=$(make_primary_dir "$TMP_ROOT/hook-phone-mode")
+  home=$(cd "$dir" && pwd)
+  mkdir -p "$dir/config"
+  : > "$dir/config/phone-mode.env"
+  : > "$dir/state/task1.meta"
+  out=$(run_hook "$dir" false); status=$?
+  expect_code 2 "$status" "hook must block when in-flight phone-mode work has no live watcher"
+  assert_contains "$out" "source '$home/config/phone-mode.env' first" "block reason must source the effective phone-mode cadence"
+  pass "fm-turnend-guard: phone-mode repair reason sources the cadence config"
 }
 
 test_hook_ignores_repo_state_when_fm_home_set() {
@@ -976,9 +999,20 @@ test_hook_claude_mode_reblocks_x_mode_without_tasks() {
   : > "$dir/state/x-watch.check.sh"
   out=$(FM_CLAUDE_AUTOARM_SYNC_WAIT_MS=200 run_hook_claude "$dir" true); status=$?
   expect_code 2 "$status" "--claude mode must re-block an X-mode-only stop when no auto-arm claims recovery"
-  assert_contains "$out" "X-mode relay polling needs supervision" "--claude X-mode re-block must name the active supervision need"
+  assert_contains "$out" "Remote command polling needs supervision" "--claude X-mode re-block must name the active supervision need"
   [ -f "$dir/state/.turnend-claude-blocks" ] || fail "--claude X-mode re-block must consume the shared block budget"
   pass "fm-turnend-guard --claude: X-mode-only homes re-block when auto-arm recovery is absent"
+}
+
+test_hook_claude_mode_reblocks_phone_mode_without_tasks() {
+  local dir out status
+  dir=$(make_primary_dir "$TMP_ROOT/hook-claude-phone-mode")
+  : > "$dir/state/phone-watch.check.sh"
+  out=$(FM_CLAUDE_AUTOARM_SYNC_WAIT_MS=200 run_hook_claude "$dir" true); status=$?
+  expect_code 2 "$status" "--claude mode must re-block a phone-mode-only stop when no auto-arm claims recovery"
+  assert_contains "$out" "Remote command polling needs supervision" "--claude phone-mode re-block must name the active supervision need"
+  [ -f "$dir/state/.turnend-claude-blocks" ] || fail "--claude phone-mode re-block must consume the shared block budget"
+  pass "fm-turnend-guard --claude: phone-mode-only homes re-block when auto-arm recovery is absent"
 }
 
 test_hook_claude_mode_allows_when_autoarm_owner_alive() {
@@ -1110,6 +1144,7 @@ test_predicate_unhealthy_stale_beacon
 test_predicate_healthy_fresh_beacon
 test_predicate_queue_pending_flag
 test_predicate_x_mode_needs_supervision
+test_predicate_phone_mode_needs_supervision
 test_hook_silent_when_no_work_in_flight
 test_hook_blocks_when_fresh_beacon_has_no_live_lock
 test_hook_blocks_when_dead_lock_has_fresh_beacon
@@ -1118,6 +1153,7 @@ test_hook_blocks_with_live_lock_and_stale_beacon
 test_hook_blocks_when_unhealthy_in_primary
 test_hook_blocks_from_fm_home_state
 test_hook_x_mode_reason_sources_cadence
+test_hook_phone_mode_reason_sources_cadence
 test_hook_ignores_repo_state_when_fm_home_set
 test_hook_uses_state_override
 test_hook_loop_guard_allows_retry
@@ -1147,6 +1183,7 @@ test_pi_extension_injects_once_per_logical_agent_run
 test_pi_extension_retries_after_followup_delivery_failure
 test_hook_claude_mode_reblocks_stop_hook_active_when_unhealthy
 test_hook_claude_mode_reblocks_x_mode_without_tasks
+test_hook_claude_mode_reblocks_phone_mode_without_tasks
 test_hook_claude_mode_allows_when_autoarm_owner_alive
 test_hook_claude_mode_allows_on_fresh_rewake_epoch
 test_hook_claude_mode_stale_rewake_epoch_blocks

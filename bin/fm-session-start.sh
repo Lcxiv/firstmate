@@ -31,7 +31,8 @@
 #                       when this session actually holds the lock. Detect-only
 #                       diagnostics always run. Bootstrap's five MUTATING sweeps
 #                       (legacy PR-check migration, secondmate fast-forward,
-#                       secondmate liveness, X-mode artifact writes, fleet sync)
+#                       secondmate liveness, remote-channel artifact writes,
+#                       fleet sync)
 #                       also run only when locked.
 #   3. wake-drain     - mutates the durable wake queue, so it also only runs
 #                       when locked.
@@ -52,7 +53,7 @@
 #
 # Why lock first: the old documented order (bootstrap, THEN lock) let a
 # SECOND concurrent session run bootstrap's mutating sweeps - fast-forwarding
-# secondmate homes, writing X-mode artifacts, fetching/fast-forwarding every
+# secondmate homes, writing remote-channel artifacts, fetching/fast-forwarding every
 # project clone - before ever discovering another session already holds the
 # lock. Two sessions racing those sweeps is exactly the hazard the lock
 # exists to prevent, so locking first closes the hole outright: only the
@@ -259,7 +260,7 @@ if [ "$LOCK_RC" -ne 0 ]; then
     printf '●  READ-ONLY SESSION - FLEET LOCK OWNERSHIP WAS NOT VERIFIED\n'
     printf '●  %s\n' "$LOCK_OUT"
     printf '●  Skipping every mutating step: PR-check migration, stale Herdr child cleanup,\n'
-    printf '●  secondmate sync, X-mode artifacts, fleet sync, and wake-queue drain. Detect-only bootstrap\n'
+    printf '●  secondmate sync, remote-channel artifacts, fleet sync, and wake-queue drain. Detect-only bootstrap\n'
     printf '●  diagnostics and the rest of this read-only-safe digest still ran below.\n'
     printf '●  Operate read-only until this resolves - do not spawn, steer, merge, or\n'
     printf '●  otherwise mutate fleet state from this session.\n'
@@ -312,6 +313,8 @@ AFK_PRESENT=0
 [ -e "$STATE/.afk" ] && AFK_PRESENT=1
 X_MODE_PRESENT=0
 [ -f "$CONFIG/x-mode.env" ] && X_MODE_PRESENT=1
+PHONE_MODE_PRESENT=0
+[ -f "$CONFIG/phone-mode.env" ] && PHONE_MODE_PRESENT=1
 
 if [ "$PRIMARY_HARNESS" = pi ] || [ "$PRIMARY_HARNESS" = pi-signed ]; then
   PI_EXT="$FM_ROOT/.pi/extensions/fm-primary-pi-watch.ts"
@@ -332,7 +335,8 @@ fi
   --harness "$PRIMARY_HARNESS" \
   --read-only "$READ_ONLY" \
   --afk "$AFK_PRESENT" \
-  --x-mode "$X_MODE_PRESENT"
+  --x-mode "$X_MODE_PRESENT" \
+  --phone-mode "$PHONE_MODE_PRESENT"
 
 # --- 4. context digest -----------------------------------------------------
 section "CONTEXT"
@@ -429,10 +433,10 @@ load /afk and ensure the daemon is running, because the daemon owns watcher
 supervision.
 
 EOF
-elif [ -f "$CONFIG/x-mode.env" ]; then
+elif [ -f "$CONFIG/x-mode.env" ] || [ -f "$CONFIG/phone-mode.env" ]; then
   cat <<EOF
 Follow the supervision operating instructions block above for harness '$PRIMARY_HARNESS'.
-X mode is active, so the emitted block's cadence instruction applies.
+Remote command polling is active, so the emitted block's cadence instruction applies.
 This script never starts supervision itself.
 
 EOF

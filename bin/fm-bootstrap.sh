@@ -17,7 +17,9 @@
 #                 "NUDGE_SECONDMATES: secondmate <id>: send failed: <reason>",
 #                 "BOOTSTRAP_INFO: nudged fm-<id> with '<message>'",
 #                 "SECONDMATE_LIVENESS: secondmate <id>: skipped: <reason>|respawn failed after <cause>: <reason>",
-#                 "FMX: X mode on ..." or "FMX: X mode off ...".
+#                 "FMX: X mode on ..." or "FMX: X mode off ...",
+#                 "PHONE: Discord phone mode on ..." or
+#                 "PHONE: Discord phone mode off ...".
 #          When a RUNNING secondmate worktree is fast-forwarded to firstmate's
 #          own current default-branch commit (a purely LOCAL fast-forward, never
 #          an origin fetch) AND its loaded instruction surface (AGENTS.md, bin/,
@@ -67,6 +69,12 @@
 #          X mode is OPTIONAL and inert unless FM_HOME/.env has a non-empty
 #          FMX_PAIRING_TOKEN. When opted in, bootstrap requires curl+jq, writes
 #          the relay poll shim and 30s cadence config, and prints an FMX line.
+#          Discord phone mode is OPTIONAL and inert unless FM_HOME/.env has a
+#          valid non-empty FM_PHONE_DISCORD_TOKEN, FM_PHONE_CAPTAIN_ID, and
+#          FM_PHONE_CHANNEL_ID. When opted in, bootstrap requires curl+jq,
+#          writes and registers its poll shim plus 30s cadence config, and
+#          prints a PHONE line. A partial configuration stays off and is
+#          reported without echoing any configured value.
 #          Fleet sync fetches, fast-forwards safe default-branch states, reports
 #          recovered and STUCK clone drift, and prunes gone local branches; it is
 #          bounded by FM_FLEET_SYNC_BOOTSTRAP_TIMEOUT when it is a non-empty
@@ -78,12 +86,12 @@
 #          Set FM_FLEET_PRUNE=0 to skip branch pruning during that refresh.
 #          Set FM_BOOTSTRAP_DETECT_ONLY=1 to skip the five MUTATING sweeps
 #          (PR-check migration, secondmate_sync, secondmate_liveness_sweep,
-#          x_mode_setup, fleet_sync) while still printing every read-only detect line
+#          remote-channel artifact setup, fleet_sync) while still printing every read-only detect line
 #          above; the TANGLE line switches to advisory-only wording with no
 #          checkout command. Used by
 #          fm-session-start.sh's read-only path when another live session holds
 #          the fleet lock, so a second concurrent session never race-mutates
-#          PR-check artifacts, secondmate homes, X-mode artifacts, project
+#          PR-check artifacts, secondmate homes, remote-channel artifacts, project
 #          clones, or repair instructions.
 #          Unset/0 (the default) runs every sweep exactly as before - this flag
 #          is purely additive.
@@ -112,6 +120,8 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-startup-memory-budget-lib.sh"
 # shellcheck source=bin/fm-x-lib.sh disable=SC1091
 . "$SCRIPT_DIR/fm-x-lib.sh"
+# shellcheck source=bin/fm-phone-lib.sh disable=SC1091
+. "$SCRIPT_DIR/fm-phone-lib.sh"
 # shellcheck source=bin/fm-backend.sh disable=SC1091
 . "$SCRIPT_DIR/fm-backend.sh"
 
@@ -721,6 +731,131 @@ EOF
   echo "FMX: X mode on - relay poll armed via state/x-watch.check.sh; 30s watcher cadence in config/x-mode.env"
 }
 
+# Discord phone mode (opt-in): all three authentication/configuration values
+# must be present and valid in this home's .env. The byte-static shim is bound
+# through the existing custom-check trust record, so the watcher executes only
+# the exact bootstrap-published bytes. Opt-out removes the shim, trust record,
+# and cadence file; the durable inbox and cursor are retained for explicit
+# operator cleanup and forensic continuity.
+phone_mode_setup() {
+  local env_file token captain channel shim trust cadence shim_body cadence_body
+  local tool missing shim_home any_config
+  env_file="$FM_HOME/.env"
+  shim="$STATE/phone-watch.check.sh"
+  trust="$STATE/phone-watch.check-trust"
+  cadence="$CONFIG/phone-mode.env"
+
+  token=
+  captain=
+  channel=
+  if [ -f "$env_file" ]; then
+    token=$(fmx_env_get FM_PHONE_DISCORD_TOKEN "$env_file")
+    captain=$(fmx_env_get FM_PHONE_CAPTAIN_ID "$env_file")
+    channel=$(fmx_env_get FM_PHONE_CHANNEL_ID "$env_file")
+  fi
+  any_config=0
+  if [ -n "$token" ] || [ -n "$captain" ] || [ -n "$channel" ]; then
+    any_config=1
+  fi
+
+  phone_mode_remove_artifacts() {
+    local failed=0
+    x_mode_remove_artifact "$shim" || failed=1
+    x_mode_remove_artifact "$trust" || failed=1
+    x_mode_remove_artifact "$cadence" || failed=1
+    [ "$failed" -eq 0 ]
+  }
+
+  phone_mode_artifacts_present() {
+    x_mode_artifact_present "$shim" \
+      || x_mode_artifact_present "$trust" \
+      || x_mode_artifact_present "$cadence"
+  }
+
+  phone_mode_supervision_repair() {
+    local out
+    out=$("$SCRIPT_DIR/fm-supervision-instructions.sh" --repair-line 2>/dev/null) \
+      || out='repair missing watcher supervision according to the session-start operating block.'
+    printf '%s\n' "$out"
+  }
+
+  if [ "$any_config" -eq 0 ]; then
+    if phone_mode_artifacts_present; then
+      if phone_mode_remove_artifacts; then
+        echo "PHONE: Discord phone mode off - removed poll shim, trust record, and 30s cadence; default cadence applies on the next supervision cycle; $(phone_mode_supervision_repair)"
+      else
+        echo "PHONE: Discord phone mode off - failed to remove poll shim, trust record, or 30s cadence"
+      fi
+    fi
+    return 0
+  fi
+
+  if [ -z "$token" ] \
+    || ! fm_phone_discord_id_valid "$captain" \
+    || ! fm_phone_discord_id_valid "$channel"; then
+    if phone_mode_remove_artifacts; then
+      echo "PHONE: Discord phone mode off - incomplete or invalid configuration"
+    else
+      echo "PHONE: Discord phone mode off - incomplete or invalid configuration; stale artifacts remain"
+    fi
+    return 0
+  fi
+
+  missing=0
+  for tool in curl jq; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+      echo "MISSING: $tool (install: $(install_cmd "$tool"))"
+      missing=1
+    fi
+  done
+  if [ "$missing" -ne 0 ]; then
+    if phone_mode_remove_artifacts; then
+      echo "PHONE: Discord phone mode off - missing poll dependencies; install them and rerun bootstrap"
+    else
+      echo "PHONE: Discord phone mode off - missing poll dependencies and failed to remove stale artifacts"
+    fi
+    return 0
+  fi
+
+  phone_mode_arm_failed() {
+    if phone_mode_remove_artifacts; then
+      echo "PHONE: Discord phone mode off - failed to arm poll shim, trust record, or 30s cadence"
+    else
+      echo "PHONE: Discord phone mode off - failed to arm poll shim, trust record, or 30s cadence; stale artifacts remain"
+    fi
+  }
+
+  mkdir -p "$STATE" "$CONFIG" 2>/dev/null || { phone_mode_arm_failed; return 0; }
+  case "$FM_HOME" in
+    /*) shim_home=$FM_HOME ;;
+    *)
+      shim_home=$(CDPATH='' cd -- "$FM_HOME" 2>/dev/null && pwd -P) \
+        || { phone_mode_arm_failed; return 0; }
+      ;;
+  esac
+
+  shim_body=$(fm_phone_poll_shim_content "$shim_home" "$FM_ROOT")
+  x_mode_write_if_changed "$shim" "$shim_body" 700 \
+    || { phone_mode_arm_failed; return 0; }
+  fm_phone_poll_shim_valid "$shim" "$shim_home" "$FM_ROOT" \
+    || { phone_mode_arm_failed; return 0; }
+  FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
+    "$SCRIPT_DIR/fm-check-register.sh" phone-watch >/dev/null 2>&1 \
+    || { phone_mode_arm_failed; return 0; }
+
+  cadence_body=$(cat <<'EOF'
+# Auto-generated by fm-bootstrap.sh - Discord phone-mode watcher cadence.
+# Source this before the active harness protocol starts a watcher process so
+# fm-watch.sh polls the registered Discord command check every 30s.
+export FM_CHECK_INTERVAL=30
+EOF
+)
+  x_mode_write_if_changed "$cadence" "$cadence_body" 600 \
+    || { phone_mode_arm_failed; return 0; }
+
+  echo "PHONE: Discord phone mode on - authenticated poll armed; 30s watcher cadence configured"
+}
+
 crew_dispatch_validate() {
   local file err
   file="$CONFIG/crew-dispatch.json"
@@ -908,6 +1043,7 @@ if [ "${FM_BOOTSTRAP_DETECT_ONLY:-0}" != 1 ]; then
   secondmate_liveness_sweep
   secondmate_sync
   x_mode_setup
+  phone_mode_setup
   fleet_sync
 fi
 exit 0

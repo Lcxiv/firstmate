@@ -11,7 +11,7 @@ The shared orchestrator behavior lives in [`AGENTS.md`](../AGENTS.md) - edit it 
 This section is the single owner of the top-level operational-home layout; producer script headers and their help own exact child-file fields and mutation contracts.
 The tracked code root contains the shared instruction, skill, documentation, workflow, and `bin/` surfaces, while each effective `FM_HOME` contains private operational directories.
 `data/` holds durable private fleet records such as the project and secondmate registries, captain preferences, optional shared captain preferences, learnings, backlog, briefs, and scout reports.
-`state/` holds volatile runtime records such as task metadata, append-only status events, endpoint signals, watcher and wake-queue coordination, away-mode state, generated X-mode artifacts, private secondmate config-reread generations with their retry and quarantine state, and parent-owned secondmate pending-reply records under `state/pending-replies/` (`bin/fm-pending-reply-lib.sh`).
+`state/` holds volatile runtime records such as task metadata, append-only status events, endpoint signals, watcher and wake-queue coordination, away-mode state, generated X-mode and Discord phone-mode artifacts, private secondmate config-reread generations with their retry and quarantine state, and parent-owned secondmate pending-reply records under `state/pending-replies/` (`bin/fm-pending-reply-lib.sh`).
 `config/` holds local gitignored operating choices, and `projects/` holds the local project clones that Firstmate reads but changes only through the narrow guarded and concrete captain-approved exceptions in `AGENTS.md`.
 
 `bin/fm-spawn.sh` owns the base task-metadata fields it emits, while the runtime-backend section below owns backend-specific fields and selector interpretation.
@@ -184,7 +184,7 @@ When `FM_HOME` is unset, it also behaves as the old whole-root override.
 `bin/fm-send.sh` is intentionally stricter than that general fallback: it requires `FM_HOME` to be set before resolving a target, so operator steers cannot silently resolve against the wrong home.
 `FM_STATE_OVERRIDE`, `FM_DATA_OVERRIDE`, `FM_PROJECTS_OVERRIDE`, and `FM_CONFIG_OVERRIDE` override individual operational directories for tests and specialized harness setup.
 Before `fm-brief.sh`, `fm-spawn.sh`, or `fm-afk-launch.sh` persists a path or passes it to another process, it resolves each applicable relative `FM_HOME`, `FM_STATE_OVERRIDE`, or `FM_DATA_OVERRIDE` directory against the caller's working directory, preserves absolute spellings unchanged, and rejects an unresolvable relative directory with the offending variable named.
-Bootstrap applies the same relative `FM_HOME` resolution only when embedding that home in the generated X-mode poll shim; other transient consumers retain their existing shell-relative behavior.
+Bootstrap applies the same relative `FM_HOME` resolution only when embedding that home in the generated X-mode and Discord phone poll shims; other transient consumers retain their existing shell-relative behavior.
 For the herdr backend, `FM_HOME` also determines the workspace label used by the adapter.
 For the zellij backend, `FM_HOME` does not split containers, but it determines the readable home prefix embedded in visible tab titles; use `FM_ZELLIJ_SESSION` when a separate zellij session is needed.
 The full zellij home label also includes a short hash of the resolved `FM_ROOT` path.
@@ -284,7 +284,7 @@ An unknown resolved backend emits `BACKEND_INVALID` and blocks dispatch instead 
 Orca provides both the task worktree and terminal endpoint (see "Runtime backend" above), so `backend=orca` requires only `orca` on top of the universal toolchain and skips both `treehouse` and every other backend's session CLI.
 A herdr, zellij, or cmux home is therefore never told `tmux` is missing, and the `treehouse` durable-lease upgrade check runs only for the backends that actually use treehouse.
 When `config/crew-dispatch.json` exists, bootstrap also requires `jq` for dispatch profile validation.
-When X mode is opted in, bootstrap also requires `curl` and `jq` before arming the relay poll shim.
+When X mode or Discord phone mode is opted in, bootstrap also requires `curl` and `jq` before arming its poll shim.
 `tasks-axi` and `quota-axi` are required bootstrap tools in every profile, the same class as `lavish-axi`.
 An absent or incompatible `tasks-axi` reports `MISSING: tasks-axi (install: npm install -g tasks-axi)`; when `config/backlog-backend` is not `manual` and compatible `tasks-axi` is on `PATH`, bootstrap stays silent and firstmate uses its verbs for routine backlog mutations, otherwise it hand-edits `data/backlog.md` until installation is approved and completed.
 An absent or too-old `quota-axi` reports `MISSING: quota-axi (install: npm install -g quota-axi)`; firstmate cannot run selected-surface authentication preflight or resolve a profile array without a compatible binary.
@@ -324,13 +324,14 @@ For direct client invocations, environment values override `.env`; bootstrap act
 The locked session-start bootstrap step turns the token into local generated state.
 It writes `state/x-watch.check.sh`, a byte-static identity shim for `bin/fm-x-poll.sh`, and `config/x-mode.env`, which exports `FM_CHECK_INTERVAL=30` for watcher processes in that home.
 The watcher accepts the shim only when its bytes match the expected generated content, then invokes the trusted repository poll script directly instead of executing state-file source.
-This section is the single owner of the X-mode cadence contract: an X instance polls every 30 seconds instead of the default 300, only an X instance speeds up because a non-X home has no `config/x-mode.env`, and the session-start supervision operating block includes the cadence instruction when that file exists.
+This section is the single owner of the X-mode cadence contract: an X instance generates a 30-second cadence instead of the default 300, and the session-start supervision operating block includes the cadence instruction when that file exists.
+Discord phone mode independently generates the same interval under its own section below; a home with neither remote-command mode keeps the default cadence, and a home with both needs to source only one identical setting.
 The active primary-harness supervision protocol owns how that sourced cadence reaches the watcher process.
 Because `bin/fm-watch.sh` reads `FM_CHECK_INTERVAL` only at process start, a cadence transition - opt-in while a watcher is already running, or opt-out - is applied by restarting the home-scoped watcher through the emitted harness protocol; bootstrap deliberately never restarts the watcher itself.
 While away mode is active the daemon owns the watcher and its default cadence applies; away-mode X cadence is a deferred follow-up.
 When the token is removed or empty, the next locked session-start bootstrap step removes those artifacts.
 Steady-state off is silent and writes nothing.
-X mode remains additive to non-X lifecycle behavior: homes without the generated artifacts keep the default watcher cadence and do not run the X poll.
+X mode remains additive to non-X lifecycle behavior: homes without either remote-command mode's generated cadence keep the default watcher interval, and homes without the X shim do not run the X poll.
 Its request handling remains in X-specific `bin/` scripts and the `fmx-respond` skill, while the watcher owns authenticated dispatch from the generated local identity shim.
 
 `bin/fm-x-poll.sh` calls `GET /connector/poll` with `Authorization: Bearer <FMX_PAIRING_TOKEN>`.
@@ -409,7 +410,8 @@ See [verification/public-followup.md](verification/public-followup.md) for the c
 ## Phone notifications (.env)
 
 Phone notifications mirror a captain-facing outcome message that firstmate has already composed into a chat channel the captain reads on their phone.
-The flow is outbound only: there is no inbound control path, no polling, and no new background process, and the message is sent by the live session as part of the turn that composed it.
+The notification sender itself is outbound only: it does not poll or create a background process, and it sends from the live session as part of the turn that composed the message.
+The separately opted-in Discord phone mode below owns the inbound control path.
 If no session is running, nothing is sent until the next session start, which then reconciles and reports as usual.
 `bin/fm-notify.sh` is a dumb sender; AGENTS.md section 9 remains the single owner of what is worth telling the captain and of the wording.
 
@@ -443,8 +445,76 @@ There is no generated state to clean up.
 
 Security surface, stated plainly: the webhook URL is a write-only capability for one channel.
 Someone who obtains it can post fake notifications into that channel, which is why it belongs only in the gitignored 0600 `.env` and never in the repo, a commit, or a task note.
-It grants no read access to the channel, no access to the rest of the Discord server, and no path of any kind back into firstmate, because nothing here accepts inbound messages.
+It grants no read access to the channel, no access to the rest of the Discord server, and no authority through the separately configured Discord phone bot.
 Revoke on suspicion by deleting the webhook in Discord and creating a new one.
+
+## Discord phone mode (.env)
+
+Discord phone mode lets the captain send private commands to firstmate from a phone without adding another LLM, a gateway daemon, or pane injection.
+Discord is the only inbound provider.
+The existing watcher is the only daemon: its authenticated check runs one bounded Discord history request per due sweep and emits a durable wake when a validated command is ready.
+
+Phone mode is off unless the firstmate home's gitignored `.env` contains all three required values:
+
+```sh
+FM_PHONE_DISCORD_TOKEN=<bot-token>
+FM_PHONE_CAPTAIN_ID=<captain-discord-user-id>
+FM_PHONE_CHANNEL_ID=<private-discord-channel-id>
+```
+
+Keep `.env` at mode 0600.
+The bot token is a secret, while the two numeric ids are authentication configuration that must still never be printed in operator diagnostics or wake lines.
+An existing Discord bot may be reused if it can view the private channel, read message history, read message content, and send messages there.
+Enable Discord Developer Mode to copy the captain user id and private channel id, and enable the bot's message-content intent when Discord requires it.
+The outbound `FM_NOTIFY_TARGET` webhook may point at the same channel, but it remains a separate write-only capability and is not used to authenticate inbound commands.
+
+All three values are the opt-in boundary.
+No `.env`, three absent or empty values, or an incomplete configuration does not arm a poll.
+For direct poll and reply invocations, explicit environment values override `.env`, and `FM_PHONE_ENV_FILE` may redirect that direct-client read for hermetic tests.
+Bootstrap activation always checks the effective home's own `.env`, so a transient process environment cannot silently make the watcher persistent.
+The generated shim exports `FM_PHONE_CONFIG_SOURCE=home-env`, which pins every watcher-dispatched poll to that same `.env` and ignores both environment overrides and `FM_PHONE_ENV_FILE`, so the identity the watcher authenticates is always the identity that gated activation.
+
+The locked session-start bootstrap step writes `state/phone-watch.check.sh`, registers its exact bytes in `state/phone-watch.check-trust`, and writes `config/phone-mode.env` exporting `FM_CHECK_INTERVAL=30`.
+The watcher accepts the phone shim only through the existing hash-validated custom-check snapshot path.
+The supervision operating block sources one active 30-second cadence file before watcher launch; when X mode and phone mode are both enabled, their identical interval makes one deterministic source sufficient.
+A phone-only home still needs that live supervision cycle even with no fleet work.
+While away mode owns supervision, its existing cadence contract applies and phone latency may fall back to the default interval.
+
+`bin/fm-phone-poll.sh` performs one `GET /channels/{channel}/messages?limit=50`, adding `&after=<cursor>` once a cursor exists, with a 5-second default hard timeout clamped to 1 through 10 seconds by `FM_PHONE_TIMEOUT_SECS`.
+The token and channel URL are staged in mode-0600 temporary files rather than exposed in curl argv.
+Network unavailability, rate limiting, and non-success responses exit cleanly without a retry loop or response-body logging.
+
+A message is accepted only when its Discord `author.id` equals `FM_PHONE_CAPTAIN_ID` and its `channel_id` equals `FM_PHONE_CHANNEL_ID`.
+Both checks are required, and bot-authored messages are independently rejected so outbound acknowledgements and replies can never loop back into the bridge.
+Every other sender or channel is dropped silently with no reply, pairing chatter, or diagnostic to the sender.
+The poller's only visible authentication/configuration failures are generic local `phone-mode-error` wakes that contain none of the configured values.
+An authenticated captain message whose content is empty - the signature of a bot without Discord's message-content intent - is reported the same way, as `phone-mode-error Discord message content unavailable`, instead of being dropped without any local or channel-side signal.
+
+The monotonic decimal-string cursor lives at `state/phone-cursor`, avoiding numeric precision loss for Discord snowflakes.
+A home with no cursor has never been swept, so its first sweep only baselines that cursor at the channel's newest existing message and delivers nothing: opting in starts from "now" and never replays existing channel history - including an old merge approval - as live captain direction.
+That head id comes from Discord's own response, so no local clock reading can place the baseline past a message the captain has already sent; only an empty channel, which has no head to anchor to, falls back to a locally synthesized snowflake.
+Deleting `state/phone-cursor` therefore skips whatever is already in the channel rather than re-reading it.
+Each accepted full message object is create-once at `state/phone-inbox/<message_id>.json`, and a repeated transport response at or below the cursor cannot create a second command.
+One `phone-message <message_id>` wake may represent several accepted objects, so `fmphone-respond` drains the whole inbox in oldest-id order.
+The inbox plus cursor preserve at-least-once delivery while giving firstmate exactly-once command processing under normal retries.
+
+`FM_PHONE_ACK` defaults on.
+After at least one command is durably accepted and the cursor advances, the poller makes at most one additional bounded POST containing `⚓ received`.
+That acknowledgement reports durable receipt only; failure is silent, and the command wake still proceeds.
+Set `FM_PHONE_ACK=0` to disable it.
+
+`fmphone-respond` owns classification and the phone authority procedure.
+Routine direction, priorities, questions, ship or scout dispatch, routine decisions, and explicit PR merge approval are eligible; destructive, irreversible, security-sensitive, credential, secret, spending, force, discard, teardown, and deletion requests receive an explicit helm-only refusal with no partial execution.
+Replies go through `bin/fm-phone-reply.sh <message_id> --text-file <path>`, which keeps Discord-influenced text out of shell interpolation, suppresses mentions, and splits within Discord's message limit.
+`FM_PHONE_REPLY_MAX_CHARS` defaults to 1900 and clamps to 50 through 1900, while `FM_PHONE_REPLY_MAX_PARTS` defaults to 4 and clamps to 1 through 10.
+
+To opt out, remove the three required `FM_PHONE_*` values and run the next locked session start.
+Bootstrap removes `state/phone-watch.check.sh`, `state/phone-watch.check-trust`, and `config/phone-mode.env`, so polling and the faster cadence stop.
+The durable `state/phone-inbox/` and `state/phone-cursor` remain for deliberate review or cleanup rather than being destroyed automatically.
+Revoke or rotate the Discord bot token platform-side when retiring the channel or after suspected exposure.
+
+Token theft permits reading and posting as the bot but does not forge a captain-authored Discord message.
+Captain-account takeover defeats the sender-id assertion, which is why the helm-only command classes remain enforced even after both Discord filters pass.
 
 ## Environment variables
 
@@ -479,7 +549,7 @@ FM_GUARD_CONTINUE_LINE='This is a supervision warning only; the guarded operatio
 FM_POLL=15              # seconds between watcher poll cycles
 FM_HEARTBEAT=600        # base seconds between heartbeat scans; no-change heartbeats are absorbed while idle
 FM_HEARTBEAT_MAX=7200   # heartbeat backoff cap
-FM_CHECK_INTERVAL=300   # seconds between slow checks (authenticated merge polls, custom checks, or X-mode dispatch)
+FM_CHECK_INTERVAL=300   # seconds between slow checks (authenticated merge polls, custom checks, X mode, or Discord phone mode)
 FM_CHECK_TIMEOUT=30     # seconds allowed per slow check script
 FM_CODEX_WATCH_CHECKPOINT=180   # seconds per foreground watcher checkpoint in Codex primary supervision
 FM_CREW_STATE_NM_TIMEOUT=10   # seconds allowed per no-mistakes query inside fm-crew-state.sh
@@ -501,6 +571,14 @@ FM_NOTIFY_TIMEOUT_SECS=10   # per-request phone-notification transport timeout; 
 FM_NOTIFY_RETRY_CAP_SECS=5   # upper bound on an honoured phone-notification rate-limit wait; values outside 0..30 clamp into range
 FM_NOTIFY_MAX_PARTS=4    # maximum messages one oversized notification body is split into; values outside 1..10 clamp into range
 FM_NOTIFY_ENV_FILE=      # optional alternate file every FM_NOTIFY_* read uses instead of $FM_HOME/.env, the opt-in target included
+FM_PHONE_DISCORD_TOKEN=  # Discord bot token for inbound phone mode; secret and required with both ids
+FM_PHONE_CAPTAIN_ID=     # only this Discord author id is accepted; required with token and channel id
+FM_PHONE_CHANNEL_ID=     # only this private Discord channel id is accepted; required with token and captain id
+FM_PHONE_ACK=1           # send one bounded receipt acknowledgement after durable acceptance; set 0 to disable
+FM_PHONE_TIMEOUT_SECS=5  # Discord request timeout; values outside 1..10 clamp into range
+FM_PHONE_REPLY_MAX_CHARS=1900  # per-message phone reply budget; values outside 50..1900 clamp into range
+FM_PHONE_REPLY_MAX_PARTS=4     # maximum messages in one phone reply; values outside 1..10 clamp into range
+FM_PHONE_ENV_FILE=       # optional alternate .env-style file for direct phone clients; bootstrap and the generated watcher shim still use $FM_HOME/.env
 FM_LOCK_STALE_AFTER=2   # seconds before dead-pid lock records can be reclaimed; mid-acquire locks keep at least 2s grace
 FM_GUARD_GRACE=300      # seconds before guard warnings, arm health checks, and the primary turn-end guard treat a watcher beacon as stale
 FM_CLAUDE_AUTOARM_SYNC_WAIT_MS=800   # milliseconds the --claude turn-end guard waits for the Stop auto-arm's claim, health, or fresh rewake epoch before re-blocking

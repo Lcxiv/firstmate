@@ -1218,6 +1218,31 @@ EOF
   pass "session start emits X-mode cadence guidance in the harness supervision block"
 }
 
+test_next_step_sources_phone_mode_cadence() {
+  local rec root home fakebin out
+  rec=$(new_world next-step-phone)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  fm_fake_exit0 "$fakebin" curl jq
+  {
+    printf 'FM_PHONE_DISCORD_TOKEN=synthetic-session-token\n'
+    printf 'FM_PHONE_CAPTAIN_ID=710000000000000001\n'
+    printf 'FM_PHONE_CHANNEL_ID=720000000000000001\n'
+  } > "$home/.env"
+
+  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+
+  assert_contains "$out" "PHONE: Discord phone mode on" "bootstrap did not activate Discord phone mode"
+  assert_contains "$out" "SUPERVISION OPERATING INSTRUCTIONS - primary harness: claude" "phone-mode supervision block missing"
+  assert_contains "$out" "- Phone mode: active" "supervision block did not mention phone cadence"
+  assert_contains "$out" "Remote command polling is active" "next step did not apply remote-command cadence guidance"
+
+  pass "session start emits Discord phone-mode cadence guidance in the harness supervision block"
+}
+
 test_next_step_afk_delegates_to_daemon() {
   local rec root home fakebin out
   rec=$(new_world next-step-afk)
@@ -1414,6 +1439,7 @@ test_backlog_compact_manual_backend_skips_indented_bodies
 test_backlog_compact_tasks_axi_unavailable_uses_manual_fallback
 test_fleet_digest_empty_fleet
 test_next_step_sources_x_mode_cadence
+test_next_step_sources_phone_mode_cadence
 test_next_step_afk_delegates_to_daemon
 test_supervision_block_exactly_one_and_pi_diagnostic
 test_pi_signed_primary_uses_pi_extensions_without_identity_normalization

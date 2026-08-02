@@ -32,10 +32,11 @@ test_conditional_stanzas() {
   home="$TMP_ROOT/conditional-home"
   config="$TMP_ROOT/conditional-config"
   mkdir -p "$home/state" "$home/config" "$config"
-  out=$(FM_HOME="$home" FM_CONFIG_OVERRIDE="$config" "$RENDER" --harness codex --read-only 1 --afk 1 --x-mode 1)
+  out=$(FM_HOME="$home" FM_CONFIG_OVERRIDE="$config" "$RENDER" --harness codex --read-only 1 --afk 1 --x-mode 1 --phone-mode 1)
   assert_contains "$out" "- Lock: read-only" "read-only stanza missing"
   assert_contains "$out" "- Away mode: active" "afk stanza missing"
   assert_contains "$out" "- X mode: active" "x-mode stanza missing"
+  assert_contains "$out" "- Phone mode: active" "phone-mode stanza missing"
   assert_contains "$out" "$config/x-mode.env" "x-mode stanza did not render the effective config path"
   assert_contains "$out" 'Mode: Codex foreground checkpoint.' "codex snippet missing"
   assert_not_contains "$out" "Source \`config/x-mode.env\`" "snippet kept the repo-relative x-mode config path"
@@ -57,6 +58,12 @@ test_repair_lines() {
   out=$(FM_HOME="$home" FM_CODEX_WATCH_CHECKPOINT=7 "$RENDER" --harness codex --x-mode 1 --repair-line)
   assert_contains "$out" "source '$home/config/x-mode.env' first" "x-mode repair line did not source the effective cadence config"
   assert_contains "$out" "bin/fm-watch-checkpoint.sh --seconds 7" "x-mode codex repair line lost the checkpoint helper"
+
+  rm -f "$home/config/x-mode.env"
+  : > "$home/config/phone-mode.env"
+  out=$(FM_HOME="$home" FM_CODEX_WATCH_CHECKPOINT=7 "$RENDER" --harness codex --phone-mode 1 --repair-line)
+  assert_contains "$out" "source '$home/config/phone-mode.env' first" "phone-mode repair line did not source the effective cadence config"
+  assert_contains "$out" "bin/fm-watch-checkpoint.sh --seconds 7" "phone-mode codex repair line lost the checkpoint helper"
 
   out=$(FM_HOME="$home" "$RENDER" --harness opencode --read-only 1 --repair-line)
   assert_contains "$out" "session holding the fleet lock" "read-only repair line missing"
@@ -138,7 +145,7 @@ test_grok_is_background_notify() {
   assert_contains "$out" "background: true" "grok snippet missing tracked background tool instruction"
   assert_contains "$out" "synthetic_reason: task_completed" "grok snippet missing auto-wake synthetic prompt detail"
   assert_contains "$out" "bin/fm-watch-arm.sh" "grok snippet missing watcher arm"
-  assert_not_contains "$out" "__FM_X_MODE_ENV" "renderer leaked an x-mode path placeholder"
+  assert_not_contains "$out" "__FM_CADENCE_ENV" "renderer leaked a cadence path placeholder"
   assert_not_contains "$out" "foreground checkpoint" "grok snippet must not be Codex-style foreground checkpoint"
   out=$("$RENDER" --harness grok --repair-line)
   assert_contains "$out" "Grok tracked background task" "grok repair line is not background-notify shaped"
@@ -153,6 +160,16 @@ test_grok_command_sources_effective_config() {
   out=$(FM_HOME="$home" FM_CONFIG_OVERRIDE="$config" "$RENDER" --harness grok --x-mode 1)
   assert_contains "$out" "[ -f '$config/x-mode.env' ] && . '$config/x-mode.env'; exec bin/fm-watch-arm.sh" "grok arm command did not use the effective x-mode config path"
   pass "grok rendered command sources the effective x-mode config"
+}
+
+test_grok_command_sources_phone_config() {
+  local home config out
+  home="$TMP_ROOT/grok-phone-home"
+  config="$TMP_ROOT/grok-phone-config"
+  mkdir -p "$home/state" "$config"
+  out=$(FM_HOME="$home" FM_CONFIG_OVERRIDE="$config" "$RENDER" --harness grok --phone-mode 1)
+  assert_contains "$out" "[ -f '$config/phone-mode.env' ] && . '$config/phone-mode.env'; exec bin/fm-watch-arm.sh" "grok arm command did not use the effective phone-mode config path"
+  pass "grok rendered command sources the effective phone-mode config"
 }
 
 test_pi_snippet_uses_effective_extension_path() {
@@ -179,4 +196,5 @@ test_cross_harness_ordinary_continuation_and_repair_matrix
 test_pi_signed_preserves_identity_with_pi_supervision_protocol
 test_grok_is_background_notify
 test_grok_command_sources_effective_config
+test_grok_command_sources_phone_config
 test_pi_snippet_uses_effective_extension_path

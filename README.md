@@ -49,7 +49,8 @@ Launching a supported harness inside it instantiates your first mate - and makes
 - **Optional secondmates** - opt in to persistent second mates that run from isolated firstmate homes with their own `FM_HOME`, state, projects, and session lock, supervising project clones or a project-less firstmate-repo domain, kept on the primary firstmate version by guarded local fast-forwards and checked for live agent processes at session start.
 - **Event-driven, zero-token supervision** - a bash watcher sleeps on the fleet and wakes the first mate only when something needs you; verified primary harnesses also get a turn-end backstop that blocks or follows up on a blind stop when work is under way and supervision is not live.
 - **Optional X mode** - opt in with one local `.env` token so firstmate can answer your public `@myfirstmate` mentions, act on normal reversible mention requests through the same lifecycle as chat requests, acknowledge spawned work, and post up to three public-safe completion follow-ups within seven days for genuine milestones and the final outcome without changing non-X behavior; a final reply promised in a thread becomes durable state that is reconciled from disk, so a restart or a compacted conversation cannot lose it; dry-run preview records would-be replies and dismissals locally before go-live.
-- **Optional phone notifications** - opt in with one local `.env` value so firstmate mirrors the captain-facing outcomes it already sends into a chat channel you read on your phone; the path is outbound only, with no inbound control path, no polling, and no new background process, it stays completely inert until you configure it, and a notification that fails to deliver never blocks fleet work.
+- **Optional phone notifications** - opt in with one local `.env` value so firstmate mirrors the captain-facing outcomes it already sends into a chat channel you read on your phone; the sender itself is outbound only, with no polling and no new background process, it stays completely inert until you configure it, and a notification that fails to deliver never blocks fleet work.
+- **Optional Discord phone mode** - separately opt in with three local `.env` values (bot token, your Discord user id, one private channel id) so you can drive the fleet from your phone; the existing watcher makes one bounded, authenticated Discord history request per sweep, accepts only messages from that captain in that channel, and delivers each one exactly once through a durable inbox; it carries routine direction, questions, dispatch, routine decisions, and explicit PR merge approval, and explicitly refuses destructive, irreversible, or security-sensitive asks until you confirm them at the local helm; opting in never replays existing channel history, and it stays completely inert until all three values are present.
 - **Strict project boundary** - the first mate is read-only over your projects except for the narrow guarded and captain-approved operations authorized by [hard rule 1](AGENTS.md#1-identity-and-prime-directives), including fleet sync's guarded safe branch pruning; crewmates make every other project change behind the configured merge authority.
 - **Restart-proof** - all state lives on disk and in the active session backend (tmux by hard default, herdr or cmux when selected or auto-detected, zellij/orca when explicitly selected); kill the session anytime and the next one reconciles, including confirmed-dead secondmate agents, and carries on.
 
@@ -161,7 +162,7 @@ It routes each request to a crewmate in its own session endpoint and git worktre
 Optional secondmates extend this to persistent second mates, dispatch profiles let you steer which harness handles which task, and an opt-in X mode lets the same fleet answer public mentions.
 `codex-app` is not a runtime backend yet; [docs/codex-app-backend.md](docs/codex-app-backend.md) owns the Codex App boundary.
 
-Full architecture - the supervision engine, worktree isolation, secondmates, dispatch profiles, project modes, optional X mode, optional phone notifications, fleet sync, and self-update - is in [docs/architecture.md](docs/architecture.md).
+Full architecture - the supervision engine, worktree isolation, secondmates, dispatch profiles, project modes, optional X mode, optional phone notifications, optional Discord phone mode, fleet sync, and self-update - is in [docs/architecture.md](docs/architecture.md).
 
 ## Built-in skills
 
@@ -198,7 +199,7 @@ Firstmate's skills live in two separate places with different audiences:
 ## Documentation
 
 - [docs/architecture.md](docs/architecture.md) - maintainer architecture for the crew, supervision, worktrees, secondmates, and project modes.
-- [docs/configuration.md](docs/configuration.md) - environment variables, `FM_HOME`, runtime backend selection, optional X mode, the files you set, and harness support.
+- [docs/configuration.md](docs/configuration.md) - environment variables, `FM_HOME`, runtime backend selection, optional X mode, optional Discord phone mode, the files you set, and harness support.
 - [docs/calm.md](docs/calm.md) - current Pi `/calm` behavior and supported presentation limits.
 - [docs/wedge-alarm.md](docs/wedge-alarm.md) - configure the active alert for an away-mode escalation delivery that gets stuck.
 - [docs/tmux-backend.md](docs/tmux-backend.md) - current setup and limits for the tmux reference backend.
