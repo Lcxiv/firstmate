@@ -99,6 +99,15 @@ run_poll() {
     "$@" "$ROOT/bin/fm-phone-poll.sh"
 }
 
+# Every steady-state delivery test starts from an already baselined home; the
+# baseline sweep itself is covered by its own tests below.
+seed_phone_cursor() {
+  local home=$1 cursor=$2
+  FM_HOME="$home" bash -c '. "$1/bin/fm-phone-lib.sh"; fm_phone_cursor_set "$2/state" "$3"' \
+    _ "$ROOT" "$home" "$cursor" \
+    || fail "could not seed the phone cursor for $home"
+}
+
 test_inert_by_default() {
   local home fakebin out calls
   home="$TMP_ROOT/inert"
@@ -123,6 +132,7 @@ test_two_part_filter_and_bot_loop_guard_are_silent() {
   local home fakebin out posts inbox body
   home="$TMP_ROOT/filter"
   write_phone_env "$home"
+  seed_phone_cursor "$home" 1000
   fakebin=$(make_fake_curl "$home")
   posts="$home/posts.log"
   body=$(jq -cn \
@@ -150,6 +160,7 @@ test_accepted_message_stashes_acks_and_wakes() {
   local home fakebin out posts body inbox
   home="$TMP_ROOT/accepted"
   write_phone_env "$home"
+  seed_phone_cursor "$home" 2000
   fakebin=$(make_fake_curl "$home")
   posts="$home/posts.log"
   body=$(jq -cn --arg captain "$CAPTAIN_ID" --arg channel "$CHANNEL_ID" '
@@ -172,6 +183,7 @@ test_cursor_is_monotonic_and_inbox_is_idempotent() {
   local home fakebin out body count cursor_log
   home="$TMP_ROOT/cursor"
   write_phone_env "$home"
+  seed_phone_cursor "$home" 3000
   fakebin=$(make_fake_curl "$home")
   cursor_log="$home/cursor.log"
   body=$(jq -cn --arg captain "$CAPTAIN_ID" --arg channel "$CHANNEL_ID" '
@@ -199,6 +211,7 @@ test_one_page_coalesces_to_one_wake() {
   local home fakebin out body count
   home="$TMP_ROOT/coalesce"
   write_phone_env "$home"
+  seed_phone_cursor "$home" 4000
   fakebin=$(make_fake_curl "$home")
   body=$(jq -cn --arg captain "$CAPTAIN_ID" --arg channel "$CHANNEL_ID" '
     [
@@ -226,6 +239,113 @@ test_poll_is_one_bounded_request_without_a_message() {
   assert_not_contains "$(cat "$calls")" "$CHANNEL_ID" "request log must not contain the configured channel id"
   assert_not_contains "$(cat "$calls")" "$PHONE_TOKEN" "request log must not contain the bot token"
   pass "the common poll path is one short bounded request with no config leakage"
+}
+
+test_first_sweep_baselines_instead_of_replaying_history() {
+  local home fakebin out posts body inbox cursor next
+  home="$TMP_ROOT/baseline"
+  write_phone_env "$home"
+  fakebin=$(make_fake_curl "$home")
+  posts="$home/posts.log"
+  body=$(jq -cn --arg captain "$CAPTAIN_ID" --arg channel "$CHANNEL_ID" '
+    [
+      {id:"5001",channel_id:$channel,author:{id:$captain,bot:false},content:"merge PR #7"},
+      {id:"5002",channel_id:$channel,author:{id:$captain,bot:false},content:"stale direction"}
+    ]
+  ')
+  out=$(FAKE_PHONE_POST_LOG="$posts" FAKE_PHONE_POLL_BODY="$body" run_poll "$home" "$fakebin")
+  [ -z "$out" ] || fail "first sweep must not wake on pre-existing channel history: $out"
+  assert_absent "$posts" "first sweep must not acknowledge pre-existing channel history"
+  inbox=$(find "$home/state/phone-inbox" -type f 2>/dev/null | wc -l | tr -d ' ')
+  [ "$inbox" = 0 ] || fail "first sweep must not stash pre-existing channel history"
+  cursor=$(cat "$home/state/phone-cursor")
+  [ "${#cursor}" -ge 17 ] || fail "first sweep must baseline the cursor at now, not at an old id: $cursor"
+
+  next=$((cursor + 1))
+  body=$(jq -cn --arg captain "$CAPTAIN_ID" --arg channel "$CHANNEL_ID" --arg id "$next" '
+    [{id:$id,channel_id:$channel,author:{id:$captain,bot:false},content:"Fresh direction"}]
+  ')
+  out=$(FM_PHONE_ACK=0 FAKE_PHONE_POLL_BODY="$body" run_poll "$home" "$fakebin")
+  [ "$out" = "phone-message $next" ] || fail "a command sent after the baseline must be delivered: $out"
+  pass "opt-in baselines the cursor at now instead of replaying channel history as commands"
+}
+
+test_baselined_empty_channel_still_delivers_the_next_command() {
+  local home fakebin out body cursor next
+  home="$TMP_ROOT/baseline-empty"
+  write_phone_env "$home"
+  fakebin=$(make_fake_curl "$home")
+  out=$(FAKE_PHONE_POLL_BODY='[]' run_poll "$home" "$fakebin")
+  [ -z "$out" ] || fail "first sweep of an empty channel must be silent: $out"
+  cursor=$(cat "$home/state/phone-cursor")
+  [ "${#cursor}" -ge 17 ] || fail "an empty first page must still baseline the cursor: $cursor"
+
+  next=$((cursor + 1))
+  body=$(jq -cn --arg captain "$CAPTAIN_ID" --arg channel "$CHANNEL_ID" --arg id "$next" '
+    [{id:$id,channel_id:$channel,author:{id:$captain,bot:false},content:"First real command"}]
+  ')
+  out=$(FM_PHONE_ACK=0 FAKE_PHONE_POLL_BODY="$body" run_poll "$home" "$fakebin")
+  [ "$out" = "phone-message $next" ] || fail "the first command after an empty baseline was swallowed: $out"
+  pass "baselining an empty channel never swallows the first real command"
+}
+
+test_unreadable_message_content_reports_a_generic_error() {
+  local home fakebin out body inbox
+  home="$TMP_ROOT/content"
+  write_phone_env "$home"
+  seed_phone_cursor "$home" 6000
+  fakebin=$(make_fake_curl "$home")
+  body=$(jq -cn --arg captain "$CAPTAIN_ID" --arg channel "$CHANNEL_ID" '
+    [{id:"6001",channel_id:$channel,author:{id:$captain,bot:false},content:""}]
+  ')
+  out=$(FAKE_PHONE_POLL_BODY="$body" run_poll "$home" "$fakebin")
+  [ "$out" = "phone-mode-error Discord message content unavailable" ] \
+    || fail "an authenticated message with no readable content must not fail silently: $out"
+  assert_not_contains "$out" "$PHONE_TOKEN" "content diagnostic leaked the bot token"
+  assert_not_contains "$out" "$CHANNEL_ID" "content diagnostic leaked the channel id"
+  assert_not_contains "$out" "$CAPTAIN_ID" "content diagnostic leaked the captain id"
+  inbox=$(find "$home/state/phone-inbox" -type f 2>/dev/null | wc -l | tr -d ' ')
+  [ "$inbox" = 0 ] || fail "an empty-content message must not become a command"
+  pass "a missing Discord message-content intent reports a generic local error"
+}
+
+test_watcher_shim_pins_identity_to_the_home_env() {
+  local home fakebin out body shim
+  home="$TMP_ROOT/pinned"
+  write_phone_env "$home"
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null)
+  assert_contains "$out" "PHONE: Discord phone mode on" "pinning test needs an armed phone mode"
+  shim="$home/state/phone-watch.check.sh"
+  assert_present "$shim" "pinning test needs the generated shim"
+  seed_phone_cursor "$home" 7000
+  fakebin=$(make_fake_curl "$home")
+  {
+    printf 'FM_PHONE_DISCORD_TOKEN=%s\n' "$PHONE_TOKEN"
+    printf 'FM_PHONE_CAPTAIN_ID=%s\n' "$OTHER_AUTHOR_ID"
+    printf 'FM_PHONE_CHANNEL_ID=%s\n' "$OTHER_CHANNEL_ID"
+  } > "$home/forged.env"
+  body=$(jq -cn \
+    --arg captain "$CAPTAIN_ID" \
+    --arg channel "$CHANNEL_ID" \
+    --arg other_author "$OTHER_AUTHOR_ID" \
+    --arg other_channel "$OTHER_CHANNEL_ID" '
+      [
+        {id:"7001",channel_id:$other_channel,author:{id:$other_author,bot:false},content:"env-injected sender"},
+        {id:"7002",channel_id:$channel,author:{id:$captain,bot:false},content:"Configured captain"}
+      ]
+    ')
+  out=$(PATH="$fakebin:$BASE_PATH" \
+    FAKE_PHONE_EXPECTED_TOKEN="$PHONE_TOKEN" \
+    FAKE_PHONE_POLL_BODY="$body" \
+    FM_PHONE_ACK=1 \
+    FM_PHONE_CAPTAIN_ID="$OTHER_AUTHOR_ID" \
+    FM_PHONE_CHANNEL_ID="$OTHER_CHANNEL_ID" \
+    FM_PHONE_ENV_FILE="$home/forged.env" \
+    "$shim")
+  [ "$out" = "phone-message 7002" ] || fail "watcher shim honored an injected identity: $out"
+  assert_absent "$home/state/phone-inbox/7001.json" "an environment-injected sender must not command the home"
+  assert_present "$home/state/phone-inbox/7002.json" "the .env-configured captain must still command the home"
+  pass "the generated watcher shim authenticates only from the arming home .env"
 }
 
 test_reply_reads_file_verbatim_and_suppresses_mentions() {
@@ -315,6 +435,10 @@ test_accepted_message_stashes_acks_and_wakes
 test_cursor_is_monotonic_and_inbox_is_idempotent
 test_one_page_coalesces_to_one_wake
 test_poll_is_one_bounded_request_without_a_message
+test_first_sweep_baselines_instead_of_replaying_history
+test_baselined_empty_channel_still_delivers_the_next_command
+test_unreadable_message_content_reports_a_generic_error
+test_watcher_shim_pins_identity_to_the_home_env
 test_reply_reads_file_verbatim_and_suppresses_mentions
 test_generic_errors_never_echo_configuration
 test_bootstrap_generation_identity_and_opt_out

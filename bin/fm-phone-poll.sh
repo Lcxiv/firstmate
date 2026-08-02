@@ -5,6 +5,10 @@
 # Inert by default: unless the Discord bot token, captain user id, and private
 # channel id all resolve validly, this exits 0 without output, files, or network.
 #
+# The first sweep of a home without a durable state/phone-cursor only baselines
+# that cursor at "now" and delivers nothing, so opting in never replays existing
+# channel history as live captain commands.
+#
 # A configured sweep performs one bounded GET, advances state/phone-cursor
 # monotonically across every returned Discord message id, and accepts a command
 # only when BOTH author.id == FM_PHONE_CAPTAIN_ID and channel_id ==
@@ -81,6 +85,11 @@ jq -e 'type == "array"' "$BODY_FILE" >/dev/null 2>&1 || {
 MAX_ID=$CURSOR
 WAKE_ID=
 STASH_FAILED=0
+CONTENT_MISSING=0
+# A home with no durable cursor has never been swept. Its first page is history,
+# not fresh direction, so it is only used to place the cursor at "now".
+BASELINE=0
+[ "$CURSOR" = 0 ] && BASELINE=1
 
 # Decimal-string ordering preserves full Discord snowflake precision. The
 # response is normalized oldest-first so the cursor and inbox converge even if
@@ -93,6 +102,7 @@ while IFS= read -r MESSAGE; do
   if fm_phone_id_newer "$MESSAGE_ID" "$MAX_ID"; then
     MAX_ID=$MESSAGE_ID
   fi
+  [ "$BASELINE" = 0 ] || continue
   # At-least-once transport responses at or below the durable cursor are never
   # offered again, even if a stub or proxy repeats them.
   fm_phone_id_newer "$MESSAGE_ID" "$CURSOR" || continue
@@ -108,7 +118,13 @@ while IFS= read -r MESSAGE; do
   [ "$MESSAGE_AUTHOR" = "$FM_PHONE_CAPTAIN" ] || continue
   [ "$MESSAGE_CHANNEL" = "$FM_PHONE_CHANNEL" ] || continue
   [ "$MESSAGE_BOT" = 0 ] || continue
-  [ -n "$MESSAGE_TEXT" ] || continue
+  # An authenticated captain message with no readable content is the signature
+  # of a bot that lacks Discord's message-content intent. Record it so the
+  # sweep reports a generic diagnostic instead of failing silently.
+  if [ -z "$MESSAGE_TEXT" ]; then
+    CONTENT_MISSING=1
+    continue
+  fi
 
   printf '%s\n' "$MESSAGE" > "$MESSAGE_FILE" || { STASH_FAILED=1; break; }
   fm_phone_inbox_stash "$STATE" "$MESSAGE_ID" "$MESSAGE_FILE"
@@ -124,11 +140,33 @@ if [ "$STASH_FAILED" = 1 ]; then
   exit 0
 fi
 
+if [ "$BASELINE" = 1 ]; then
+  # Start from "now" so an empty first page cannot swallow the command that
+  # arrives before the next sweep, and keep the newest returned id when the
+  # local clock trails Discord.
+  BASE_ID=$(fm_phone_now_snowflake) || BASE_ID=$MAX_ID
+  if fm_phone_id_newer "$MAX_ID" "$BASE_ID"; then
+    BASE_ID=$MAX_ID
+  fi
+  [ "$BASE_ID" != 0 ] || exit 0
+  if ! fm_phone_cursor_set "$STATE" "$BASE_ID"; then
+    emit_error_once "cannot record cursor"
+    exit 0
+  fi
+  clear_error
+  exit 0
+fi
+
 if [ "$MAX_ID" != "$CURSOR" ]; then
   if ! fm_phone_cursor_set "$STATE" "$MAX_ID"; then
     emit_error_once "cannot record cursor"
     exit 0
   fi
+fi
+
+if [ -z "$WAKE_ID" ] && [ "$CONTENT_MISSING" = 1 ]; then
+  emit_error_once "Discord message content unavailable"
+  exit 0
 fi
 
 clear_error

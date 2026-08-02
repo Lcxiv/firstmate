@@ -472,6 +472,7 @@ All three values are the opt-in boundary.
 No `.env`, three absent or empty values, or an incomplete configuration does not arm a poll.
 For direct poll and reply invocations, explicit environment values override `.env`, and `FM_PHONE_ENV_FILE` may redirect that direct-client read for hermetic tests.
 Bootstrap activation always checks the effective home's own `.env`, so a transient process environment cannot silently make the watcher persistent.
+The generated shim exports `FM_PHONE_CONFIG_SOURCE=home-env`, which pins every watcher-dispatched poll to that same `.env` and ignores both environment overrides and `FM_PHONE_ENV_FILE`, so the identity the watcher authenticates is always the identity that gated activation.
 
 The locked session-start bootstrap step writes `state/phone-watch.check.sh`, registers its exact bytes in `state/phone-watch.check-trust`, and writes `config/phone-mode.env` exporting `FM_CHECK_INTERVAL=30`.
 The watcher accepts the phone shim only through the existing hash-validated custom-check snapshot path.
@@ -487,8 +488,11 @@ A message is accepted only when its Discord `author.id` equals `FM_PHONE_CAPTAIN
 Both checks are required, and bot-authored messages are independently rejected so outbound acknowledgements and replies can never loop back into the bridge.
 Every other sender or channel is dropped silently with no reply, pairing chatter, or diagnostic to the sender.
 The poller's only visible authentication/configuration failures are generic local `phone-mode-error` wakes that contain none of the configured values.
+An authenticated captain message whose content is empty - the signature of a bot without Discord's message-content intent - is reported the same way, as `phone-mode-error Discord message content unavailable`, instead of being dropped without any local or channel-side signal.
 
 The monotonic decimal-string cursor lives at `state/phone-cursor`, avoiding numeric precision loss for Discord snowflakes.
+A home with no cursor has never been swept, so its first sweep only baselines that cursor at the current time and delivers nothing: opting in starts from "now" and never replays existing channel history - including an old merge approval - as live captain direction.
+Deleting `state/phone-cursor` therefore skips whatever is already in the channel rather than re-reading it.
 Each accepted full message object is create-once at `state/phone-inbox/<message_id>.json`, and a repeated transport response at or below the cursor cannot create a second command.
 One `phone-message <message_id>` wake may represent several accepted objects, so `fmphone-respond` drains the whole inbox in oldest-id order.
 The inbox plus cursor preserve at-least-once delivery while giving firstmate exactly-once command processing under normal retries.
@@ -573,7 +577,7 @@ FM_PHONE_ACK=1           # send one bounded receipt acknowledgement after durabl
 FM_PHONE_TIMEOUT_SECS=5  # Discord request timeout; values outside 1..10 clamp into range
 FM_PHONE_REPLY_MAX_CHARS=1900  # per-message phone reply budget; values outside 50..1900 clamp into range
 FM_PHONE_REPLY_MAX_PARTS=4     # maximum messages in one phone reply; values outside 1..10 clamp into range
-FM_PHONE_ENV_FILE=       # optional alternate .env-style file for direct phone clients; bootstrap still checks $FM_HOME/.env
+FM_PHONE_ENV_FILE=       # optional alternate .env-style file for direct phone clients; bootstrap and the generated watcher shim still use $FM_HOME/.env
 FM_LOCK_STALE_AFTER=2   # seconds before dead-pid lock records can be reclaimed; mid-acquire locks keep at least 2s grace
 FM_GUARD_GRACE=300      # seconds before guard warnings, arm health checks, and the primary turn-end guard treat a watcher beacon as stale
 FM_CLAUDE_AUTOARM_SYNC_WAIT_MS=800   # milliseconds the --claude turn-end guard waits for the Stop auto-arm's claim, health, or fresh rewake epoch before re-blocking

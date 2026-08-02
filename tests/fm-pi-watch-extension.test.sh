@@ -1246,16 +1246,16 @@ EOF
   pass "OpenCode watcher plugin uses the effective FM_HOME state"
 }
 
-test_opencode_primary_watch_plugin_sources_phone_config() {
-  local plugin repo home log out status
+opencode_primary_watch_plugin_sources_cadence_config() {
+  local cadence=$1 plugin repo home log out status
   plugin="$ROOT/.opencode/plugins/fm-primary-watch-arm.js"
-  repo="$TMP_ROOT/opencode-effective-config-root"
-  home="$TMP_ROOT/opencode-effective-config-home"
-  log="$TMP_ROOT/opencode-effective-config.log"
+  repo="$TMP_ROOT/opencode-effective-config-root-${cadence%%.*}"
+  home="$TMP_ROOT/opencode-effective-config-home-${cadence%%.*}"
+  log="$TMP_ROOT/opencode-effective-config-${cadence%%.*}.log"
   mkdir -p "$repo/bin" "$home/state" "$home/config"
   git init -q "$repo"
   : > "$repo/AGENTS.md"
-  printf 'export FM_POLL=7\n' > "$home/config/phone-mode.env"
+  printf 'export FM_POLL=7\n' > "$home/config/$cadence"
   cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'poll=%s\n' "${FM_POLL:-missing}" >> "${FM_ARM_LOG:?}"
@@ -1290,9 +1290,17 @@ if (!text.includes("poll=7")) {
 EOF
 )
   status=$?
-  expect_code 0 "$status" "OpenCode watch plugin must source FM_HOME config outside the repo root"
+  expect_code 0 "$status" "OpenCode watch plugin must source $cadence outside the repo root"
   [ -z "$out" ] || fail "OpenCode effective-config test printed output: $out"
-  pass "OpenCode watcher plugin needs and sources the effective phone-mode config"
+  pass "OpenCode watcher plugin sources the effective $cadence cadence"
+}
+
+test_opencode_primary_watch_plugin_sources_x_config() {
+  opencode_primary_watch_plugin_sources_cadence_config x-mode.env
+}
+
+test_opencode_primary_watch_plugin_sources_phone_config() {
+  opencode_primary_watch_plugin_sources_cadence_config phone-mode.env
 }
 
 test_opencode_primary_watch_plugin_requires_session_lock() {
@@ -2141,6 +2149,7 @@ test_pi_process_exit_cleanup_listener_lifecycle
 test_pi_process_exit_cleanup_stops_arm_child
 test_opencode_plugin_package_boundary_is_explicit_esm
 test_opencode_primary_watch_plugin_uses_effective_state_home
+test_opencode_primary_watch_plugin_sources_x_config
 test_opencode_primary_watch_plugin_sources_phone_config
 test_opencode_primary_watch_plugin_requires_session_lock
 test_opencode_watch_arm_coordinator_respects_primary_scope
