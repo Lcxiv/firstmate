@@ -99,6 +99,14 @@ run_poll() {
     "$@" "$ROOT/bin/fm-phone-poll.sh"
 }
 
+directory_mode() {
+  if [ "$(uname)" = Darwin ]; then
+    stat -f %Lp "$1"
+  else
+    stat -c %a "$1"
+  fi
+}
+
 # Every steady-state delivery test starts from an already baselined home; the
 # baseline sweep itself is covered by its own tests below.
 seed_phone_cursor() {
@@ -381,6 +389,44 @@ test_generic_errors_never_echo_configuration() {
   pass "phone-mode errors are local, generic, and secret-free"
 }
 
+test_nonprivate_state_is_repaired_before_arm_and_rejected_during_poll() {
+  local home fakebin out calls
+  home="$TMP_ROOT/nonprivate-state"
+  write_phone_env "$home"
+  mkdir -p "$home/state"
+  chmod 755 "$home/state"
+
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null)
+  assert_contains "$out" "PHONE: Discord phone mode on" \
+    "bootstrap must arm phone mode after repairing a nonprivate state directory"
+  [ "$(directory_mode "$home/state")" = 700 ] \
+    || fail "bootstrap armed phone mode without making state mode 700"
+  assert_present "$home/state/phone-watch.check.sh" \
+    "repaired phone mode must publish its poll shim"
+  assert_present "$home/state/phone-watch.check-trust" \
+    "repaired phone mode must publish its trust record"
+
+  fakebin=$(make_fake_curl "$home")
+  calls="$home/calls.log"
+  out=$(FAKE_PHONE_CALL_LOG="$calls" FAKE_PHONE_POLL_BODY='[]' run_poll "$home" "$fakebin")
+  [ -z "$out" ] || fail "a repaired empty-channel baseline must be silent: $out"
+  assert_present "$home/state/phone-cursor" \
+    "an armed phone mode must be structurally able to record its cursor"
+
+  chmod 755 "$home/state"
+  rm -f "$calls"
+  out=$(FAKE_PHONE_CALL_LOG="$calls" run_poll "$home" "$fakebin")
+  assert_contains "$out" "phone-mode-error local filesystem precondition" \
+    "poll-time state permission drift must be attributed to the local filesystem"
+  assert_contains "$out" "requires mode 700: $home/state" \
+    "the local filesystem diagnostic must name the directory and required mode"
+  assert_not_contains "$out" "$PHONE_TOKEN" "local filesystem diagnostic leaked the bot token"
+  assert_not_contains "$out" "$CHANNEL_ID" "local filesystem diagnostic leaked the channel id"
+  assert_not_contains "$out" "$CAPTAIN_ID" "local filesystem diagnostic leaked the captain id"
+  assert_absent "$calls" "an invalid private state directory must be rejected before contacting Discord"
+  pass "bootstrap repairs nonprivate state and poll-time drift is locally attributed without config leakage"
+}
+
 test_bootstrap_generation_identity_and_opt_out() {
   local home out before after
   home="$TMP_ROOT/bootstrap"
@@ -483,6 +529,7 @@ test_unreadable_message_content_reports_a_generic_error
 test_watcher_shim_pins_identity_to_the_home_env
 test_reply_reads_file_verbatim_and_suppresses_mentions
 test_generic_errors_never_echo_configuration
+test_nonprivate_state_is_repaired_before_arm_and_rejected_during_poll
 test_bootstrap_generation_identity_and_opt_out
 test_partial_bootstrap_config_stays_off_without_leaking_values
 test_authority_boundary_keeps_its_exact_classes

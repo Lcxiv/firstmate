@@ -641,6 +641,23 @@ SH
   pass "valid direct and merge flows record exact metadata and reject multiline head metadata"
 }
 
+test_pr_check_arms_with_nonprivate_state_directory() {
+  local dir out
+  dir=$(make_case pr-check-nonprivate-state)
+  chmod 755 "$dir/home/state"
+  write_task_meta "$dir"
+
+  out=$(run_check_entry "$dir" task-a https://github.com/o/r/pull/1 2> "$dir/stderr") \
+    || fail "PR check refused an ordinary mode-755 state directory: $(cat "$dir/stderr")"
+  [ "$out" = 'armed: state/task-a.check.sh' ] \
+    || fail "PR check returned the wrong arm result on mode-755 state: $out"
+  [ "$(file_mode "$dir/home/state")" = 755 ] \
+    || fail "PR check unexpectedly changed the state directory mode"
+  fm_pr_poll_artifacts_valid "$dir/home/state" task-a "$POLL" \
+    || fail "PR check did not publish complete mode-600 file-level artifacts"
+  pass "PR checks genuinely support mode-755 state through their separate file-level privacy contract"
+}
+
 run_watcher_bounded() {
   local home=$1 fakebin=$2 check_interval=${FM_TEST_CHECK_INTERVAL:-0} watch_root=${FM_TEST_WATCH_ROOT:-$ROOT}
   shift 2
@@ -3336,6 +3353,7 @@ test_retirement_queue_failure_and_receipt_tampering
 test_gitlab_merged_poll_retires
 test_invalid_entrypoints_have_zero_side_effects
 test_valid_recording_and_merge_derivation
+test_pr_check_arms_with_nonprivate_state_directory
 test_rejected_metacharacter_bytes_are_inert
 test_static_poll_contract
 test_atomic_interruption_leaves_no_partial_artifact

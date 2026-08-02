@@ -72,9 +72,10 @@
 #          Discord phone mode is OPTIONAL and inert unless FM_HOME/.env has a
 #          valid non-empty FM_PHONE_DISCORD_TOKEN, FM_PHONE_CAPTAIN_ID, and
 #          FM_PHONE_CHANNEL_ID. When opted in, bootstrap requires curl+jq,
-#          writes and registers its poll shim plus 30s cadence config, and
-#          prints a PHONE line. A partial configuration stays off and is
-#          reported without echoing any configured value.
+#          makes state/ an ordinary mode-0700 directory, writes and registers
+#          its poll shim plus 30s cadence config, and prints a PHONE line. A
+#          partial configuration stays off and is reported without echoing any
+#          configured value.
 #          Fleet sync fetches, fast-forwards safe default-branch states, reports
 #          recovered and STUCK clone drift, and prunes gone local branches; it is
 #          bounded by FM_FLEET_SYNC_BOOTSTRAP_TIMEOUT when it is a non-empty
@@ -825,7 +826,28 @@ phone_mode_setup() {
     fi
   }
 
-  mkdir -p "$STATE" "$CONFIG" 2>/dev/null || { phone_mode_arm_failed; return 0; }
+  phone_mode_private_state_prepare() {
+    if [ -e "$STATE" ] || [ -L "$STATE" ]; then
+      [ -d "$STATE" ] && [ ! -L "$STATE" ] || return 1
+    else
+      (umask 077; mkdir -p "$STATE" 2>/dev/null) || return 1
+    fi
+    if ! fmx_private_artifact_dir_device "$STATE" >/dev/null 2>&1; then
+      chmod 700 "$STATE" 2>/dev/null || return 1
+    fi
+    fmx_private_artifact_dir_device "$STATE" >/dev/null 2>&1
+  }
+
+  phone_mode_private_state_failed() {
+    if phone_mode_remove_artifacts; then
+      echo "PHONE: Discord phone mode off - local private state directory requires mode 700: $STATE"
+    else
+      echo "PHONE: Discord phone mode off - local private state directory requires mode 700: $STATE; stale artifacts remain"
+    fi
+  }
+
+  mkdir -p "$CONFIG" 2>/dev/null || { phone_mode_arm_failed; return 0; }
+  phone_mode_private_state_prepare || { phone_mode_private_state_failed; return 0; }
   case "$FM_HOME" in
     /*) shim_home=$FM_HOME ;;
     *)
