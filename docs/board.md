@@ -32,3 +32,11 @@ Pressing Send to Agent delivers the queued prompts to firstmate as exact orders;
 Nothing on the board bypasses merge authority, captain holds, or any other approval boundary.
 
 The board is a static snapshot: regenerate it with `bin/fm-board.sh` (say "refresh the board") rather than editing the generated file.
+
+## Phone glance
+
+A short board or fleet-status request in the authenticated Discord phone channel returns the same five ordered columns as a compact read-only message from `bin/fm-phone-fleet-summary.sh`.
+The phone glance reads the canonical fleet snapshot directly and does not include effort maps, decision controls, dragging, or any other review interaction from the Mac board.
+It targets one phone screen; when the fleet is too large, it drops Landed entries first, reports omitted counts by column, and invites a narrower column follow-up.
+The script header owns the complete omission order and exact length budget.
+The glance is generated only on request and is never scheduled, pushed on change, pinned, or edited in place.

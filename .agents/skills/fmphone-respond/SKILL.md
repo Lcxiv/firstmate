@@ -64,6 +64,9 @@ One watcher wake may cover several messages, so drain the inbox rather than hand
    A helm-only request goes directly to the refusal path with no partial action.
    An eligible request goes through normal intake, project resolution, backlog, dispatch, gate, and merge rules exactly as local captain input would.
    An explicit merge approval satisfies the captain-word requirement only for the specific PR the message unambiguously names.
+   Treat a short standalone request for a whole-fleet glance, including natural phrases such as `board`, `what's in the works`, `fleet summary`, or `status overview`, as an eligible fleet-state question.
+   Recognize the captain's intent in plain language rather than requiring an exact keyword or adding a second command parser.
+   Complete that request immediately by running `bin/fm-phone-fleet-summary.sh` with no arguments and use its rendered output as the response without adding raw fleet detail.
 5. Compose one concise response.
    For an eligible request completed now, report the outcome.
    For longer work successfully dispatched, acknowledge that it is under way.

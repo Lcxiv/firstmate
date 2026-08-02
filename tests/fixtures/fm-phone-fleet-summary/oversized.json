@@ -1,0 +1,21 @@
+{
+  "schema": "fm-fleet-snapshot.v1",
+  "backlog": {
+    "records": [
+      {"id":"d1","structured":true,"state":"queued","title":"Choose the launch sequence","hold_kind":"captain"},
+      {"id":"q1","structured":true,"state":"queued","title":"Prepare the release notes"},
+      {"id":"b1","structured":true,"state":"in_flight","title":"Build the command center summary"},
+      {"id":"r1","structured":true,"state":"in_flight","title":"Review the navigation improvements"},
+      {"id":"l1","structured":true,"state":"done","title":"Landed improvement one with a deliberately descriptive captain-facing title"},
+      {"id":"l2","structured":true,"state":"done","title":"Landed improvement two with a deliberately descriptive captain-facing title"},
+      {"id":"l3","structured":true,"state":"done","title":"Landed improvement three with a deliberately descriptive captain-facing title"},
+      {"id":"l4","structured":true,"state":"done","title":"Landed improvement four with a deliberately descriptive captain-facing title"},
+      {"id":"l5","structured":true,"state":"done","title":"Landed improvement five with a deliberately descriptive captain-facing title"},
+      {"id":"l6","structured":true,"state":"done","title":"Landed improvement six with a deliberately descriptive captain-facing title"}
+    ]
+  },
+  "tasks": [
+    {"id":"b1","kind":"ship","project":"firstmate","pr":{"url":null},"hints":{"open_decisions":[]}},
+    {"id":"r1","kind":"ship","project":"firstmate","pr":{"url":"https://github.com/Lcxiv/firstmate/pull/1539"},"hints":{"open_decisions":[]}}
+  ]
+}

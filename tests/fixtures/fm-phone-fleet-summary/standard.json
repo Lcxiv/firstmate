@@ -1,0 +1,92 @@
+{
+  "schema": "fm-fleet-snapshot.v1",
+  "backlog": {
+    "records": [
+      {
+        "id": "internal-decide-id",
+        "structured": true,
+        "state": "queued",
+        "title": "Choose the release window",
+        "hold_kind": "captain",
+        "hold_reason": "The captain chooses Tuesday or Thursday"
+      },
+      {
+        "id": "internal-queued-id",
+        "structured": true,
+        "state": "queued",
+        "title": "Prepare the migration guide"
+      },
+      {
+        "id": "internal-building-id",
+        "structured": true,
+        "state": "in_flight",
+        "title": "Build phone summaries"
+      },
+      {
+        "id": "internal-review-id",
+        "structured": true,
+        "state": "in_flight",
+        "title": "Polish the fleet board"
+      },
+      {
+        "id": "internal-sensitive-id",
+        "structured": true,
+        "state": "in_flight",
+        "title": "Remove token=synthetic-title-secret from /Users/private/worktree."
+      },
+      {
+        "id": "internal-landed-id",
+        "structured": true,
+        "state": "done",
+        "title": "Launch Discord phone mode",
+        "pr_url": "https://github.com/Lcxiv/firstmate/pull/1500"
+      }
+    ]
+  },
+  "tasks": [
+    {
+      "id": "internal-building-id",
+      "kind": "ship",
+      "project": "firstmate",
+      "harness": "forbidden-runtime-name",
+      "backend": "forbidden-backend-name",
+      "paths": {
+        "worktree": {
+          "path": "/Users/private/worktree"
+        }
+      },
+      "current_state": {
+        "state": "working",
+        "detail": "validation-step secret-token-value"
+      },
+      "pr": {
+        "url": null
+      },
+      "hints": {
+        "open_decisions": []
+      }
+    },
+    {
+      "id": "internal-review-id",
+      "kind": "ship",
+      "project": "firstmate",
+      "pr": {
+        "url": "https://github.com/Lcxiv/firstmate/pull/1539"
+      },
+      "hints": {
+        "open_decisions": []
+      }
+    },
+    {
+      "id": "internal-sensitive-id",
+      "kind": "ship",
+      "project": "firstmate",
+      "pr": {
+        "url": "https://discord.com/api/webhooks/123/synthetic-webhook-token"
+      },
+      "hints": {
+        "open_decisions": []
+      }
+    }
+  ]
+}

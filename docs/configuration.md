@@ -505,6 +505,7 @@ Set `FM_PHONE_ACK=0` to disable it.
 
 `fmphone-respond` owns classification and the phone authority procedure.
 Routine direction, priorities, questions, ship or scout dispatch, routine decisions, and explicit PR merge approval are eligible; destructive, irreversible, security-sensitive, credential, secret, spending, force, discard, teardown, and deletion requests receive an explicit helm-only refusal with no partial execution.
+A short whole-fleet board or status request is an eligible question and returns the compact on-demand five-column phone glance documented in [board.md](board.md#phone-glance).
 Replies go through `bin/fm-phone-reply.sh <message_id> --text-file <path>`, which keeps Discord-influenced text out of shell interpolation, suppresses mentions, and splits within Discord's message limit.
 `FM_PHONE_REPLY_MAX_CHARS` defaults to 1900 and clamps to 50 through 1900, while `FM_PHONE_REPLY_MAX_PARTS` defaults to 4 and clamps to 1 through 10.
 
