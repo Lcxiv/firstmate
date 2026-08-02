@@ -64,9 +64,9 @@
 #   surface=            resolved auth source id (e.g. pi:xai, auth-json), or none
 #   authStatus=         usable | expired | unusable | unknown | unresolved (THIS surface)
 #   providerAuthStatus= quota-axi's aggregate provider authStatus, or none
-#   headroom=           the most conservative known effective percent remaining
-#                       across the provider's scopes, or unknown when any
-#                       applicable scope is unknown. It is a disclosure fact;
+#   headroom=           the effective percent remaining for the tuple's
+#                       applicable scope, or unknown when that scope cannot be
+#                       measured. It is a disclosure fact;
 #                       the dispatch owner still reads the applicable scope from
 #                       the intake snapshot for ordering.
 #   preflight=          not-applicable | authenticated | unauthenticated |
@@ -312,15 +312,15 @@ console.log(providerName, scoped.map((source) => source.source).join(","), statu
 NODE
 }
 
-# Print "<providerAuthStatus> <headroom>" from a quota document. Both fall back
-# to "none"/"unknown" rather than being invented.
-read_quota() {  # <quota-json-path> <provider>
+# Print "<providerAuthStatus> <headroom>" from a quota document for one model.
+# Both fall back to "none"/"unknown" rather than being invented.
+read_quota() {  # <quota-json-path> <provider> <model>
   node - "$@" <<'NODE'
 const fs = require("fs");
 
 const args = process.argv.slice(1);
 if (args[0] === "-") args.shift();
-const [path, providerName] = args;
+const [path, providerName, requestedModel] = args;
 
 function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -349,17 +349,65 @@ for (const entry of providers) {
   }
   if (isObject(entry.quotaSemantics) && Array.isArray(entry.quotaSemantics.effectiveAvailability)) {
     const availability = entry.quotaSemantics.effectiveAvailability;
-    const known = availability.filter(
-      (scope) =>
-        isObject(scope) &&
+    const modelWindowIds = new Set(
+      Array.isArray(entry.windows)
+        ? entry.windows
+            .filter((window) => isObject(window) && window.kind === "model" && typeof window.id === "string")
+            .map((window) => window.id)
+        : [],
+    );
+    const scopes = availability.filter(
+      (scope) => isObject(scope) && typeof scope.scope === "string",
+    );
+    const modelScopes = scopes.filter((scope) => {
+      if (scope.scope.startsWith("model:")) return true;
+      if (!Array.isArray(scope.boundedBy)) return false;
+      return scope.boundedBy.some((windowId) => modelWindowIds.has(windowId));
+    });
+
+    const modelKeys = new Set();
+    const trimmedModel = typeof requestedModel === "string" ? requestedModel.trim().toLowerCase() : "";
+    if (trimmedModel && trimmedModel !== "default") {
+      modelKeys.add(trimmedModel);
+      const separator = trimmedModel.lastIndexOf("/");
+      if (separator >= 0 && separator + 1 < trimmedModel.length) {
+        modelKeys.add(trimmedModel.slice(separator + 1));
+      }
+    }
+    const matchingModelScopes = modelScopes.filter((scope) => {
+      const normalizedScope = scope.scope.toLowerCase();
+      for (const modelKey of modelKeys) {
+        if (
+          normalizedScope === modelKey ||
+          normalizedScope === `model:${modelKey}` ||
+          normalizedScope.endsWith(`_${modelKey}`)
+        ) {
+          return true;
+        }
+      }
+      return false;
+    });
+
+    // quota-axi has already combined the account and model windows inside each
+    // effective scope. Select one scope for this tuple; taking a minimum across
+    // scopes would make every provider model inherit every other model's limit.
+    let applicable = [];
+    if (matchingModelScopes.length > 0) {
+      applicable = matchingModelScopes;
+    } else {
+      applicable = scopes.filter(
+        (scope) => scope.scope === "all_models" || scope.scope === "all_products",
+      );
+    }
+    if (applicable.length === 1) {
+      const [scope] = applicable;
+      if (
         scope.status === "known" &&
         typeof scope.effectivePercentRemaining === "number" &&
-        Number.isFinite(scope.effectivePercentRemaining),
-    );
-    if (known.length === availability.length && known.length > 0) {
-      headroom = String(
-        Math.trunc(Math.min(...known.map((scope) => scope.effectivePercentRemaining))),
-      );
+        Number.isFinite(scope.effectivePercentRemaining)
+      ) {
+        headroom = String(Math.trunc(scope.effectivePercentRemaining));
+      }
     }
   }
   break;
@@ -428,7 +476,7 @@ if [ -n "$QUOTA_JSON" ]; then
 else
   run_timed "$TIMEOUT" quota-axi --provider "$PROVIDER" --json >"$TMP/quota.json" 2>/dev/null || : >"$TMP/quota.json"
 fi
-read -r PROVIDER_AUTH_STATUS HEADROOM <<< "$(read_quota "$TMP/quota.json" "$PROVIDER")"
+read -r PROVIDER_AUTH_STATUS HEADROOM <<< "$(read_quota "$TMP/quota.json" "$PROVIDER" "$MODEL")"
 
 # A probe is permitted only when the tuple's own harness owns the credential
 # store being tested AND that harness has a verified non-destructive discovery
@@ -448,7 +496,7 @@ quota_retry_once() {
     QUOTA_RETRY=failed
     return 0
   fi
-  read -r retry_auth retry_headroom <<< "$(read_quota "$TMP/quota-retry.json" "$PROVIDER")"
+  read -r retry_auth retry_headroom <<< "$(read_quota "$TMP/quota-retry.json" "$PROVIDER" "$MODEL")"
   PROVIDER_AUTH_STATUS=$retry_auth
   HEADROOM=$retry_headroom
   if [ "$HEADROOM" = unknown ]; then QUOTA_RETRY=unknown; else QUOTA_RETRY=known; fi

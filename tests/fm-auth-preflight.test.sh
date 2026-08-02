@@ -175,6 +175,37 @@ quota_reads() {  # number of quota reads, excluding auth and version calls
 
 # --- the reported incident --------------------------------------------------
 
+# This is the captured 2026-08-02 snapshot that exposed the model-blind
+# attribution defect: Claude's account windows have 98% session and 28% weekly
+# remaining, while only the unrelated Fable model window is exhausted.
+test_unrelated_model_window_does_not_bound_default_tuple() {
+  local line
+  run_preflight claude-default-fable-exhausted claude default \
+    "FM_FAKE_AUTH_DOC=$FIXTURES/auth-other-providers.json" \
+    "FM_FAKE_QUOTA_DOC=$FIXTURES/quota-claude-fable-exhausted.json"
+  line=$RUN_LINE
+  expect_code 0 "$RUN_RC" "an unrelated exhausted model window must not disqualify a healthy tuple"
+  assert_field "$line" headroom 28 "Claude/default must use only the account-wide scope"
+  assert_field "$line" authStatus usable "headroom attribution must not change authentication"
+  assert_field "$line" eligible yes "headroom attribution must not change eligibility"
+  pass "an unrelated exhausted model window does not bound the default tuple"
+}
+
+# Converse coverage: the model-specific scope is still the right source when
+# the tuple explicitly resolves to that model.
+test_matching_model_window_still_bounds_tuple() {
+  local line
+  run_preflight claude-fable-exhausted claude fable \
+    "FM_FAKE_AUTH_DOC=$FIXTURES/auth-other-providers.json" \
+    "FM_FAKE_QUOTA_DOC=$FIXTURES/quota-claude-fable-exhausted.json"
+  line=$RUN_LINE
+  expect_code 0 "$RUN_RC" "an exhausted model window changes headroom, not eligibility"
+  assert_field "$line" headroom 0 "Claude/Fable must include the Fable-specific bound"
+  assert_field "$line" authStatus usable "model exhaustion must not change authentication"
+  assert_field "$line" eligible yes "model exhaustion must not change eligibility"
+  pass "a matching model window still bounds the tuple"
+}
+
 # The exact reported failure: the standalone Grok CLI token has aged out while
 # the Pi xAI credential the candidate actually uses is fine. The candidate must
 # stay dispatchable and the Grok CLI must never be consulted.
@@ -261,18 +292,18 @@ test_stale_quota_is_never_headroom_and_never_credential_wording() {
   pass "stale quota stays diagnostic, never headroom and never credential wording"
 }
 
-test_mixed_known_and_unknown_scopes_stay_unknown() {
+test_unknown_applicable_scope_stays_unknown() {
   local line reads
   run_preflight mixed-scopes pi xai/grok-4.5 \
     "FM_FAKE_AUTH_DOC=$FIXTURES/auth-grok-cli-and-pi-available.json" \
     "FM_FAKE_QUOTA_DOC=$FIXTURES/quota-grok-mixed-known-unknown.json"
   line=$RUN_LINE
   expect_code 0 "$RUN_RC" "mixed quota scopes must not disqualify usable authentication"
-  assert_field "$line" headroom unknown "one unknown applicable scope makes aggregate headroom unknown"
-  assert_field "$line" quotaRetry unknown "the retry must preserve mixed-scope uncertainty"
+  assert_field "$line" headroom unknown "an unknown account-wide scope keeps this tuple's headroom unknown"
+  assert_field "$line" quotaRetry unknown "the retry must preserve applicable-scope uncertainty"
   reads=$(quota_reads)
   [ "$reads" -eq 2 ] || fail "expected one initial quota read plus one retry, got $reads reads"
-  pass "mixed known and unknown quota scopes stay conservatively unknown"
+  pass "an unknown applicable scope stays conservatively unknown"
 }
 
 # Transport-class failure: both the first read and the single retry fail.
@@ -673,12 +704,14 @@ test_other_harness_surfaces_resolve_without_probing() {
   pass "claude, codex, and kimi resolve their own surfaces without any vendor probe"
 }
 
+test_unrelated_model_window_does_not_bound_default_tuple
+test_matching_model_window_still_bounds_tuple
 test_expired_grok_cli_never_blocks_a_pi_xai_candidate
 test_missing_grok_config_never_blocks_a_pi_xai_candidate
 test_pi_expiry_is_scoped_to_pi_and_never_probes_grok
 test_usable_auth_with_unknown_quota_stays_eligible
 test_stale_quota_is_never_headroom_and_never_credential_wording
-test_mixed_known_and_unknown_scopes_stay_unknown
+test_unknown_applicable_scope_stays_unknown
 test_quota_endpoint_failure_retries_once_and_stays_eligible
 test_quota_retry_recovers_known_headroom
 test_standalone_grok_expired_probe_authenticates_and_stays_eligible
