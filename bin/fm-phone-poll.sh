@@ -6,8 +6,8 @@
 # channel id all resolve validly, this exits 0 without output, files, or network.
 #
 # The first sweep of a home without a durable state/phone-cursor only baselines
-# that cursor at "now" and delivers nothing, so opting in never replays existing
-# channel history as live captain commands.
+# that cursor at the channel's newest existing message and delivers nothing, so
+# opting in never replays existing channel history as live captain commands.
 #
 # A configured sweep performs one bounded GET, advances state/phone-cursor
 # monotonically across every returned Discord message id, and accepts a command

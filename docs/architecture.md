@@ -52,7 +52,7 @@ When only an owned child's current classification is unavailable, the home class
 A bounded direct-report terminal tail can help diagnose a mismatch by showing that historical parent wording is still visible, but it is untrusted supplemental evidence because scrollback, prompts, copied output, idle shells, and agent prose are not durable state.
 The snapshot strips control sequences, retains only capture metadata and literal event-corroboration flags, and never lets terminal evidence override a valid structured classification.
 The default path remains local-only; live GitHub enrichment exists only behind the bearings `--include-prs` opt-in.
-Optional X mode integrates with the watcher only after explicit opt-in; [configuration.md](configuration.md#x-mode-env) owns its generated-artifact and dispatch mechanics.
+Optional X mode and optional Discord phone mode integrate with the watcher only after explicit opt-in; configuration.md owns their generated-artifact and dispatch mechanics in [X mode](configuration.md#x-mode-env) and [Discord phone mode](configuration.md#discord-phone-mode-env).
 
 At session start, `bin/fm-session-start.sh` emits exactly one primary-harness supervision block rendered by `bin/fm-supervision-instructions.sh` from `docs/supervision-protocols/`.
 That block owns the live wait shape for the running primary harness: Claude's Stop `asyncRewake` hook owns tokenless re-arm cycles, Grok uses background-notify cycles, Codex uses bounded foreground checkpoints, Pi and pi-signed use the same two tracked primary extensions, and OpenCode uses its TUI plugin.
@@ -274,6 +274,21 @@ Inside the script the channel seam is resolve-target, format-payload, deliver.
 Only the Discord webhook channel is implemented; a second channel can be added later as one resolver arm plus its three functions, without changing the caller contract or the configuration surface.
 Delivery is best-effort by design: every failure is quiet, bounded, and non-blocking, and nothing is written anywhere under the fleet's state.
 The [phone notification configuration reference](configuration.md#phone-notifications-env) owns the setup steps, keys, defaults, event classes, caps, opt-out, and security surface.
+
+## Optional Discord phone mode
+
+Discord phone mode is the separately opted-in inbound counterpart to those outbound notifications, and Discord is its only provider.
+A user enables it by putting all three of `FM_PHONE_DISCORD_TOKEN`, `FM_PHONE_CAPTAIN_ID`, and `FM_PHONE_CHANNEL_ID` in the firstmate home's gitignored `.env`; anything less stays inert, and the locked session-start bootstrap step creates its generated poll, trust, and cadence artifacts on opt-in and removes them on opt-out, on the same schedule as X mode's.
+
+The mechanism boundary is deliberately narrow, and the feature adds no LLM, no gateway daemon, and no pane injection.
+The existing watcher is the only process: it dispatches the generated shim through the same hash-validated custom-check path, and `bin/fm-phone-poll.sh` makes one bounded Discord history request per due sweep.
+A message becomes a command only when its author id and channel id both match the configured values and its author is not a bot, so the bridge cannot consume its own acknowledgements.
+Transport is at-least-once and command processing is exactly-once: a monotonic `state/phone-cursor` plus create-once `state/phone-inbox/<message_id>.json` objects survive retries, and one wake can represent several accepted commands.
+A home with no cursor baselines at the channel's newest existing message from Discord's own response, so opting in never replays history - including an old merge approval - as live direction.
+Because a phone-only home has no fleet work, the shared supervision predicate treats the generated poll itself as supervision need, exactly as it does an X-mode relay poll ([turnend-guard.md](turnend-guard.md)).
+
+Authority does not follow the channel: enabling phone mode authorizes routine direction, questions, dispatch, routine decisions, and explicit PR merge approval, while destructive, irreversible, and security-sensitive asks are refused outright until the captain confirms them at the local helm.
+The [Discord phone mode configuration reference](configuration.md#discord-phone-mode-env) owns the setup steps, keys, defaults, polling and reply contracts, opt-out, and security surface, and the `fmphone-respond` agent-only skill owns the drain procedure and the exact authority boundary.
 
 ## Project memory belongs to projects
 

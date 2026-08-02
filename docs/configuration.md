@@ -184,7 +184,7 @@ When `FM_HOME` is unset, it also behaves as the old whole-root override.
 `bin/fm-send.sh` is intentionally stricter than that general fallback: it requires `FM_HOME` to be set before resolving a target, so operator steers cannot silently resolve against the wrong home.
 `FM_STATE_OVERRIDE`, `FM_DATA_OVERRIDE`, `FM_PROJECTS_OVERRIDE`, and `FM_CONFIG_OVERRIDE` override individual operational directories for tests and specialized harness setup.
 Before `fm-brief.sh`, `fm-spawn.sh`, or `fm-afk-launch.sh` persists a path or passes it to another process, it resolves each applicable relative `FM_HOME`, `FM_STATE_OVERRIDE`, or `FM_DATA_OVERRIDE` directory against the caller's working directory, preserves absolute spellings unchanged, and rejects an unresolvable relative directory with the offending variable named.
-Bootstrap applies the same relative `FM_HOME` resolution only when embedding that home in the generated X-mode poll shim; other transient consumers retain their existing shell-relative behavior.
+Bootstrap applies the same relative `FM_HOME` resolution only when embedding that home in the generated X-mode and Discord phone poll shims; other transient consumers retain their existing shell-relative behavior.
 For the herdr backend, `FM_HOME` also determines the workspace label used by the adapter.
 For the zellij backend, `FM_HOME` does not split containers, but it determines the readable home prefix embedded in visible tab titles; use `FM_ZELLIJ_SESSION` when a separate zellij session is needed.
 The full zellij home label also includes a short hash of the resolved `FM_ROOT` path.
@@ -480,7 +480,7 @@ The supervision operating block sources one active 30-second cadence file before
 A phone-only home still needs that live supervision cycle even with no fleet work.
 While away mode owns supervision, its existing cadence contract applies and phone latency may fall back to the default interval.
 
-`bin/fm-phone-poll.sh` performs one `GET /channels/{channel}/messages?after=<cursor>&limit=50` with a 5-second default hard timeout clamped to 1 through 10 seconds by `FM_PHONE_TIMEOUT_SECS`.
+`bin/fm-phone-poll.sh` performs one `GET /channels/{channel}/messages?limit=50`, adding `&after=<cursor>` once a cursor exists, with a 5-second default hard timeout clamped to 1 through 10 seconds by `FM_PHONE_TIMEOUT_SECS`.
 The token and channel URL are staged in mode-0600 temporary files rather than exposed in curl argv.
 Network unavailability, rate limiting, and non-success responses exit cleanly without a retry loop or response-body logging.
 
