@@ -1,6 +1,7 @@
 {
   "schema": "fm-fleet-snapshot.v1",
   "backlog": {
+    "present": true,
     "records": [
       {"id":"d1","structured":true,"state":"queued","title":"Choose the launch sequence","hold_kind":"captain"},
       {"id":"q1","structured":true,"state":"queued","title":"Prepare the release notes"},

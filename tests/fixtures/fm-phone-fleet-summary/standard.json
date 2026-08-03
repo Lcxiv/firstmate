@@ -1,6 +1,7 @@
 {
   "schema": "fm-fleet-snapshot.v1",
   "backlog": {
+    "present": true,
     "records": [
       {
         "id": "internal-decide-id",
@@ -33,6 +34,26 @@
         "structured": true,
         "state": "in_flight",
         "title": "Remove token=synthetic-title-secret from /Users/private/worktree."
+      },
+      {
+        "id": "internal-embedded-path-id",
+        "structured": true,
+        "state": "in_flight",
+        "title": "Fix the build (/Users/private/worktree/foo) at worktree=/Users/private/worktree/"
+      },
+      {
+        "id": "internal-punctuated-pr-id",
+        "structured": true,
+        "state": "in_flight",
+        "title": "Ship the phone glance",
+        "pr_url": "https://github.com/Lcxiv/firstmate/pull/1544."
+      },
+      {
+        "id": "internal-spoofed-pr-id",
+        "structured": true,
+        "state": "in_flight",
+        "title": "Chase the untrusted review link",
+        "pr_url": "https://evil.example/Lcxiv/firstmate/pull/4242"
       },
       {
         "id": "internal-landed-id",

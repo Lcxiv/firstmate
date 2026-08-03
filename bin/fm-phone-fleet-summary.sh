@@ -9,6 +9,9 @@
 #
 # The default 1750-character budget leaves room below the phone reply client's
 # 1900-character default so the glance normally stays in one Discord message.
+# A captain who lowers FM_PHONE_REPLY_MAX_CHARS below that budget lowers this
+# one with it, because a split reply joins the glance's lines into one run-on
+# paragraph and loses the five-column structure entirely.
 # When necessary, entries are omitted in this order: Landed, Queued, Building,
 # Review, then Decide. The reply reports omitted counts by column and invites a
 # narrower follow-up, so truncation never masquerades as a complete fleet.
@@ -22,12 +25,19 @@
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
+# shellcheck source=bin/fm-phone-lib.sh
+# shellcheck disable=SC1091
+. "$SCRIPT_DIR/fm-phone-lib.sh"
+
 SNAPSHOT_FILE=
-MAX_CHARS=1750
+DEFAULT_MAX_CHARS=1750
+MAX_CHARS=
 TEMP_SNAPSHOT=
 
 usage() {
-  sed -n '2,20{s/^# \{0,1\}//;p;}' "$0" >&2
+  sed -n '2,24{s/^# \{0,1\}//;p;}' "$0" >&2
 }
 
 while [ "$#" -gt 0 ]; do
@@ -53,15 +63,21 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-case "$MAX_CHARS" in
-  ''|*[!0-9]*)
-    echo "fm-phone-fleet-summary: invalid length budget" >&2
+if [ -n "$MAX_CHARS" ]; then
+  case "$MAX_CHARS" in
+    ''|*[!0-9]*)
+      echo "fm-phone-fleet-summary: invalid length budget" >&2
+      exit 2
+      ;;
+  esac
+  if [ "${#MAX_CHARS}" -gt 9 ] || [ "$MAX_CHARS" -lt 50 ] || [ "$MAX_CHARS" -gt 1900 ]; then
+    echo "fm-phone-fleet-summary: length budget must be between 50 and 1900" >&2
     exit 2
-    ;;
-esac
-if [ "$MAX_CHARS" -lt 500 ] || [ "$MAX_CHARS" -gt 1900 ]; then
-  echo "fm-phone-fleet-summary: length budget must be between 500 and 1900" >&2
-  exit 2
+  fi
+else
+  MAX_CHARS=$DEFAULT_MAX_CHARS
+  REPLY_MAX=$(fm_phone_bounded "$(fm_phone_config_get FM_PHONE_REPLY_MAX_CHARS)" 1900 50 1900)
+  [ "$MAX_CHARS" -le "$REPLY_MAX" ] || MAX_CHARS=$REPLY_MAX
 fi
 
 command -v python3 >/dev/null 2>&1 || {
@@ -90,7 +106,6 @@ import json
 import re
 import sys
 from collections import OrderedDict
-from urllib.parse import urlsplit
 
 
 snapshot_path, max_chars_raw = sys.argv[1], sys.argv[2]
@@ -116,7 +131,7 @@ def compact_text(value):
         text,
     )
     text = re.sub(r"(?i)https?://(?:[^\s/]+\.)?discord(?:app)?\.com/api/webhooks/\S+", "[private detail omitted]", text)
-    text = re.sub(r"(?:^|(?<=\s))(?:/[A-Za-z0-9._-]+){2,}(?=[\s,;:.)\]}]|$)", "[private detail omitted]", text)
+    text = re.sub(r"(?<![A-Za-z0-9:/])(?:/[A-Za-z0-9._-]+){2,}/?", "[private detail omitted]", text)
     text = re.sub(r"\b[A-Za-z]:\\(?:[^\s\\]+\\)+[^\s]*", "[private detail omitted]", text)
     text = re.sub(r"\b\d{15,20}\b", "[private detail omitted]", text)
     text = text.replace("`", "'")
@@ -125,23 +140,59 @@ def compact_text(value):
     return text
 
 
+GITHUB_PR = re.compile(
+    r"^https://github\.com/([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9-]{0,37}[A-Za-z0-9])"
+    r"/([A-Za-z0-9._-]{1,100})/pull/([1-9][0-9]*)$"
+)
+GITLAB_MR = re.compile(r"^https://([a-z0-9.-]{1,253})/([A-Za-z0-9._/-]+)/-/merge_requests/([1-9][0-9]*)$")
+
+
+def gitlab_host_valid(host):
+    if not 1 <= len(host) <= 253 or host == "github.com":
+        return False
+    if host.startswith(".") or host.endswith(".") or ".." in host:
+        return False
+    labels = host.split(".")
+    return all(1 <= len(label) <= 63 and not label.startswith("-") and not label.endswith("-") for label in labels)
+
+
+def gitlab_path_valid(path):
+    if not 3 <= len(path) <= 1024:
+        return False
+    if path.startswith("/") or path.endswith("/") or "//" in path:
+        return False
+    segments = path.split("/")
+    if not 2 <= len(segments) <= 20:
+        return False
+    for segment in segments:
+        if not 1 <= len(segment) <= 255:
+            return False
+        if segment in (".", "..") or segment.startswith("-"):
+            return False
+        if segment.endswith(".git") or segment.endswith(".atom"):
+            return False
+    return True
+
+
+# The trust rule is the repo's canonical one from bin/fm-pr-lib.sh: a GitHub
+# pull URL or a GitLab merge request URL on its own host, and nothing else.
+# Backlog rows and status logs are scraped, so a captured URL can carry the
+# sentence's trailing punctuation; that is stripped before matching rather than
+# dropping the link.
 def safe_pr_url(value):
     value = str(value or "").strip()
+    value = value.rstrip(".,;:!?'\")]}>")
     if not value or len(value) > 500 or any(ch.isspace() for ch in value):
         return ""
-    parsed = urlsplit(value)
-    is_pull_request = re.search(r"/(?:pull|merge_requests)/\d+/?$", parsed.path)
-    if (
-        parsed.scheme != "https"
-        or not parsed.netloc
-        or parsed.username
-        or parsed.password
-        or parsed.query
-        or parsed.fragment
-        or not is_pull_request
-    ):
-        return ""
-    return value
+    match = GITHUB_PR.match(value)
+    if match:
+        if "--" in match.group(1) or match.group(2) in (".", ".."):
+            return ""
+        return value
+    match = GITLAB_MR.match(value)
+    if match and gitlab_host_valid(match.group(1)) and gitlab_path_valid(match.group(2)):
+        return value
+    return ""
 
 
 def pr_url(record, task):
@@ -163,7 +214,9 @@ def item(record, task):
     return {"title": display_title(record, task), "pr": pr_url(record, task)}
 
 
-records = (snapshot.get("backlog") or {}).get("records") or []
+backlog = snapshot.get("backlog") or {}
+backlog_present = backlog.get("present") is True
+records = backlog.get("records") or []
 tasks = {task.get("id"): task for task in snapshot.get("tasks") or [] if task.get("id")}
 columns = OrderedDict((name, []) for name in ("Decide", "Queued", "Building", "Review", "Landed"))
 seen_task_ids = set()
@@ -199,9 +252,11 @@ for task_id in sorted(tasks):
         target = "Building"
     columns[target].append(item(None, task))
 
+unreadable_note = "Captain, I cannot read the fleet list right now, so I cannot tell you what is under way."
+
 total_items = sum(len(entries) for entries in columns.values())
 if total_items == 0:
-    print("Captain, nothing under way right now.")
+    print("Captain, nothing under way right now." if backlog_present else unreadable_note)
     raise SystemExit(0)
 
 totals = {name: len(entries) for name, entries in columns.items()}
@@ -210,7 +265,10 @@ omitted = {name: 0 for name in columns}
 
 
 def render():
-    lines = ["Captain, here's the fleet at a glance:"]
+    if backlog_present:
+        lines = ["Captain, here's the fleet at a glance:"]
+    else:
+        lines = ["Captain, I cannot read the fleet list right now, so this glance is incomplete:"]
     for number, (name, entries) in enumerate(shown.items(), start=1):
         total = totals[name]
         if entries:

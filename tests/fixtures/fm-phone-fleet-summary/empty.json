@@ -1,6 +1,7 @@
 {
   "schema": "fm-fleet-snapshot.v1",
   "backlog": {
+    "present": true,
     "records": []
   },
   "tasks": []
