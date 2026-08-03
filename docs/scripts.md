@@ -107,4 +107,5 @@ The shared no-mistakes gate refusal for fleet lifecycle entrypoints is summarize
 | `fm-phone-lib.sh`        | Shared Discord phone-mode configuration, private-artifact, and bounded transport helpers |
 | `fm-phone-poll.sh`       | One bounded Discord history poll: stash authenticated captain commands and emit their once-only wake |
 | `fm-phone-reply.sh`      | Post one composed firstmate reply to the configured private Discord phone channel |
+| `fm-phone-summary.sh`    | Keep the one live fleet summary current in the Discord phone channel by editing the same message in place |
 | `fm-phone-fleet-summary.sh` | Render the canonical fleet snapshot as the compact on-demand Discord phone glance ([board.md](board.md#phone-glance)) |

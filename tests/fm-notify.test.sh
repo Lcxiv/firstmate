@@ -47,6 +47,13 @@ n=$((n + 1))
 printf '%s\n' "$n" > "$FM_NOTIFY_TEST_CAPTURE/count"
 cp "$payload" "$FM_NOTIFY_TEST_CAPTURE/payload-$n.json"
 printf '%s\n' "$url" >> "$FM_NOTIFY_TEST_CAPTURE/urls"
+case "$url" in
+  *"${FM_NOTIFY_TEST_REJECT_MATCH:-\x00no-such-address}"*)
+    : > "$out"
+    printf '404'
+    exit 0
+    ;;
+esac
 if [ "$n" = 1 ] && [ -n "${FM_NOTIFY_TEST_RATELIMIT:-}" ]; then
   printf '{"message":"You are being rate limited.","retry_after":%s,"global":false}' \
     "$FM_NOTIFY_TEST_RATELIMIT" > "$out"
@@ -122,6 +129,21 @@ sent_count() {  # <home>
 
 embed() {  # <home> <n> <jq filter>
   jq -r "$3" < "$1/capture/payload-$2.json"
+}
+
+sent_url() {  # <home> <n>
+  sed -n "${2}p" "$1/capture/urls"
+}
+
+# The captain's Discord user id in these tests. Deliberately fake.
+MENTION_ID=810000000000000042
+
+# configure_lanes <home> <conversation-url> [broadcast-url] [mention-id]
+configure_lanes() {
+  local home=$1 main=$2 log=${3:-} mention=${4:-$MENTION_ID}
+  printf 'FM_NOTIFY_TARGET=%s\n' "$main" > "$home/.env"
+  [ -z "$log" ] || printf 'FM_NOTIFY_LOG_TARGET=%s\n' "$log" >> "$home/.env"
+  [ -z "$mention" ] || printf 'FM_NOTIFY_MENTION_ID=%s\n' "$mention" >> "$home/.env"
 }
 
 # --- inertness --------------------------------------------------------------
@@ -604,6 +626,222 @@ test_delivery_leaves_no_temporary_files_behind() {
   pass "delivery leaves no staged target or response file behind"
 }
 
+# --- routing: lane, mention, and stripe -------------------------------------
+#
+# The table below is an independent restatement of the agreed routing contract,
+# written from the layout the captain approved rather than read back out of the
+# script. Every class is listed, so a class that silently changes lane, gains a
+# mention, or changes colour fails here.
+#
+#          class          lane          mention  stripe
+CLASS_ROUTES='needs-decision conversation 1 0xF23F43
+blocked        conversation 1 0xF23F43
+failed         conversation 1 0xF23F43
+alarm          conversation 1 0xF23F43
+pr-ready       broadcast    0 0x5865F2
+merged         broadcast    0 0x23A55A
+done           broadcast    0 0x23A55A
+dispatched     broadcast    0 0x80848E
+update         broadcast    0 0x80848E'
+
+FAKE_LOG_HOOK='https://discord.com/api/webhooks/111111111111111111/fake-log-token'
+
+test_each_class_reaches_its_own_channel() {
+  local home class lane mention colour want
+  home=$(make_home routing-lanes)
+  configure_lanes "$home" "$FAKE_HOOK" "$FAKE_LOG_HOOK"
+  printf 'FM_NOTIFY_EVENTS=all\n' >> "$home/.env"
+
+  local n=0
+  while read -r class lane mention colour; do
+    [ -n "$class" ] || continue
+    n=$((n + 1))
+    run_notify "$home" -- --event "$class" "outcome text" >/dev/null \
+      || fail "$class was not delivered"
+    case "$lane" in
+      conversation) want=$FAKE_HOOK ;;
+      *) want=$FAKE_LOG_HOOK ;;
+    esac
+    [ "$(sent_url "$home" "$n")" = "$want" ] \
+      || fail "$class went to the wrong channel: $(sent_url "$home" "$n")"
+  done <<< "$CLASS_ROUTES"
+  [ "$n" = 9 ] || fail "the routing table covered $n classes, not every class"
+  pass "every event class reaches the channel its class names"
+}
+
+test_exactly_the_interrupt_classes_mention_the_captain() {
+  local home class lane mention colour content users parse
+  home=$(make_home routing-mentions)
+  configure_lanes "$home" "$FAKE_HOOK" "$FAKE_LOG_HOOK"
+  printf 'FM_NOTIFY_EVENTS=all\n' >> "$home/.env"
+
+  local n=0
+  while read -r class lane mention colour; do
+    [ -n "$class" ] || continue
+    n=$((n + 1))
+    run_notify "$home" -- --event "$class" "outcome text" >/dev/null \
+      || fail "$class was not delivered"
+    content=$(embed "$home" "$n" '.content // ""')
+    users=$(embed "$home" "$n" '(.allowed_mentions.users // []) | join(",")')
+    parse=$(embed "$home" "$n" '(.allowed_mentions.parse // ["MISSING"]) | join(",")')
+    [ -z "$parse" ] || fail "$class did not suppress mention parsing: parse=$parse"
+    if [ "$mention" = 1 ]; then
+      # Proving a mention: over-mentioning destroys the whole dial, so the id
+      # must be addressed explicitly rather than merely appearing in text.
+      [ "$content" = "<@$MENTION_ID>" ] \
+        || fail "$class must mention the captain, got content: $content"
+      [ "$users" = "$MENTION_ID" ] \
+        || fail "$class must address the mention explicitly, got users: $users"
+    else
+      # Proving the absence is the more important half of this test.
+      [ -z "$content" ] || fail "$class must NOT mention, got content: $content"
+      [ -z "$users" ] || fail "$class must NOT address a mention, got users: $users"
+    fi
+  done <<< "$CLASS_ROUTES"
+  pass "exactly the four interrupt classes mention the captain, and no other does"
+}
+
+test_stripe_colour_follows_the_class() {
+  local home class lane mention colour got
+  home=$(make_home routing-colours)
+  configure_lanes "$home" "$FAKE_HOOK" "$FAKE_LOG_HOOK"
+  printf 'FM_NOTIFY_EVENTS=all\n' >> "$home/.env"
+
+  local n=0
+  while read -r class lane mention colour; do
+    [ -n "$class" ] || continue
+    n=$((n + 1))
+    run_notify "$home" -- --event "$class" "outcome text" >/dev/null \
+      || fail "$class was not delivered"
+    got=$(embed "$home" "$n" '.embeds[0].color')
+    [ "$got" = "$((colour))" ] \
+      || fail "$class carried colour $got, expected $((colour))"
+  done <<< "$CLASS_ROUTES"
+  pass "each class carries its own stripe colour: red, blue, green, or grey"
+}
+
+test_body_text_can_never_produce_a_ping() {
+  local home
+  home=$(make_home routing-no-ping)
+  configure_lanes "$home" "$FAKE_HOOK" "$FAKE_LOG_HOOK"
+  run_notify "$home" -- --event merged --title '@here landed' \
+    '@everyone the release landed, ask @sailors' >/dev/null || fail "send failed"
+  [ "$(embed "$home" 1 '(.allowed_mentions.parse // ["MISSING"]) | length')" = 0 ] \
+    || fail "a routine message did not suppress mention parsing"
+  [ "$(embed "$home" 1 '.content // ""')" = "" ] \
+    || fail "a routine message gained mention content"
+  pass "@everyone, @here, and role text inside a message can never ping"
+}
+
+test_only_the_opening_part_of_a_split_message_mentions() {
+  local home count i content
+  home=$(make_home routing-split-mention)
+  configure_lanes "$home" "$FAKE_HOOK" "$FAKE_LOG_HOOK"
+  run_notify "$home" -- --event needs-decision \
+    "$(printf 'decision line %s\n' $(seq 1 900))" >/dev/null || fail "send failed"
+  count=$(sent_count "$home")
+  [ "$count" -gt 1 ] || fail "the body did not split, so this proves nothing"
+  [ "$(embed "$home" 1 '.content // ""')" = "<@$MENTION_ID>" ] \
+    || fail "the opening part of a decision must mention the captain"
+  i=2
+  while [ "$i" -le "$count" ]; do
+    content=$(embed "$home" "$i" '.content // ""')
+    [ -z "$content" ] || fail "part $i re-mentioned the captain: $content"
+    i=$((i + 1))
+  done
+  pass "a split decision interrupts the captain once, not once per part"
+}
+
+# --- degrading back to a single address -------------------------------------
+
+test_without_a_log_address_every_class_uses_the_single_target() {
+  local home class lane mention colour
+  home=$(make_home routing-single-address)
+  configure_lanes "$home" "$FAKE_HOOK"
+  printf 'FM_NOTIFY_EVENTS=all\n' >> "$home/.env"
+
+  local n=0
+  while read -r class lane mention colour; do
+    [ -n "$class" ] || continue
+    n=$((n + 1))
+    run_notify "$home" -- --event "$class" "outcome text" >/dev/null \
+      || fail "$class was not delivered without a broadcast address"
+    [ "$(sent_url "$home" "$n")" = "$FAKE_HOOK" ] \
+      || fail "$class did not fall back to the single configured address"
+  done <<< "$CLASS_ROUTES"
+  pass "with no broadcast address configured, every class uses the existing one"
+}
+
+test_a_deleted_log_channel_degrades_instead_of_losing_the_message() {
+  local home rc err
+  home=$(make_home routing-deleted-log)
+  configure_lanes "$home" "$FAKE_HOOK" "$FAKE_LOG_HOOK"
+  err=$(FM_NOTIFY_TEST_REJECT_MATCH='fake-log-token' \
+    run_notify "$home" -- --event merged "phone fix landed" 2>&1 >/dev/null)
+  rc=$?
+  expect_code 0 "$rc" "a merged notice whose broadcast channel was deleted"
+  [ "$(sent_count "$home")" = 2 ] || fail "expected a rejected send then a fallback send"
+  [ "$(sent_url "$home" 1)" = "$FAKE_LOG_HOOK" ] || fail "the first attempt should use the broadcast address"
+  [ "$(sent_url "$home" 2)" = "$FAKE_HOOK" ] || fail "the fallback should use the main address"
+  assert_contains "$err" "broadcast address is gone" "the degrade should be visible, not silent"
+  pass "deleting the broadcast channel degrades to single-address delivery"
+}
+
+test_a_bad_log_address_is_reported_rather_than_guessed() {
+  local home rc out
+  home=$(make_home routing-bad-log)
+  configure_lanes "$home" "$FAKE_HOOK" 'slack:not-a-supported-channel'
+  out=$(run_notify "$home" -- --event merged "landed" 2>&1)
+  rc=$?
+  expect_code 3 "$rc" "a broadcast address naming no supported channel"
+  assert_contains "$out" "FM_NOTIFY_LOG_TARGET" "the misconfiguration should name the key"
+  [ "$(sent_count "$home")" = 0 ] || fail "a misconfigured broadcast address still delivered"
+  pass "a broadcast address naming no supported channel is reported, not guessed"
+}
+
+# --- mention configuration --------------------------------------------------
+
+test_a_decision_still_lands_without_a_configured_mention_id() {
+  local home rc
+  home=$(make_home routing-no-mention-id)
+  configure_lanes "$home" "$FAKE_HOOK" "$FAKE_LOG_HOOK" ' '
+  printf 'FM_NOTIFY_MENTION_ID=\n' >> "$home/.env"
+  run_notify "$home" -- --event needs-decision "which fix?" >/dev/null
+  rc=$?
+  expect_code 0 "$rc" "a decision with no mention id configured"
+  [ "$(sent_count "$home")" = 1 ] || fail "the decision was not delivered"
+  [ "$(embed "$home" 1 '.content // ""')" = "" ] \
+    || fail "an unconfigured mention should be omitted, not invented"
+  pass "an unconfigured mention degrades to a delivered message, never a lost one"
+}
+
+test_the_phone_captain_id_serves_as_the_mention_fallback() {
+  local home
+  home=$(make_home routing-phone-fallback)
+  printf 'FM_NOTIFY_TARGET=%s\n' "$FAKE_HOOK" > "$home/.env"
+  printf 'FM_PHONE_CAPTAIN_ID=%s\n' "$MENTION_ID" >> "$home/.env"
+  run_notify "$home" -- --event blocked "credentials expired" >/dev/null \
+    || fail "send failed"
+  [ "$(embed "$home" 1 '.content // ""')" = "<@$MENTION_ID>" ] \
+    || fail "the already-configured captain id should serve as the mention target"
+  pass "a home that already knows the captain's id does not configure it twice"
+}
+
+test_no_configured_value_appears_in_any_emitted_string() {
+  local home out
+  home=$(make_home routing-no-leak)
+  configure_lanes "$home" "$FAKE_HOOK" "$FAKE_LOG_HOOK"
+  out=$(FM_NOTIFY_TEST_REJECT_MATCH='fake-log-token' \
+    run_notify "$home" -- --event merged "landed" 2>&1)
+  out="$out$(run_notify "$home" -- --event needs-decision "which fix?" 2>&1)"
+  out="$out$(run_notify "$home" -- --event failed "it broke" 2>&1)"
+  assert_not_contains "$out" "$MENTION_ID" "the captain's id leaked into output"
+  assert_not_contains "$out" 'fake-test-token' "the main address leaked into output"
+  assert_not_contains "$out" 'fake-log-token' "the broadcast address leaked into output"
+  assert_not_contains "$out" 'discord.com/api/webhooks' "a webhook URL leaked into output"
+  pass "no configured address or captain id appears in anything this prints"
+}
+
 # --- help -------------------------------------------------------------------
 
 test_help_and_list_events_need_no_config() {
@@ -645,4 +883,15 @@ test_failure_leaves_no_state_and_stays_bounded
 test_wire_request_carries_the_required_headers
 test_webhook_address_never_reaches_the_process_arguments
 test_delivery_leaves_no_temporary_files_behind
+test_each_class_reaches_its_own_channel
+test_exactly_the_interrupt_classes_mention_the_captain
+test_stripe_colour_follows_the_class
+test_body_text_can_never_produce_a_ping
+test_only_the_opening_part_of_a_split_message_mentions
+test_without_a_log_address_every_class_uses_the_single_target
+test_a_deleted_log_channel_degrades_instead_of_losing_the_message
+test_a_bad_log_address_is_reported_rather_than_guessed
+test_a_decision_still_lands_without_a_configured_mention_id
+test_the_phone_captain_id_serves_as_the_mention_fallback
+test_no_configured_value_appears_in_any_emitted_string
 test_help_and_list_events_need_no_config

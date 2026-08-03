@@ -27,6 +27,16 @@ SCRIPT_DIR_PHONE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_PHONE_DISCORD_API=https://discord.com/api/v10
 FM_PHONE_UA='firstmate-phone/1.0 (+https://github.com/Lcxiv/firstmate)'
 
+# The receipt reaction, percent-encoded for Discord's reaction route. This is
+# UTF-8 for the anchor the captain sees on their own message.
+FM_PHONE_ACK_EMOJI_ENCODED='%E2%9A%93'
+
+# The live summary's leading marker. It is ordinary captain-facing text, and it
+# is also what lets a home that lost its durable record recognise its own
+# summary in channel history instead of posting a second one.
+# shellcheck disable=SC2034 # Read by fm-phone-summary.sh after sourcing.
+FM_PHONE_SUMMARY_MARKER='⚓'
+
 fm_phone_config_get() {
   local key=$1 env_file
   if [ "${FM_PHONE_CONFIG_SOURCE:-}" = home-env ]; then
@@ -125,20 +135,41 @@ fm_phone_auth_header_file() {
 }
 
 # Stage the configured private channel URL in a mode-0600 curl config rather
-# than argv. MODE is "poll" or "post"; CURSOR is optional for poll.
+# than argv. MODE selects the route; ARG is the cursor for "poll", a message id
+# for the message-scoped routes, and unused otherwise. Every route is built from
+# the configured channel id and a validated numeric id, so no caller-supplied
+# text ever reaches the URL.
 fm_phone_url_config_file() {
-  local mode=$1 cursor=${2:-} url file
+  local mode=$1 arg=${2:-} url file limit
   [ "${FM_PHONE_CONFIGURED:-0}" = 1 ] || return 1
   case "$mode" in
     poll)
       url="$FM_PHONE_DISCORD_API/channels/$FM_PHONE_CHANNEL/messages?limit=50"
-      if [ -n "$cursor" ] && [ "$cursor" != 0 ]; then
-        fm_phone_discord_id_valid "$cursor" || return 1
-        url="$url&after=$cursor"
+      if [ -n "$arg" ] && [ "$arg" != 0 ]; then
+        fm_phone_discord_id_valid "$arg" || return 1
+        url="$url&after=$arg"
       fi
       ;;
     post)
       url="$FM_PHONE_DISCORD_API/channels/$FM_PHONE_CHANNEL/messages"
+      ;;
+    recent)
+      # A bounded page of recent history, used to re-find this home's own live
+      # summary. It needs only the read access the poll route already uses.
+      limit=$(fm_phone_bounded "$arg" 50 1 100)
+      url="$FM_PHONE_DISCORD_API/channels/$FM_PHONE_CHANNEL/messages?limit=$limit"
+      ;;
+    message)
+      fm_phone_discord_id_valid "$arg" || return 1
+      url="$FM_PHONE_DISCORD_API/channels/$FM_PHONE_CHANNEL/messages/$arg"
+      ;;
+    react)
+      fm_phone_discord_id_valid "$arg" || return 1
+      url="$FM_PHONE_DISCORD_API/channels/$FM_PHONE_CHANNEL/messages/$arg/reactions/$FM_PHONE_ACK_EMOJI_ENCODED/@me"
+      ;;
+    pin)
+      fm_phone_discord_id_valid "$arg" || return 1
+      url="$FM_PHONE_DISCORD_API/channels/$FM_PHONE_CHANNEL/pins/$arg"
       ;;
     *) return 1 ;;
   esac
@@ -148,43 +179,104 @@ fm_phone_url_config_file() {
   printf '%s\n' "$file"
 }
 
-# One bounded Discord history GET. Writes the response JSON to BODY and prints
-# only the HTTP code. Token and channel id remain in private temporary files.
-fm_phone_poll_request() (
-  local body=$1 cursor=${2:-0} auth_file='' url_file='' code
+# One bounded Discord request. Writes the response body to BODY and prints only
+# the HTTP code; returns 1 when the request could not be made at all. Token and
+# channel id stay in private temporary files, never in argv. This is the single
+# transport for every route below, so the timeout, the header set, and the
+# secret handling cannot drift between verbs.
+fm_phone_api_request() (
+  local method=$1 mode=$2 arg=$3 body=$4 payload=${5:-}
+  local auth_file='' url_file='' code
   trap 'rm -f "$auth_file" "$url_file"' EXIT HUP INT TERM
   auth_file=$(fm_phone_auth_header_file) || return 1
-  url_file=$(fm_phone_url_config_file poll "$cursor") || return 1
-  code=$(curl -s -m "$FM_PHONE_TIMEOUT" --connect-timeout "$FM_PHONE_TIMEOUT" \
+  url_file=$(fm_phone_url_config_file "$mode" "$arg") || return 1
+  set -- -s -m "$FM_PHONE_TIMEOUT" --connect-timeout "$FM_PHONE_TIMEOUT" \
     -o "$body" -w '%{http_code}' \
+    -X "$method" \
     -H "@$auth_file" \
     -H 'Accept: application/json' \
-    -H "User-Agent: $FM_PHONE_UA" \
-    --config "$url_file" 2>/dev/null) || return 1
+    -H "User-Agent: $FM_PHONE_UA"
+  if [ -n "$payload" ]; then
+    set -- "$@" -H 'Content-Type: application/json' --data-binary "@$payload"
+  fi
+  code=$(curl "$@" --config "$url_file" 2>/dev/null) || return 1
   printf '%s' "$code"
 )
 
-# One bounded Discord message POST using a payload file. It is intentionally
-# silent; callers translate failure without ever printing config or response
-# bodies that could carry private channel detail.
+# One bounded Discord history GET. Writes the response JSON to BODY and prints
+# only the HTTP code.
+fm_phone_poll_request() {
+  fm_phone_api_request GET poll "${2:-0}" "$1"
+}
+
+# One bounded page of recent channel history into BODY. Prints the HTTP code.
+fm_phone_recent_request() {
+  fm_phone_api_request GET recent "${2:-50}" "$1"
+}
+
+# One bounded Discord message POST using a payload file. When BODY_OUT is given
+# the created message object is written there so a caller can keep its id. It is
+# intentionally silent; callers translate failure without ever printing config
+# or response bodies that could carry private channel detail.
 fm_phone_post_payload() (
-  local payload=$1 auth_file='' url_file='' body_file='' code
-  trap 'rm -f "$auth_file" "$url_file" "$body_file"' EXIT HUP INT TERM
-  auth_file=$(fm_phone_auth_header_file) || return 1
-  url_file=$(fm_phone_url_config_file post) || return 1
-  body_file=$(mktemp "${TMPDIR:-/tmp}/fm-phone-post-body.XXXXXX") || return 1
-  code=$(curl -s -m "$FM_PHONE_TIMEOUT" --connect-timeout "$FM_PHONE_TIMEOUT" \
-    -o "$body_file" -w '%{http_code}' \
-    -X POST \
-    -H "@$auth_file" \
-    -H 'Content-Type: application/json' \
-    -H "User-Agent: $FM_PHONE_UA" \
-    --data-binary "@$payload" \
-    --config "$url_file" 2>/dev/null) || return 1
+  local payload=$1 body_out=${2:-} scratch='' body code rc
+  trap 'rm -f "$scratch"' EXIT HUP INT TERM
+  body=$body_out
+  if [ -z "$body" ]; then
+    scratch=$(mktemp "${TMPDIR:-/tmp}/fm-phone-post-body.XXXXXX") || return 1
+    body=$scratch
+  fi
+  code=$(fm_phone_api_request POST post '' "$body" "$payload")
+  rc=$?
+  [ "$rc" = 0 ] || return 1
   case "$code" in
     2[0-9][0-9]) return 0 ;;
     *) return 1 ;;
   esac
+)
+
+# Add this home's receipt reaction to one captain message. Returns 0 only on a
+# 2xx, so a caller can never report a receipt Discord did not record.
+fm_phone_react() (
+  local message_id=$1 body='' code rc
+  fm_phone_discord_id_valid "$message_id" || return 1
+  trap 'rm -f "$body"' EXIT HUP INT TERM
+  body=$(mktemp "${TMPDIR:-/tmp}/fm-phone-react.XXXXXX") || return 1
+  code=$(fm_phone_api_request PUT react "$message_id" "$body")
+  rc=$?
+  [ "$rc" = 0 ] || return 1
+  case "$code" in
+    2[0-9][0-9]) return 0 ;;
+    *) return 1 ;;
+  esac
+)
+
+# Edit one existing message in place. Prints the HTTP code so the caller can
+# tell "someone else's or deleted message" (403/404) apart from a real failure,
+# and returns 1 only when the request could not be made at all.
+fm_phone_edit_message() (
+  local message_id=$1 payload=$2 body='' code rc
+  fm_phone_discord_id_valid "$message_id" || return 1
+  trap 'rm -f "$body"' EXIT HUP INT TERM
+  body=$(mktemp "${TMPDIR:-/tmp}/fm-phone-edit.XXXXXX") || return 1
+  code=$(fm_phone_api_request PATCH message "$message_id" "$body" "$payload")
+  rc=$?
+  [ "$rc" = 0 ] || return 1
+  printf '%s' "$code"
+)
+
+# Pin one message. Prints the HTTP code; 403 means the bot has no Manage
+# Messages permission in that channel, which callers must degrade around rather
+# than treat as a delivery failure.
+fm_phone_pin_message() (
+  local message_id=$1 body='' code rc
+  fm_phone_discord_id_valid "$message_id" || return 1
+  trap 'rm -f "$body"' EXIT HUP INT TERM
+  body=$(mktemp "${TMPDIR:-/tmp}/fm-phone-pin.XXXXXX") || return 1
+  code=$(fm_phone_api_request PUT pin "$message_id" "$body")
+  rc=$?
+  [ "$rc" = 0 ] || return 1
+  printf '%s' "$code"
 )
 
 # Build a Discord message payload. REPLY_ID may be empty; when present it is a
@@ -201,6 +293,41 @@ fm_phone_message_payload() {
          else {message_reference:{message_id:$reply, channel_id:$channel, fail_if_not_exists:false}}
          end)
     '
+}
+
+# Build the live-summary payload. It is a plain content message with every
+# mention suppressed: the summary is a standing reference the captain reads when
+# they choose to, never an interruption.
+fm_phone_summary_payload() {
+  jq -cn --arg text "$1" '{content: $text, allowed_mentions: {parse: []}}'
+}
+
+# The durable identity of this home's live summary message. Keeping the id on
+# disk is what makes the summary editable across a restart instead of being
+# reposted; losing it is recoverable from channel history, but reposting is not
+# recoverable at all, so this write is checked by every caller.
+fm_phone_summary_id_get() {
+  local state=$1 file="$1/phone-summary-id" value
+  if [ ! -e "$file" ] && [ ! -L "$file" ]; then
+    return 1
+  fi
+  fmx_private_artifact_file_valid "$state" phone-summary-id 600 || return 1
+  exec 8< "$file" || return 1
+  IFS= read -r value <&8 || { exec 8<&-; return 1; }
+  if IFS= read -r _extra <&8; then
+    exec 8<&-
+    return 1
+  fi
+  exec 8<&-
+  fm_phone_discord_id_valid "$value" || return 1
+  printf '%s\n' "$value"
+}
+
+fm_phone_summary_id_set() {
+  local state=$1 message_id=$2
+  fm_phone_discord_id_valid "$message_id" || return 1
+  printf '%s\n' "$message_id" \
+    | fmx_private_artifact_publish_stdin "$state" phone-summary-id 600
 }
 
 fm_phone_cursor_get() {
