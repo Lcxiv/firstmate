@@ -50,6 +50,11 @@
 #   FM_PHONE_SUMMARY_MAX_CHARS  summary length cap, default 1900, clamped
 #                               50..1900.
 #
+# OUTPUT
+#   Whenever the summary is current - exit 0, and exit 6 too - its message id is
+#   printed on stdout, so a caller can see which message is being kept current.
+#   Nothing else goes there; diagnostics go to stderr.
+#
 # EXIT CODES
 #   0  the summary is current
 #   2  usage error (bad flag, unreadable text file, empty summary)

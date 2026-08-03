@@ -32,10 +32,13 @@
 #                             uses FM_NOTIFY_TARGET, which is exactly the
 #                             single-address behaviour of a home that never
 #                             configured one. It has to resolve to the same
-#                             channel as FM_NOTIFY_TARGET, and a value that does
-#                             not is refused. That refusal reaches only the
-#                             classes that use this address; the four interrupt
-#                             classes below still send on FM_NOTIFY_TARGET.
+#                             channel as FM_NOTIFY_TARGET - channel meaning the
+#                             delivery platform of CHANNEL SEAM below, not the
+#                             Discord room, which is the whole point of setting
+#                             this - and a value that does not is refused. That
+#                             refusal reaches only the classes that use this
+#                             address; the four interrupt classes below still
+#                             send on FM_NOTIFY_TARGET.
 #   FM_NOTIFY_MENTION_ID      the captain's Discord user id, used to mention
 #                             them on the four interrupt classes below; falls
 #                             back to FM_PHONE_CAPTAIN_ID when that is already
@@ -75,9 +78,9 @@
 #     dispatched       broadcast      no       grey
 #     update           broadcast      no       grey
 #
-#   Both channels are expected to be muted, where a mention is the only thing
-#   that reaches the captain. Urgency therefore rides on the message rather than
-#   on which channel it landed in, which is why exactly the four classes above
+#   Both Discord rooms are expected to be muted, where a mention is the only
+#   thing that reaches the captain. Urgency therefore rides on the message rather
+#   than on which room it landed in, which is why exactly the four classes above
 #   ever carry a mention, and why only their opening part carries it. Every
 #   message suppresses mention parsing in the payload itself, so @everyone,
 #   @here, or role text inside a body can never ping anyone.

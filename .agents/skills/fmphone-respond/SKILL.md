@@ -102,6 +102,7 @@ bin/fm-phone-summary.sh --text-file <path>
 
 Compose one short captain-facing line, write it with the file-writing tool exactly as for a reply, and let the script edit the existing message.
 Never post the summary as an ordinary message, and never treat exit 6 as a failure: it means the summary is current but the channel does not grant the pin permission.
+This standing summary is not the on-demand glance of step 4: a `board` or `fleet summary` request is still answered in the moment with `bin/fm-phone-fleet-summary.sh` through the normal reply path.
 
 Phone replies are private-channel messages but remain cloud-readable Discord content.
 Keep them outcome-focused and omit secrets and unnecessary private implementation detail.

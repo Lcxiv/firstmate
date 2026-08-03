@@ -103,7 +103,7 @@ The shared no-mistakes gate refusal for fleet lifecycle entrypoints is summarize
 | `fm-public-followup-lib.sh` | Shared relay-activation gate, O(1) presence checks, and private transport paths for promised public replies |
 | `fm-public-followup.sh`  | Reconcile typed terminal work results into a public commitment and deliver its final reply once |
 | `fm-public-followup-emit.sh` | Report one typed terminal work result into the home that owes the public reply    |
-| `fm-notify.sh`           | Mirror one already-composed captain-facing outcome message to the captain's configured chat channel |
+| `fm-notify.sh`           | Mirror one already-composed captain-facing outcome message to the chat lane its event class names, mentioning the captain only on the classes that need them |
 | `fm-phone-lib.sh`        | Shared Discord phone-mode configuration, private-artifact, and bounded transport helpers |
 | `fm-phone-poll.sh`       | One bounded Discord history poll: stash authenticated captain commands and emit their once-only wake |
 | `fm-phone-reply.sh`      | Post one composed firstmate reply to the configured private Discord phone channel |

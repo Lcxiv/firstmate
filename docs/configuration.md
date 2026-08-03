@@ -425,7 +425,7 @@ Put that URL into `$FM_HOME/.env` as `FM_NOTIFY_TARGET=<url>`, and keep that fil
 Send a test line with `bin/fm-notify.sh --event update "test from firstmate"` and confirm it lands in the channel.
 
 Every `FM_NOTIFY_*` key is read from `$FM_HOME/.env` unless the same name is set explicitly in the environment, which wins; the names and defaults are listed under "Environment variables" below.
-`FM_NOTIFY_TARGET` holds either a bare Discord webhook URL or the explicit `<channel>:<address>` form, and `FM_NOTIFY_ENV_FILE` redirects the file read for direct invocations and tests.
+`FM_NOTIFY_TARGET` holds either a bare Discord webhook URL or the explicit `<channel>:<address>` form, where `<channel>` names the delivery platform rather than a Discord channel, and `FM_NOTIFY_ENV_FILE` redirects the file read for direct invocations and tests.
 
 The event classes are `dispatched`, `needs-decision`, `blocked`, `failed`, `alarm`, `pr-ready`, `merged`, `done`, and `update`.
 `alarm` is the away-mode delivery alarm, for when firstmate cannot reach the captain at all; `docs/wedge-alarm.md` owns how that alarm selects its channels.
@@ -461,7 +461,7 @@ The broadcast lane uses `FM_NOTIFY_LOG_TARGET` when it is configured and `FM_NOT
 Setting up the broadcast channel is the captain's two-minute job: create it with the same privacy as the conversation channel, add a webhook to it, and put that URL in `.env` as `FM_NOTIFY_LOG_TARGET`.
 Mute both channels and leave "suppress @mentions" off, which is what makes the mention the dial.
 Deleting that channel later degrades rather than breaks: a rejected broadcast address falls back to `FM_NOTIFY_TARGET` for that message and says so on stderr.
-A `FM_NOTIFY_LOG_TARGET` that names no supported channel, or a different channel from `FM_NOTIFY_TARGET`, is reported as a misconfiguration rather than guessed around.
+A `FM_NOTIFY_LOG_TARGET` that names no supported delivery platform, or a different delivery platform from `FM_NOTIFY_TARGET`, is reported as a misconfiguration rather than guessed around; pointing the two at different Discord channels of the same platform is the intended setup, not a mismatch.
 That refusal reaches only the classes that would use the broadcast address; the four mentioning classes never read it, so a typo there cannot silence an alarm, a decision, a block, or a failure.
 
 Each message is one embed whose title carries an emoji and an uppercase state word alongside the matching colour, so the colour never carries the state alone.
@@ -471,7 +471,7 @@ Run `bin/fm-notify.sh --help` for the exact flags, exit codes, and channel-seam 
 
 Losing a notification never blocks or delays fleet work.
 A rate limit is retried once, honouring the reported wait clamped by `FM_NOTIFY_RETRY_CAP_SECS`; a forbidden or missing target and any other delivery failure exit non-zero with one short line on stderr, with no further retry and no write anywhere under this home's state.
-Only the Discord webhook channel is implemented today, behind a thin internal seam so a second channel can be added later without changing the caller contract or these keys.
+Discord webhooks are the only delivery platform implemented today, behind a thin internal seam so a second platform can be added later without changing the caller contract or these keys.
 
 Opt out by deleting `FM_NOTIFY_TARGET` from `.env`, which restores the silent no-op immediately, and by deleting the webhook in Discord so the URL stops working for anyone who still holds it.
 Dropping only `FM_NOTIFY_LOG_TARGET` collapses both lanes back onto the single channel.
@@ -498,7 +498,8 @@ FM_PHONE_CHANNEL_ID=<private-discord-channel-id>
 
 Keep `.env` at mode 0600.
 The bot token is a secret, while the two numeric ids are authentication configuration that must still never be printed in operator diagnostics or wake lines.
-An existing Discord bot may be reused if it can view the private channel, read message history, read message content, and send messages there.
+An existing Discord bot may be reused if it can view the private channel, read message history, read message content, send messages, and add reactions there.
+No other permission is required: editing its own messages needs none, and the optional pin described under "The live summary" degrades when Manage Messages is withheld.
 Enable Discord Developer Mode to copy the captain user id and private channel id, and enable the bot's message-content intent when Discord requires it.
 The outbound `FM_NOTIFY_TARGET` webhook may point at the same channel, but it remains a separate write-only capability and is not used to authenticate inbound commands.
 
@@ -521,7 +522,7 @@ The token and channel URL are staged in mode-0600 temporary files rather than ex
 Network unavailability, rate limiting, and non-success responses exit cleanly without a retry loop or response-body logging.
 
 A message is accepted only when its Discord `author.id` equals `FM_PHONE_CAPTAIN_ID` and its `channel_id` equals `FM_PHONE_CHANNEL_ID`.
-Both checks are required, and bot-authored messages are independently rejected so outbound acknowledgements and replies can never loop back into the bridge.
+Both checks are required, and bot-authored messages are independently rejected so firstmate's own replies and its live summary can never loop back into the bridge.
 Every other sender or channel is dropped silently with no reply, pairing chatter, or diagnostic to the sender.
 The poller's visible authentication/configuration failures are generic local `phone-mode-error` wakes that contain none of the configured values.
 If the private state-directory precondition later drifts, the same wake channel explicitly attributes the failure to the local filesystem and names only the directory and required mode, before any Discord request is made.
@@ -542,7 +543,6 @@ The receipt still reports durable receipt only and never claims an action succee
 Failure is silent, and the command wake still proceeds.
 A sweep that accepts several messages at once places one receipt, on the newest, which is the same single extra request the older acknowledgement message cost.
 Set `FM_PHONE_ACK=0` to disable it.
-Adding reactions needs only the bot's Add Reactions permission in that channel.
 
 ### The live summary
 
@@ -628,7 +628,7 @@ FMX_FOLLOWUP_MAX_AGE_SECS=604800   # local window for posting X-mode completion 
 FMX_FOLLOWUP_MAX_COUNT=3   # local cap on X-mode completion follow-ups per linked mention
 FM_PF_RETRY_BACKOFF_SECS=900   # seconds before the next attempt after a retryable promised-public-reply delivery error
 FM_NOTIFY_TARGET=        # phone-notification conversation channel; a bare Discord webhook URL or "<channel>:<address>"; presence is the .env opt-in, absence is a silent no-op
-FM_NOTIFY_LOG_TARGET=    # optional broadcast channel for ready/landed/routine classes, same two forms and same channel as FM_NOTIFY_TARGET; empty means both lanes use FM_NOTIFY_TARGET
+FM_NOTIFY_LOG_TARGET=    # optional broadcast channel for ready/landed/routine classes, same two forms and same delivery platform as FM_NOTIFY_TARGET; empty means both lanes use FM_NOTIFY_TARGET
 FM_NOTIFY_MENTION_ID=    # captain's Discord user id, mentioned on the needs-decision, blocked, failed, and alarm classes; empty falls back to FM_PHONE_CAPTAIN_ID, then to no mention
 FM_NOTIFY_EVENTS=        # comma-separated event classes to mirror, or "all", or "none"; empty means every class except dispatched
 FM_NOTIFY_TIMEOUT_SECS=10   # per-request phone-notification transport timeout; values outside 1..120 clamp into range
