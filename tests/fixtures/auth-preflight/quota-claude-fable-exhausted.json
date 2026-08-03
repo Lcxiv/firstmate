@@ -1,0 +1,81 @@
+{
+  "generatedAt": "2026-08-02T00:00:00.000Z",
+  "schemaVersion": 3,
+  "providers": [
+    {
+      "provider": "claude",
+      "label": "Claude",
+      "source": "oauth",
+      "windows": [
+        {
+          "id": "five_hour",
+          "label": "session",
+          "kind": "session",
+          "percentUsed": 2,
+          "percentRemaining": 98,
+          "resetsAt": "2026-08-02T04:00:00.000Z",
+          "windowSeconds": 18000
+        },
+        {
+          "id": "seven_day",
+          "label": "week",
+          "kind": "weekly",
+          "percentUsed": 72,
+          "percentRemaining": 28,
+          "resetsAt": "2026-08-07T00:00:00.000Z",
+          "windowSeconds": 604800
+        },
+        {
+          "id": "model:fable",
+          "label": "Fable week",
+          "kind": "model",
+          "percentUsed": 100,
+          "percentRemaining": 0,
+          "resetsAt": "2026-08-07T00:00:00.000Z",
+          "windowSeconds": 604800
+        }
+      ],
+      "state": {
+        "status": "fresh",
+        "stale": false,
+        "refreshedAt": "2026-08-02T00:00:00.000Z",
+        "sourcesTried": [
+          "oauth",
+          "oauth-profile"
+        ],
+        "authStatus": "usable"
+      },
+      "quotaSemantics": {
+        "status": "known",
+        "description": "Claude account windows bound every model. A model-specific window is an additional bound, so that model's effective remaining percentage is the minimum across the named windows.",
+        "effectiveAvailability": [
+          {
+            "scope": "all_models",
+            "status": "known",
+            "effectivePercentRemaining": 28,
+            "boundedBy": [
+              "five_hour",
+              "seven_day"
+            ],
+            "limitingWindowIds": [
+              "seven_day"
+            ]
+          },
+          {
+            "scope": "model:fable",
+            "status": "known",
+            "effectivePercentRemaining": 0,
+            "boundedBy": [
+              "five_hour",
+              "seven_day",
+              "model:fable"
+            ],
+            "limitingWindowIds": [
+              "model:fable"
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

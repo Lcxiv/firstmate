@@ -15,19 +15,19 @@
         "authStatus": "usable"
       },
       "quotaSemantics": {
-        "status": "unknown",
-        "description": "Grok's account-wide scope is unmeasurable while one product-specific scope is known.",
+        "status": "known",
+        "description": "Every scope is measured, but one of them is scoped in a way this consumer does not model.",
         "effectiveAvailability": [
           {
             "scope": "all_products",
-            "status": "unknown",
-            "effectivePercentRemaining": null,
+            "status": "known",
+            "effectivePercentRemaining": 42,
             "boundedBy": ["credits"]
           },
           {
-            "scope": "product:team",
+            "scope": "team_products",
             "status": "known",
-            "effectivePercentRemaining": 42,
+            "effectivePercentRemaining": 7,
             "boundedBy": ["credits"]
           }
         ]
