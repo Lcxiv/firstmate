@@ -476,6 +476,7 @@ The generated shim exports `FM_PHONE_CONFIG_SOURCE=home-env`, which pins every w
 
 The locked session-start bootstrap step establishes `state/` as an ordinary mode-`0700` directory before it writes `state/phone-watch.check.sh`, registers its exact bytes in `state/phone-watch.check-trust`, and writes `config/phone-mode.env` exporting `FM_CHECK_INTERVAL=30`.
 This convergent permission repair is required because the cursor and error marker are private artifacts published directly into `state/`; bootstrap refuses to arm and names the directory plus required mode if it cannot establish that boundary.
+The same refusal covers a `state/` path that cannot be an ordinary private directory at all, including a home path that is itself a symlink, so a `state/` already at mode `0700` under a symlinked home is still refused rather than armed into later cursor-write failures.
 The watcher accepts the phone shim only through the existing hash-validated custom-check snapshot path.
 The supervision operating block sources one active 30-second cadence file before watcher launch; when X mode and phone mode are both enabled, their identical interval makes one deterministic source sufficient.
 A phone-only home still needs that live supervision cycle even with no fleet work.

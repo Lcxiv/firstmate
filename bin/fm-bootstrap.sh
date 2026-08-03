@@ -72,10 +72,10 @@
 #          Discord phone mode is OPTIONAL and inert unless FM_HOME/.env has a
 #          valid non-empty FM_PHONE_DISCORD_TOKEN, FM_PHONE_CAPTAIN_ID, and
 #          FM_PHONE_CHANNEL_ID. When opted in, bootstrap requires curl+jq,
-#          makes state/ an ordinary mode-0700 directory, writes and registers
-#          its poll shim plus 30s cadence config, and prints a PHONE line. A
-#          partial configuration stays off and is reported without echoing any
-#          configured value.
+#          makes state/ an ordinary mode-0700 directory or refuses to arm,
+#          writes and registers its poll shim plus 30s cadence config, and
+#          prints a PHONE line. A partial configuration stays off and is
+#          reported without echoing any configured value.
 #          Fleet sync fetches, fast-forwards safe default-branch states, reports
 #          recovered and STUCK clone drift, and prunes gone local branches; it is
 #          bounded by FM_FLEET_SYNC_BOOTSTRAP_TIMEOUT when it is a non-empty
