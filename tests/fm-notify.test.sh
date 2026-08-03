@@ -799,6 +799,26 @@ test_a_bad_log_address_is_reported_rather_than_guessed() {
   pass "a broadcast address naming no supported channel is reported, not guessed"
 }
 
+test_a_bad_log_address_cannot_silence_the_interrupt_classes() {
+  local home rc class lane mention colour
+  home=$(make_home routing-bad-log-interrupts)
+  configure_lanes "$home" "$FAKE_HOOK" 'slack:not-a-supported-channel'
+  # A safety net must not share a failure mode with the thing it exists to
+  # catch: a typo in an address these classes never read must not stop them.
+  while read -r class lane mention colour; do
+    [ -n "$class" ] || continue
+    [ "$lane" = conversation ] || continue
+    : "$mention" "$colour"
+    run_notify "$home" -- --event "$class" "the address it never uses is broken" >/dev/null 2>&1
+    rc=$?
+    expect_code 0 "$rc" "$class with a misconfigured broadcast address"
+  done <<< "$CLASS_ROUTES"
+  [ "$(sent_count "$home")" = 4 ] \
+    || fail "an unrelated misconfigured address silenced an interrupt class"
+  [ "$(sent_url "$home" 1)" = "$FAKE_HOOK" ] || fail "an interrupt class left its own address"
+  pass "a misconfigured broadcast address never silences the classes that mention"
+}
+
 # --- mention configuration --------------------------------------------------
 
 test_a_decision_still_lands_without_a_configured_mention_id() {
@@ -891,6 +911,7 @@ test_only_the_opening_part_of_a_split_message_mentions
 test_without_a_log_address_every_class_uses_the_single_target
 test_a_deleted_log_channel_degrades_instead_of_losing_the_message
 test_a_bad_log_address_is_reported_rather_than_guessed
+test_a_bad_log_address_cannot_silence_the_interrupt_classes
 test_a_decision_still_lands_without_a_configured_mention_id
 test_the_phone_captain_id_serves_as_the_mention_fallback
 test_no_configured_value_appears_in_any_emitted_string

@@ -547,9 +547,9 @@ test_summary_recovers_from_history_rather_than_posting_a_second_one() {
   # older build alongside the real summary. Only the summary may be adopted.
   history=$(jq -cn --arg channel "$CHANNEL_ID" '
     [
-      {id:"9203",channel_id:$channel,content:"⚓ received"},
-      {id:"9202",channel_id:$channel,content:"⚓ 2 running, 1 needs you"},
-      {id:"9201",channel_id:$channel,content:"an ordinary message"}
+      {id:"9203",channel_id:$channel,author:{bot:true},content:"⚓ received"},
+      {id:"9202",channel_id:$channel,author:{bot:true},content:"⚓ 2 running, 1 needs you"},
+      {id:"9201",channel_id:$channel,author:{bot:true},content:"an ordinary message"}
     ]')
   printf 'recovered summary\n' > "$home/summary.txt"
 
@@ -562,26 +562,80 @@ test_summary_recovers_from_history_rather_than_posting_a_second_one() {
   pass "a lost record recovers the existing summary instead of adding another"
 }
 
+test_summary_fails_rather_than_reposting_when_history_cannot_be_read() {
+  local home fakebin urls rc out
+  home="$TMP_ROOT/summary-unreadable"
+  write_phone_env "$home"
+  fakebin=$(make_fake_curl "$home")
+  urls="$home/urls.log"
+  printf 'recovered summary\n' > "$home/summary.txt"
+
+  # The record is gone and the history read is rate limited. A read that did not
+  # answer says nothing about whether a live summary exists, so posting here
+  # would leave two of them in the channel with no way back.
+  out=$(FAKE_PHONE_URL_LOG="$urls" FAKE_PHONE_POLL_CODE=429 \
+    run_summary "$home" "$fakebin" -- --text-file "$home/summary.txt" 2>&1)
+  rc=$?
+  expect_code 4 "$rc" "a recovery read that did not succeed"
+  assert_no_grep 'POST' "$urls" "an unreadable history must not post a second summary"
+  assert_absent "$home/state/phone-summary-id" "a failed recovery must record no identity"
+  assert_not_contains "$out" "$CHANNEL_ID" "a failed recovery leaked the channel id"
+  pass "a history read that fails is not mistaken for a channel with no summary"
+}
+
+test_summary_repin_reaches_a_message_recovered_from_history() {
+  local home fakebin pins out rc history
+  home="$TMP_ROOT/summary-repin-recovered"
+  write_phone_env "$home"
+  fakebin=$(make_fake_curl "$home")
+  pins="$home/pins.log"
+  history=$(jq -cn --arg channel "$CHANNEL_ID" '
+    [{id:"9202",channel_id:$channel,author:{bot:true},content:"⚓ 2 running"}]')
+  printf 'recovered summary\n' > "$home/summary.txt"
+
+  # Losing the record is exactly when a captain who has just granted the
+  # permission reaches for --repin, so the adopted message must be pinned too.
+  out=$(FAKE_PHONE_PIN_LOG="$pins" FAKE_PHONE_POLL_BODY="$history" \
+    run_summary "$home" "$fakebin" -- --repin --text-file "$home/summary.txt")
+  rc=$?
+  expect_code 0 "$rc" "a --repin on a summary recovered from history"
+  [ "$out" = 9202 ] || fail "recovery adopted the wrong message: $out"
+  assert_grep '/pins/9202' "$pins" "--repin must pin the message recovery adopted"
+  pass "--repin is honoured on the recovery path, not only on the recorded one"
+}
+
 test_summary_never_overwrites_a_message_it_did_not_author() {
-  local home fakebin out urls history
+  local home fakebin out urls patches history
   home="$TMP_ROOT/summary-foreign"
   write_phone_env "$home"
   fakebin=$(make_fake_curl "$home")
   urls="$home/urls.log"
-  # The only marked message belongs to someone else, so Discord refuses the
-  # edit. The summary must be created rather than forced onto that message.
-  history=$(jq -cn --arg channel "$CHANNEL_ID" '
-    [{id:"9301",channel_id:$channel,content:"⚓ my own pinned note"}]')
+  patches="$home/patches.log"
+  # Two marked messages, neither ours: one written by the captain and one by
+  # another bot. Discord refuses the edit on the bot one, which is the guarantee
+  # that matters; the captain's is never even offered for editing. The summary
+  # must be created rather than forced onto either of them.
+  history=$(jq -cn --arg channel "$CHANNEL_ID" --arg captain "$CAPTAIN_ID" '
+    [
+      {id:"9301",channel_id:$channel,author:{id:$captain,bot:false},content:"⚓ my own pinned note"},
+      {id:"9303",channel_id:$channel,author:{bot:true},content:"⚓ another bot summary"}
+    ]')
   printf 'a fresh summary\n' > "$home/summary.txt"
 
   out=$(FAKE_PHONE_URL_LOG="$urls" \
+    FAKE_PHONE_PATCH_LOG="$patches" \
     FAKE_PHONE_POLL_BODY="$history" \
     FAKE_PHONE_PATCH_CODE_9301=403 \
+    FAKE_PHONE_PATCH_CODE_9303=403 \
     FAKE_PHONE_POST_BODY='{"id":"9302"}' \
     run_summary "$home" "$fakebin" -- --text-file "$home/summary.txt")
   [ "$out" = 9302 ] || fail "a refused edit did not fall through to a new summary: $out"
   [ "$(cat "$home/state/phone-summary-id")" = 9302 ] \
     || fail "the newly created summary was not recorded"
+  assert_grep '/messages/9303' "$patches" \
+    "another bot's marked message must still be offered to Discord, which refuses it"
+  assert_no_grep '/messages/9301' "$patches" \
+    "a captain message must never be offered for editing"
   pass "a message this home did not author is never overwritten"
 }
 
@@ -619,8 +673,10 @@ test_summary_repin_retries_only_when_asked() {
   FAKE_PHONE_PIN_CODE=403 FAKE_PHONE_POST_BODY='{"id":"9601"}' \
     run_summary "$home" "$fakebin" -- --text-file "$home/summary.txt" >/dev/null 2>&1
 
-  # An ordinary update must not ask a channel that already refused.
-  run_summary "$home" "$fakebin" -- --text-file "$home/summary.txt" >/dev/null 2>&1
+  # An ordinary update must not ask a channel that already refused. The pin log
+  # is armed on this run, so a re-request would create the file and be caught.
+  FAKE_PHONE_PIN_LOG="$pins" \
+    run_summary "$home" "$fakebin" -- --text-file "$home/summary.txt" >/dev/null 2>&1
   assert_absent "$pins" "an ordinary update should not re-request the pin"
 
   # --repin is the deliberate retry, for after the permission is granted.
@@ -910,6 +966,8 @@ test_ack_can_still_be_turned_off
 test_summary_is_created_once_then_edited_in_place
 test_summary_survives_a_restart_through_its_durable_record
 test_summary_recovers_from_history_rather_than_posting_a_second_one
+test_summary_fails_rather_than_reposting_when_history_cannot_be_read
+test_summary_repin_reaches_a_message_recovered_from_history
 test_summary_never_overwrites_a_message_it_did_not_author
 test_summary_degrades_when_pinning_is_refused
 test_summary_repin_retries_only_when_asked

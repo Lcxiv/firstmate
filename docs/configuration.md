@@ -462,6 +462,7 @@ Setting up the broadcast channel is the captain's two-minute job: create it with
 Mute both channels and leave "suppress @mentions" off, which is what makes the mention the dial.
 Deleting that channel later degrades rather than breaks: a rejected broadcast address falls back to `FM_NOTIFY_TARGET` for that message and says so on stderr.
 A `FM_NOTIFY_LOG_TARGET` that names no supported channel, or a different channel from `FM_NOTIFY_TARGET`, is reported as a misconfiguration rather than guessed around.
+That refusal reaches only the classes that would use the broadcast address; the four mentioning classes never read it, so a typo there cannot silence an alarm, a decision, a block, or a failure.
 
 Each message is one embed whose title carries an emoji and an uppercase state word alongside the matching colour, so the colour never carries the state alone.
 Discord's caps are enforced before sending rather than left for the API to reject: 256 characters of title, 4096 of description, and 6000 across one message.
@@ -552,13 +553,15 @@ The summary suppresses every mention: it is a standing reference the captain rea
 
 Its identity has to survive a restart, because a "live" summary that is reposted is the scroll clutter it exists to remove.
 The message id is recorded as a private mode-`0600` `state/phone-summary-id`, which is the normal path across restarts, compaction, and new sessions.
-If that record is lost or Discord no longer accepts an edit to it, one bounded page of recent channel history is read and the newest message carrying the summary's leading anchor marker is adopted instead; leftover `⚓ received` acknowledgements from older builds are excluded so a stale receipt is never turned into the summary.
-Discord permits editing only a message the bot itself authored, so a captain message that happens to start with the same marker is refused by Discord rather than overwritten.
+If that record is lost or Discord no longer accepts an edit to it, one bounded page of recent channel history is read and the newest bot-written message carrying the summary's leading anchor marker is adopted instead; leftover `⚓ received` acknowledgements from older builds are excluded so a stale receipt is never turned into the summary.
+Discord permits editing only a message the bot itself authored, so any other message that happens to start with the same marker is refused by Discord rather than overwritten; skipping the captain's own messages before asking only saves requests and does not replace that refusal.
 That recovery uses the same already-permitted read route as the command poll and needs no pin access.
-Only when neither the record nor history yields an editable message is a new one posted, and its id is recorded before anything else; a posted summary whose id cannot be recorded exits non-zero rather than risking a repost on the next update.
+A history read that does not answer is a failure rather than an empty channel, because reposting on a rate limit would leave two live summaries with no way back.
+Only when neither the record nor a successful history read yields an editable message is a new one posted, and its id is recorded before anything else; a posted summary whose id cannot be recorded exits non-zero rather than risking a repost on the next update.
 
 Pinning is optional and may be refused.
 It needs the bot's Manage Messages permission, which this integration does not require: a pin is attempted when the message is first created, or on `--repin`, and a refusal is reported by name along with the permission that would fix it while the summary continues to work as an ordinary message edited in place.
+`--repin` reaches the summary however it was found, including one recovered from history, which is the case a captain who has just granted the permission is most likely to hit.
 That partial outcome exits 6 so it is visible rather than silent; run `bin/fm-phone-summary.sh --help` for the full exit-code contract.
 
 `fmphone-respond` owns classification and the phone authority procedure.

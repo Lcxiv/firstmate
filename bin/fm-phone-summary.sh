@@ -23,10 +23,15 @@
 #      artifact. This is the normal path and it survives restart, compaction,
 #      and a new session.
 #   2. If that record is missing or Discord no longer accepts an edit to it, one
-#      bounded page of recent channel history is read and the newest message
-#      that carries the summary marker is adopted. Discord only permits editing
-#      a message this bot itself authored, so a captain message that happens to
-#      start with the same marker is refused by Discord rather than overwritten.
+#      bounded page of recent channel history is read and the newest bot-written
+#      message that carries the summary marker is adopted. Narrowing to
+#      bot-written candidates only saves requests; Discord permits editing a
+#      message this bot itself authored and nothing else, so any other bot's
+#      message that starts with the same marker is still refused by Discord
+#      rather than overwritten. That refusal is the actual guarantee.
+#      A history read that does not succeed is a failure, not an empty channel:
+#      reposting on a rate limit would leave two live summaries, so the read has
+#      to answer before a new message may be posted.
 #   3. Only when neither yields an editable message is a new one posted, and its
 #      id is recorded before anything else.
 #   Recovery reads history through the same already-permitted route the command
@@ -49,7 +54,8 @@
 #   0  the summary is current
 #   2  usage error (bad flag, unreadable text file, empty summary)
 #   3  Discord phone mode is not configured, or curl/jq is missing
-#   4  the summary could not be delivered, or its identity could not be recorded
+#   4  the summary could not be delivered, its identity could not be recorded,
+#      or recent history could not be read to find it
 #   6  the summary is current but could not be pinned
 set -u
 
@@ -231,36 +237,49 @@ fi
 # Recovery: adopt this home's own most recent marked message rather than adding
 # a second live summary to the channel.
 CODE=$(fm_phone_recent_request "$BODY_FILE" "$FM_PHONE_SUMMARY_SCAN") || CODE=
-ADOPTED=
-if [ "$CODE" = 200 ] && jq -e 'type == "array"' "$BODY_FILE" >/dev/null 2>&1; then
-  while IFS= read -r CANDIDATE; do
-    [ -n "$CANDIDATE" ] || continue
-    fm_phone_discord_id_valid "$CANDIDATE" || continue
-    try_edit "$CANDIDATE"
-    case "$?" in
-      0) ADOPTED=$CANDIDATE; break ;;
-      2) warn "cannot reach Discord to update the summary"; exit 4 ;;
-    esac
-  done < <(jq -r \
-    --arg marker "$FM_PHONE_SUMMARY_MARKER" \
-    --arg legacy "$FM_PHONE_LEGACY_ACK" '
-      [ .[]
-        | select((.content // "") | startswith($marker))
-        | select((.content // "") != $legacy)
-        | .id // empty
-      ]
-      | sort_by([(tostring | length), tostring])
-      | reverse
-      | .[]
-    ' "$BODY_FILE" 2>/dev/null)
+# A read that did not succeed is not evidence that no summary exists. An empty
+# channel still answers 200 with an empty list, so anything else here would be a
+# guess, and guessing wrong posts a second live summary that can never be
+# reconciled with the first. Fail instead.
+if [ "$CODE" != 200 ] || ! jq -e 'type == "array"' "$BODY_FILE" >/dev/null 2>&1; then
+  warn "cannot read recent messages to find the live summary; it was left as it is"
+  exit 4
 fi
+
+ADOPTED=
+while IFS= read -r CANDIDATE; do
+  [ -n "$CANDIDATE" ] || continue
+  fm_phone_discord_id_valid "$CANDIDATE" || continue
+  try_edit "$CANDIDATE"
+  case "$?" in
+    0) ADOPTED=$CANDIDATE; break ;;
+    2) warn "cannot reach Discord to update the summary"; exit 4 ;;
+  esac
+done < <(jq -r \
+  --arg marker "$FM_PHONE_SUMMARY_MARKER" \
+  --arg legacy "$FM_PHONE_LEGACY_ACK" '
+    [ .[]
+      | select((.content // "") | startswith($marker))
+      | select((.content // "") != $legacy)
+      | select(.author.bot == true)
+      | .id // empty
+    ]
+    | sort_by([(tostring | length), tostring])
+    | reverse
+    | .[]
+  ' "$BODY_FILE" 2>/dev/null)
 
 if [ -n "$ADOPTED" ]; then
   if ! fm_phone_summary_id_set "$STATE" "$ADOPTED"; then
     warn "the summary was updated but its identity could not be recorded"
     exit 4
   fi
+  if [ "$REPIN" = 1 ]; then
+    attempt_pin "$ADOPTED"
+    report_pin "$?"
+  fi
   printf '%s\n' "$ADOPTED"
+  [ "$PIN_DEGRADED" = 0 ] || exit 6
   exit 0
 fi
 

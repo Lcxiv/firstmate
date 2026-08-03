@@ -302,16 +302,17 @@ fm_phone_summary_payload() {
   jq -cn --arg text "$1" '{content: $text, allowed_mentions: {parse: []}}'
 }
 
-# The durable identity of this home's live summary message. Keeping the id on
-# disk is what makes the summary editable across a restart instead of being
-# reposted; losing it is recoverable from channel history, but reposting is not
-# recoverable at all, so this write is checked by every caller.
-fm_phone_summary_id_get() {
-  local state=$1 file="$1/phone-summary-id" value
+# Read one durable Discord id this home recorded for itself. Both such records
+# share this reader so their guarantees cannot drift: the artifact has to be a
+# private mode-600 regular file holding exactly one line, and that line has to
+# be a plausible snowflake. Returns 2 when the file is not there at all, so a
+# caller can tell "never recorded" apart from "recorded but unusable".
+fm_phone_id_file_read() {
+  local state=$1 name=$2 file="$1/$2" value _extra
   if [ ! -e "$file" ] && [ ! -L "$file" ]; then
-    return 1
+    return 2
   fi
-  fmx_private_artifact_file_valid "$state" phone-summary-id 600 || return 1
+  fmx_private_artifact_file_valid "$state" "$name" 600 || return 1
   exec 8< "$file" || return 1
   IFS= read -r value <&8 || { exec 8<&-; return 1; }
   if IFS= read -r _extra <&8; then
@@ -321,6 +322,14 @@ fm_phone_summary_id_get() {
   exec 8<&-
   fm_phone_discord_id_valid "$value" || return 1
   printf '%s\n' "$value"
+}
+
+# The durable identity of this home's live summary message. Keeping the id on
+# disk is what makes the summary editable across a restart instead of being
+# reposted; losing it is recoverable from channel history, but reposting is not
+# recoverable at all, so this write is checked by every caller.
+fm_phone_summary_id_get() {
+  fm_phone_id_file_read "$1" phone-summary-id || return 1
 }
 
 fm_phone_summary_id_set() {
@@ -330,22 +339,17 @@ fm_phone_summary_id_set() {
     | fmx_private_artifact_publish_stdin "$state" phone-summary-id 600
 }
 
+# A never-recorded cursor reads as 0, which is what makes the first sweep a
+# baseline instead of a replay of the channel's whole history.
 fm_phone_cursor_get() {
-  local state=$1 file="$1/phone-cursor" value
-  if [ ! -e "$file" ] && [ ! -L "$file" ]; then
-    printf '0\n'
-    return 0
-  fi
-  fmx_private_artifact_file_valid "$state" phone-cursor 600 || return 1
-  exec 8< "$file" || return 1
-  IFS= read -r value <&8 || { exec 8<&-; return 1; }
-  if IFS= read -r _extra <&8; then
-    exec 8<&-
-    return 1
-  fi
-  exec 8<&-
-  fm_phone_discord_id_valid "$value" || return 1
-  printf '%s\n' "$value"
+  local value rc
+  value=$(fm_phone_id_file_read "$1" phone-cursor)
+  rc=$?
+  case "$rc" in
+    0) printf '%s\n' "$value" ;;
+    2) printf '0\n' ;;
+    *) return 1 ;;
+  esac
 }
 
 fm_phone_cursor_set() {

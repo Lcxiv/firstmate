@@ -32,7 +32,10 @@
 #                             uses FM_NOTIFY_TARGET, which is exactly the
 #                             single-address behaviour of a home that never
 #                             configured one. It has to resolve to the same
-#                             channel as FM_NOTIFY_TARGET.
+#                             channel as FM_NOTIFY_TARGET, and a value that does
+#                             not is refused. That refusal reaches only the
+#                             classes that use this address; the four interrupt
+#                             classes below still send on FM_NOTIFY_TARGET.
 #   FM_NOTIFY_MENTION_ID      the captain's Discord user id, used to mention
 #                             them on the four interrupt classes below; falls
 #                             back to FM_PHONE_CAPTAIN_ID when that is already
@@ -85,6 +88,9 @@
 #   webhook was deleted), the message falls back to FM_NOTIFY_TARGET once and
 #   says so on stderr, so removing the second channel degrades to single-address
 #   delivery instead of losing the message.
+#   A broadcast address that is misconfigured rather than deleted is refused with
+#   exit 3 instead of being guessed around, but only for the broadcast classes:
+#   the four interrupt classes never read it, so they still send.
 #
 # PRESENTATION
 #   One embed per message: an emoji and an uppercase word in the title, plus the
@@ -552,26 +558,6 @@ case "$RESOLVE_RC" in
 esac
 IFS=$'\t' read -r CHANNEL ADDRESS <<< "$RESOLVED"
 
-# The broadcast lane defaults to the conversation address, so a home that never
-# configures a second one behaves exactly as it did before this lane existed.
-LOG_ADDRESS=$ADDRESS
-LOG_RAW=$(fm_notify_config_get FM_NOTIFY_LOG_TARGET)
-if [ -n "$LOG_RAW" ]; then
-  LOG_RESOLVED=$(fm_notify_resolve_target "$LOG_RAW")
-  LOG_RESOLVE_RC=$?
-  if [ "$LOG_RESOLVE_RC" != 0 ]; then
-    warn "FM_NOTIFY_LOG_TARGET names no supported channel"
-    exit 3
-  fi
-  IFS=$'\t' read -r LOG_CHANNEL LOG_ADDRESS <<< "$LOG_RESOLVED"
-  # Both lanes share one set of caps and one payload shape, so a mismatch is
-  # refused up front rather than silently shaping a message for the wrong one.
-  if [ "$LOG_CHANNEL" != "$CHANNEL" ]; then
-    warn "FM_NOTIFY_LOG_TARGET must use the same channel as FM_NOTIFY_TARGET"
-    exit 3
-  fi
-fi
-
 if ! fm_notify_event_enabled "$EVENT" "$(fm_notify_config_get FM_NOTIFY_EVENTS)"; then
   exit 0
 fi
@@ -586,12 +572,38 @@ MAX_PARTS=$(fm_notify_bounded "$(fm_notify_config_get FM_NOTIFY_MAX_PARTS)" 4 1 
 IFS=$'\t' read -r EMOJI WORD COLOUR LANE MENTION <<< "$STATE_ROW"
 
 # Select the lane's address, and remember whether there is a distinct address to
-# fall back to if the broadcast one has been deleted.
+# fall back to if the broadcast one has been deleted. The broadcast lane
+# defaults to the conversation address, so a home that never configures a second
+# one behaves exactly as it did before this lane existed.
+#
+# The optional broadcast address is resolved ONLY for a message that would
+# actually use it. This scoping is deliberate and must not be "simplified" back
+# into one uniform refusal: on 2026-08-02 an alarm existed and could not reach
+# the captain for nineteen hours, and a safety net must not share a failure mode
+# with the thing it exists to catch. The four interrupt classes never touch this
+# address, so a typo in it must never silence them. It is not a fail-open: a
+# broadcast message still refuses its own misconfiguration loudly below.
 ACTIVE_ADDRESS=$ADDRESS
 FALLBACK_ADDRESS=
 if [ "$LANE" = broadcast ]; then
-  ACTIVE_ADDRESS=$LOG_ADDRESS
-  [ "$LOG_ADDRESS" = "$ADDRESS" ] || FALLBACK_ADDRESS=$ADDRESS
+  LOG_RAW=$(fm_notify_config_get FM_NOTIFY_LOG_TARGET)
+  if [ -n "$LOG_RAW" ]; then
+    LOG_RESOLVED=$(fm_notify_resolve_target "$LOG_RAW")
+    LOG_RESOLVE_RC=$?
+    if [ "$LOG_RESOLVE_RC" != 0 ]; then
+      warn "FM_NOTIFY_LOG_TARGET names no supported channel"
+      exit 3
+    fi
+    IFS=$'\t' read -r LOG_CHANNEL LOG_ADDRESS <<< "$LOG_RESOLVED"
+    # Both lanes share one set of caps and one payload shape, so a mismatch is
+    # refused rather than silently shaping a message for the wrong one.
+    if [ "$LOG_CHANNEL" != "$CHANNEL" ]; then
+      warn "FM_NOTIFY_LOG_TARGET must use the same channel as FM_NOTIFY_TARGET"
+      exit 3
+    fi
+    ACTIVE_ADDRESS=$LOG_ADDRESS
+    [ "$LOG_ADDRESS" = "$ADDRESS" ] || FALLBACK_ADDRESS=$ADDRESS
+  fi
 fi
 
 # Resolve the mention once. A mention class with no configured id still sends;
