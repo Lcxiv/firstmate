@@ -66,7 +66,8 @@
 #   providerAuthStatus= quota-axi's aggregate provider authStatus, or none
 #   headroom=           the effective percent remaining for the tuple's
 #                       applicable scope, or unknown when that scope cannot be
-#                       measured. It is a disclosure fact;
+#                       measured or the provider reports a scope this tool
+#                       cannot place. It is a disclosure fact;
 #                       the dispatch owner still reads the applicable scope from
 #                       the intake snapshot for ordering.
 #   preflight=          not-applicable | authenticated | unauthenticated |
@@ -364,42 +365,53 @@ for (const entry of providers) {
       if (!Array.isArray(scope.boundedBy)) return false;
       return scope.boundedBy.some((windowId) => modelWindowIds.has(windowId));
     });
+    const accountScopes = scopes.filter(
+      (scope) => scope.scope === "all_models" || scope.scope === "all_products",
+    );
+    // A scope this tool can place neither on one model nor on the whole account
+    // is quota it does not model, and it may still bound this tuple.
+    const unplaceableScopes =
+      availability.length - scopes.length +
+      scopes.filter((scope) => !modelScopes.includes(scope) && !accountScopes.includes(scope)).length;
 
-    const modelKeys = new Set();
-    const trimmedModel = typeof requestedModel === "string" ? requestedModel.trim().toLowerCase() : "";
-    if (trimmedModel && trimmedModel !== "default") {
-      modelKeys.add(trimmedModel);
-      const separator = trimmedModel.lastIndexOf("/");
-      if (separator >= 0 && separator + 1 < trimmedModel.length) {
-        modelKeys.add(trimmedModel.slice(separator + 1));
-      }
+    // Model ids reach this tool in alias (`fable`), namespaced (`claude/fable`),
+    // and canonical (`anthropic/claude-fable-5`) shapes, so a scope's model name
+    // is matched as a run of identifier tokens rather than by exact spelling.
+    function identifierTokens(value) {
+      return String(value)
+        .toLowerCase()
+        .split(/[^a-z0-9]+/)
+        .filter((token) => token.length > 0 && token !== "default");
     }
-    const matchingModelScopes = modelScopes.filter((scope) => {
-      const normalizedScope = scope.scope.toLowerCase();
-      for (const modelKey of modelKeys) {
-        if (
-          normalizedScope === modelKey ||
-          normalizedScope === `model:${modelKey}` ||
-          normalizedScope.endsWith(`_${modelKey}`)
-        ) {
-          return true;
-        }
+    function isTokenRun(haystack, needle) {
+      if (needle.length === 0 || needle.length > haystack.length) return false;
+      for (let start = 0; start + needle.length <= haystack.length; start += 1) {
+        if (needle.every((token, offset) => haystack[start + offset] === token)) return true;
       }
       return false;
-    });
+    }
+
+    const requestedTokens = identifierTokens(
+      typeof requestedModel === "string" ? requestedModel : "",
+    );
+    const matchingModelScopes =
+      requestedTokens.length === 0
+        ? []
+        : modelScopes.filter((scope) => {
+            const scopeName = scope.scope.startsWith("model:")
+              ? scope.scope.slice("model:".length)
+              : scope.scope;
+            const scopeTokens = identifierTokens(scopeName);
+            return (
+              isTokenRun(requestedTokens, scopeTokens) || isTokenRun(scopeTokens, requestedTokens)
+            );
+          });
 
     // quota-axi has already combined the account and model windows inside each
     // effective scope. Select one scope for this tuple; taking a minimum across
     // scopes would make every provider model inherit every other model's limit.
-    let applicable = [];
-    if (matchingModelScopes.length > 0) {
-      applicable = matchingModelScopes;
-    } else {
-      applicable = scopes.filter(
-        (scope) => scope.scope === "all_models" || scope.scope === "all_products",
-      );
-    }
-    if (applicable.length === 1) {
+    const applicable = matchingModelScopes.length > 0 ? matchingModelScopes : accountScopes;
+    if (unplaceableScopes === 0 && applicable.length === 1) {
       const [scope] = applicable;
       if (
         scope.status === "known" &&

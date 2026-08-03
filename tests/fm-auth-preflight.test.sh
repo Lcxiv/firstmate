@@ -206,6 +206,36 @@ test_matching_model_window_still_bounds_tuple() {
   pass "a matching model window still bounds the tuple"
 }
 
+# The same model reaches this tool under an alias, a namespaced alias, and the
+# canonical model id. All three name the Fable window and must report its zero.
+test_model_spelling_does_not_change_attribution() {
+  local line spelling case_index=0
+  for spelling in fable claude/fable claude-fable-5 anthropic/claude-fable-5; do
+    case_index=$((case_index + 1))
+    run_preflight "claude-fable-spelling-$case_index" claude "$spelling" \
+      "FM_FAKE_AUTH_DOC=$FIXTURES/auth-other-providers.json" \
+      "FM_FAKE_QUOTA_DOC=$FIXTURES/quota-claude-fable-exhausted.json"
+    line=$RUN_LINE
+    expect_code 0 "$RUN_RC" "model spelling must not change the verdict for $spelling"
+    assert_field "$line" headroom 0 "model '$spelling' resolves to Fable and must report its bound"
+  done
+  pass "every accepted spelling of the model reports the model-specific bound"
+}
+
+# A scope that is neither model-specific nor account-wide is quota this tool
+# does not model, so it may still bound the tuple and headroom stays unknown.
+test_unplaceable_scope_stays_unknown() {
+  local line
+  run_preflight unplaceable-scope pi xai/grok-4.5 \
+    "FM_FAKE_AUTH_DOC=$FIXTURES/auth-grok-cli-and-pi-available.json" \
+    "FM_FAKE_QUOTA_DOC=$FIXTURES/quota-grok-unplaceable-scope.json"
+  line=$RUN_LINE
+  expect_code 0 "$RUN_RC" "an unmodelled scope must not disqualify usable authentication"
+  assert_field "$line" headroom unknown "a scope this tool cannot place must not be silently dropped"
+  assert_field "$line" eligible yes "unmodelled quota stays a disclosure, never an eligibility verdict"
+  pass "a scope this tool cannot place keeps headroom unknown"
+}
+
 # The exact reported failure: the standalone Grok CLI token has aged out while
 # the Pi xAI credential the candidate actually uses is fine. The candidate must
 # stay dispatchable and the Grok CLI must never be consulted.
@@ -706,6 +736,8 @@ test_other_harness_surfaces_resolve_without_probing() {
 
 test_unrelated_model_window_does_not_bound_default_tuple
 test_matching_model_window_still_bounds_tuple
+test_model_spelling_does_not_change_attribution
+test_unplaceable_scope_stays_unknown
 test_expired_grok_cli_never_blocks_a_pi_xai_candidate
 test_missing_grok_config_never_blocks_a_pi_xai_candidate
 test_pi_expiry_is_scoped_to_pi_and_never_probes_grok

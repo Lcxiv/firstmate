@@ -25,6 +25,29 @@ Verified 2026-07-30 against quota-axi 0.1.16.
 Observed source statuses are `available`, `expired` (with an `error` slug), and `missing`.
 `quota-axi --provider grok --json` carries `state.authStatus` with the values `usable`, `expired_refreshable`, and `unusable`, alongside `state.sourcesTried`.
 
+Headroom attribution reads three further producer facts, verified 2026-08-03 against quota-axi 0.1.16 with `quota-axi --provider claude --json`:
+
+```json
+{
+  "windows": [
+    { "id": "five_hour", "kind": "session" },
+    { "id": "seven_day", "kind": "weekly" },
+    { "id": "model:fable", "kind": "model" }
+  ],
+  "quotaSemantics": {
+    "effectiveAvailability": [
+      { "scope": "all_models", "status": "known", "boundedBy": ["five_hour", "seven_day"] },
+      { "scope": "model:fable", "status": "known", "boundedBy": ["five_hour", "seven_day", "model:fable"] }
+    ]
+  }
+}
+```
+
+- A model-specific window is marked `kind: "model"`, which is how a scope bound to one model is told apart from an account-wide one.
+- A model scope is named `model:<id>`, where `<id>` is the vendor alias rather than the canonical model id, so `bin/fm-auth-preflight.sh` matches it as a run of identifier tokens against the requested model.
+- Each model scope's `boundedBy` already includes the account windows, so its `effectivePercentRemaining` is the combined bound and the consumer must select one scope instead of taking a minimum across scopes.
+
+The third fact is what makes single-scope selection safe. It holds for claude on 0.1.16 and is unverified for providers that gain model windows later; re-establish it here before trusting the same selection for them.
 Neither field exists before 0.1.16, so a surface cannot be scoped on an older build.
 `bin/fm-bootstrap.sh` enforces that floor and `bin/fm-auth-preflight.sh` refuses rather than emitting an unscoped verdict.
 
@@ -59,5 +82,5 @@ Re-run the two commands above and update this section when the pinned version ch
 
 `tests/fm-auth-preflight.test.sh` drives the real script against nonsecret fixtures shaped like the output above.
 It asserts the emitted verdict and, separately, which vendor CLIs were launched, so a Pi/xAI candidate reaching the Grok CLI fails the suite.
-It also asserts that mixed known and unknown scopes remain unknown and that every resolved candidate receives exactly one post-preflight quota retry.
+It also asserts that an unknown or unplaceable applicable scope keeps headroom unknown, that each accepted spelling of a model resolves to the same scope, and that every resolved candidate receives exactly one post-preflight quota retry.
 `tests/fm-bootstrap.test.sh` owns the quota-axi version-floor diagnostic.
