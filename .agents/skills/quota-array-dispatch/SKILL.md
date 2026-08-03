@@ -28,6 +28,8 @@ For each candidate, preserve explicit `harness`, `model`, and `provider`; `harne
 - whether applicable windows/summary are ahead, or pace is `unknown`
 - schema note when pace fields are absent
 
+Applicable means applicable to that one candidate: read its own model scope when the provider models one and the account-wide scope otherwise, and never take a minimum across scopes, because a model scope already includes the account bounds and another model's scope never bounds this candidate.
+`docs/verification/dispatch-auth.md` owns that verified producer fact.
 Stale raw windows are diagnostic, never headroom.
 Grok's `credits.remaining` is a prepaid balance unrelated to `percentRemaining`; never read it as exhaustion.
 Read all windows named by `boundedBy`, `limitingWindowIds`, `aheadWindowIds`, `behindWindowIds`, `onPaceWindowIds`, and `unknownWindowIds`.

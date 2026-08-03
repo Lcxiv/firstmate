@@ -24,6 +24,8 @@ Verified 2026-07-30 against quota-axi 0.1.16.
 
 Observed source statuses are `available`, `expired` (with an `error` slug), and `missing`.
 `quota-axi --provider grok --json` carries `state.authStatus` with the values `usable`, `expired_refreshable`, and `unusable`, alongside `state.sourcesTried`.
+Neither field exists before 0.1.16, so a surface cannot be scoped on an older build.
+`bin/fm-bootstrap.sh` enforces that floor and `bin/fm-auth-preflight.sh` refuses rather than emitting an unscoped verdict.
 
 Headroom attribution reads three further producer facts, verified 2026-08-03 against quota-axi 0.1.16 with `quota-axi --provider claude --json`:
 
@@ -47,9 +49,8 @@ Headroom attribution reads three further producer facts, verified 2026-08-03 aga
 - A model scope is named `model:<id>`, where `<id>` is the vendor alias rather than the canonical model id, so `bin/fm-auth-preflight.sh` matches it as a run of identifier tokens against the requested model.
 - Each model scope's `boundedBy` already includes the account windows, so its `effectivePercentRemaining` is the combined bound and the consumer must select one scope instead of taking a minimum across scopes.
 
-The third fact is what makes single-scope selection safe. It holds for claude on 0.1.16 and is unverified for providers that gain model windows later; re-establish it here before trusting the same selection for them.
-Neither field exists before 0.1.16, so a surface cannot be scoped on an older build.
-`bin/fm-bootstrap.sh` enforces that floor and `bin/fm-auth-preflight.sh` refuses rather than emitting an unscoped verdict.
+The third fact is what makes single-scope selection safe.
+It holds for claude on 0.1.16 and is unverified for providers that gain model windows later; re-establish it here before trusting the same selection for them.
 
 OpenCode is a verified harness, but this producer schema does not model the selected OpenCode credential surface.
 When its model has a valid provider/model relationship, the preflight emits `authStatus=unknown`, `headroom=unknown`, `reason=no-auth-evidence`, and `eligible=yes` without selecting a quota provider or probing another harness.

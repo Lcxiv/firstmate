@@ -42,9 +42,10 @@
 #
 # Quota is read at most twice: once from the caller's intake snapshot or a first
 # read, then exactly one retry after the selected-surface preflight for every
-# resolved candidate. Any unknown applicable scope makes headroom unknown, and
-# unknown headroom never makes a candidate ineligible on its own - that is the
-# whole point of the captain's `dispatch-usable-auth-unknown-quota` decision.
+# resolved candidate. An applicable scope this tool cannot measure or cannot
+# place makes headroom unknown, and unknown headroom never makes a candidate
+# ineligible on its own - that is the whole point of the captain's
+# `dispatch-usable-auth-unknown-quota` decision.
 #
 # Requires a quota-axi at or above the floor owned by bin/fm-quota-axi-lib.sh:
 # older builds emit neither `state.authStatus` nor the independent Pi credential
