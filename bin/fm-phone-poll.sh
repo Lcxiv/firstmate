@@ -33,6 +33,16 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 fm_phone_load_config
 [ "$FM_PHONE_CONFIGURED" = 1 ] || exit 0
 
+# Cursor and error artifacts are published directly into state/, so validate
+# that privacy boundary before contacting Discord. This path cannot safely
+# persist its usual dedupe marker, but the wake still distinguishes the local
+# precondition from a remote API or configuration failure without restating any
+# configured value.
+if ! fmx_private_artifact_dir_prepare "$STATE" >/dev/null 2>&1; then
+  printf 'phone-mode-error local filesystem precondition: private state directory requires mode 700: %s\n' "$STATE"
+  exit 0
+fi
+
 ERROR_FILE="$STATE/phone-poll.error"
 
 emit_error_once() {

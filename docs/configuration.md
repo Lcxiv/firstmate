@@ -474,7 +474,9 @@ For direct poll and reply invocations, explicit environment values override `.en
 Bootstrap activation always checks the effective home's own `.env`, so a transient process environment cannot silently make the watcher persistent.
 The generated shim exports `FM_PHONE_CONFIG_SOURCE=home-env`, which pins every watcher-dispatched poll to that same `.env` and ignores both environment overrides and `FM_PHONE_ENV_FILE`, so the identity the watcher authenticates is always the identity that gated activation.
 
-The locked session-start bootstrap step writes `state/phone-watch.check.sh`, registers its exact bytes in `state/phone-watch.check-trust`, and writes `config/phone-mode.env` exporting `FM_CHECK_INTERVAL=30`.
+The locked session-start bootstrap step establishes `state/` as an ordinary mode-`0700` directory before it writes `state/phone-watch.check.sh`, registers its exact bytes in `state/phone-watch.check-trust`, and writes `config/phone-mode.env` exporting `FM_CHECK_INTERVAL=30`.
+This convergent permission repair is required because the cursor and error marker are private artifacts published directly into `state/`; bootstrap refuses to arm and names the directory plus required mode if it cannot establish that boundary.
+The same refusal covers a `state/` path that cannot be an ordinary private directory at all, including a home path that is itself a symlink, so a `state/` already at mode `0700` under a symlinked home is still refused rather than armed into later cursor-write failures.
 The watcher accepts the phone shim only through the existing hash-validated custom-check snapshot path.
 The supervision operating block sources one active 30-second cadence file before watcher launch; when X mode and phone mode are both enabled, their identical interval makes one deterministic source sufficient.
 A phone-only home still needs that live supervision cycle even with no fleet work.
@@ -487,7 +489,8 @@ Network unavailability, rate limiting, and non-success responses exit cleanly wi
 A message is accepted only when its Discord `author.id` equals `FM_PHONE_CAPTAIN_ID` and its `channel_id` equals `FM_PHONE_CHANNEL_ID`.
 Both checks are required, and bot-authored messages are independently rejected so outbound acknowledgements and replies can never loop back into the bridge.
 Every other sender or channel is dropped silently with no reply, pairing chatter, or diagnostic to the sender.
-The poller's only visible authentication/configuration failures are generic local `phone-mode-error` wakes that contain none of the configured values.
+The poller's visible authentication/configuration failures are generic local `phone-mode-error` wakes that contain none of the configured values.
+If the private state-directory precondition later drifts, the same wake channel explicitly attributes the failure to the local filesystem and names only the directory and required mode, before any Discord request is made.
 An authenticated captain message whose content is empty - the signature of a bot without Discord's message-content intent - is reported the same way, as `phone-mode-error Discord message content unavailable`, instead of being dropped without any local or channel-side signal.
 
 The monotonic decimal-string cursor lives at `state/phone-cursor`, avoiding numeric precision loss for Discord snowflakes.

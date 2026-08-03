@@ -72,6 +72,7 @@
 #          Discord phone mode is OPTIONAL and inert unless FM_HOME/.env has a
 #          valid non-empty FM_PHONE_DISCORD_TOKEN, FM_PHONE_CAPTAIN_ID, and
 #          FM_PHONE_CHANNEL_ID. When opted in, bootstrap requires curl+jq,
+#          makes state/ an ordinary mode-0700 directory or refuses to arm,
 #          writes and registers its poll shim plus 30s cadence config, and
 #          prints a PHONE line. A partial configuration stays off and is
 #          reported without echoing any configured value.
@@ -825,7 +826,24 @@ phone_mode_setup() {
     fi
   }
 
-  mkdir -p "$STATE" "$CONFIG" 2>/dev/null || { phone_mode_arm_failed; return 0; }
+  phone_mode_private_state_prepare() {
+    if [ -d "$STATE" ] && [ ! -L "$STATE" ] \
+      && ! fmx_private_artifact_dir_device "$STATE" >/dev/null 2>&1; then
+      chmod 0700 "$STATE" 2>/dev/null || return 1
+    fi
+    fmx_private_artifact_dir_prepare "$STATE" >/dev/null 2>&1
+  }
+
+  phone_mode_private_state_failed() {
+    if phone_mode_remove_artifacts; then
+      echo "PHONE: Discord phone mode off - local private state directory requires mode 700: $STATE"
+    else
+      echo "PHONE: Discord phone mode off - local private state directory requires mode 700: $STATE; stale artifacts remain"
+    fi
+  }
+
+  mkdir -p "$CONFIG" 2>/dev/null || { phone_mode_arm_failed; return 0; }
+  phone_mode_private_state_prepare || { phone_mode_private_state_failed; return 0; }
   case "$FM_HOME" in
     /*) shim_home=$FM_HOME ;;
     *)
