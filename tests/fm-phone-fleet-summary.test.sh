@@ -123,9 +123,37 @@ test_budget_follows_a_lowered_reply_limit() {
   pass "the glance budget follows a lowered FM_PHONE_REPLY_MAX_CHARS"
 }
 
+test_budget_too_small_for_the_frame_still_answers() {
+  local out lines
+  out=$(FM_PHONE_REPLY_MAX_CHARS=50 "$SUMMARY" --snapshot "$FIXTURES/oversized.json") \
+    || fail "a budget below the five-column frame produced no answer"
+  [ -n "$out" ] || fail "a budget below the five-column frame produced an empty answer"
+  lines=$(printf '%s\n' "$out" | wc -l | tr -d ' ')
+  [ "$lines" = 1 ] || fail "the degraded answer must be one unsplittable line: $out"
+  assert_contains "$out" "10 under way" \
+    "the degraded answer must still report the true fleet count"
+  assert_contains "$out" "Ask for one column" \
+    "the degraded answer must still offer a narrower follow-up"
+  assert_not_contains "$out" "**" "the degraded answer must not emit a partial column frame"
+  pass "a budget below the five-column frame degrades to one honest counted line"
+}
+
+test_budget_just_below_the_frame_keeps_column_counts() {
+  local out chars
+  out=$("$SUMMARY" --snapshot "$FIXTURES/oversized.json" --max-chars 200) \
+    || fail "a budget just below the five-column frame produced no answer"
+  chars=$(printf '%s' "$out" | python3 -c 'import sys; print(len(sys.stdin.read()))')
+  [ "$chars" -le 200 ] || fail "degraded answer exceeded its budget: $chars"
+  assert_contains "$out" "Landed 6" \
+    "the degraded answer should keep per-column counts while they fit"
+  pass "a budget just below the frame keeps per-column counts"
+}
+
 test_standard_fixture_uses_five_safe_columns
 test_empty_fixture_is_one_clear_answer
 test_oversized_fixture_trims_deliberately_to_one_screen
 test_default_path_reads_the_canonical_snapshot
 test_unreadable_backlog_is_not_reported_as_an_empty_fleet
 test_budget_follows_a_lowered_reply_limit
+test_budget_too_small_for_the_frame_still_answers
+test_budget_just_below_the_frame_keeps_column_counts

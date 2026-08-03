@@ -15,6 +15,9 @@
 # When necessary, entries are omitted in this order: Landed, Queued, Building,
 # Review, then Decide. The reply reports omitted counts by column and invites a
 # narrower follow-up, so truncation never masquerades as a complete fleet.
+# A budget too small for even the empty five-column frame degrades to one
+# honest counted line rather than to no answer at all; a single line survives
+# the reply client's splitter with nothing to lose.
 #
 # Usage:
 #   fm-phone-fleet-summary.sh
@@ -287,6 +290,17 @@ def render():
     return "\n".join(lines)
 
 
+def counted_line(with_columns):
+    if with_columns:
+        counts = ", ".join(f"{name} {totals[name]}" for name in columns if totals[name])
+        body = f"{total_items} under way: {counts}."
+    else:
+        body = f"{total_items} under way."
+    if backlog_present:
+        return f"Captain, {body} Ask for one column to see the rest."
+    return f"Captain, I cannot read the whole fleet list; {body} Ask for one column to see the rest."
+
+
 drop_order = ("Landed", "Queued", "Building", "Review", "Decide")
 while len(render()) > max_chars:
     removed = False
@@ -301,7 +315,8 @@ while len(render()) > max_chars:
 
 output = render()
 if len(output) > max_chars:
-    print("fm-phone-fleet-summary: length budget unavailable", file=sys.stderr)
-    raise SystemExit(1)
+    output = counted_line(True)
+if len(output) > max_chars:
+    output = counted_line(False)
 print(output)
 PY
