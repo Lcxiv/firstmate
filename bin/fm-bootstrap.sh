@@ -827,15 +827,11 @@ phone_mode_setup() {
   }
 
   phone_mode_private_state_prepare() {
-    if [ -e "$STATE" ] || [ -L "$STATE" ]; then
-      [ -d "$STATE" ] && [ ! -L "$STATE" ] || return 1
-    else
-      (umask 077; mkdir -p "$STATE" 2>/dev/null) || return 1
+    if [ -d "$STATE" ] && [ ! -L "$STATE" ] \
+      && ! fmx_private_artifact_dir_device "$STATE" >/dev/null 2>&1; then
+      chmod 0700 "$STATE" 2>/dev/null || return 1
     fi
-    if ! fmx_private_artifact_dir_device "$STATE" >/dev/null 2>&1; then
-      chmod 700 "$STATE" 2>/dev/null || return 1
-    fi
-    fmx_private_artifact_dir_device "$STATE" >/dev/null 2>&1
+    fmx_private_artifact_dir_prepare "$STATE" >/dev/null 2>&1
   }
 
   phone_mode_private_state_failed() {

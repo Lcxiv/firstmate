@@ -427,6 +427,54 @@ test_nonprivate_state_is_repaired_before_arm_and_rejected_during_poll() {
   pass "bootstrap repairs nonprivate state and poll-time drift is locally attributed without config leakage"
 }
 
+# Bootstrap must never arm on a state directory the poller would then reject, so
+# the arm-time and poll-time gates have to be the same predicate. A state path
+# that cannot become an ordinary mode-700 directory - because it is a file, or
+# because its parent is a symlink - must refuse by naming the directory and the
+# required mode, and must leave nothing armed behind.
+test_unpreparable_private_state_refuses_to_arm() {
+  local home fakebin out calls link
+  home="$TMP_ROOT/unpreparable-state"
+  write_phone_env "$home"
+  : > "$home/state"
+
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null)
+  assert_contains "$out" "PHONE: Discord phone mode off - local private state directory requires mode 700: $home/state" \
+    "a state path that cannot become a private directory must refuse to arm"
+  assert_not_contains "$out" "PHONE: Discord phone mode on" \
+    "an unpreparable private state directory must never report a successful arm"
+  assert_not_contains "$out" "$PHONE_TOKEN" "the state refusal leaked the bot token"
+  assert_not_contains "$out" "$CHANNEL_ID" "the state refusal leaked the channel id"
+  assert_not_contains "$out" "$CAPTAIN_ID" "the state refusal leaked the captain id"
+  assert_absent "$home/config/phone-mode.env" "an unpreparable state directory must not enable fast cadence"
+  [ ! -d "$home/state" ] || fail "the refusal replaced the operator's own state path"
+
+  link="$TMP_ROOT/unpreparable-state-link"
+  rm -rf "$TMP_ROOT/symlinked-home"
+  mkdir -p "$TMP_ROOT/symlinked-home"
+  write_phone_env "$TMP_ROOT/symlinked-home"
+  (umask 077; mkdir -p "$TMP_ROOT/symlinked-home/state")
+  rm -f "$link"
+  ln -s "$TMP_ROOT/symlinked-home" "$link"
+
+  out=$(FM_HOME="$link" "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null)
+  assert_contains "$out" "PHONE: Discord phone mode off - local private state directory requires mode 700: $link/state" \
+    "a symlinked home must refuse at arm time rather than fail every later poll"
+  assert_not_contains "$out" "PHONE: Discord phone mode on" \
+    "a state directory the poller rejects must never produce a successful arm"
+  assert_absent "$link/state/phone-watch.check.sh" "a refused arm must not publish a poll shim"
+  assert_absent "$link/state/phone-watch.check-trust" "a refused arm must not register trust"
+  assert_absent "$link/config/phone-mode.env" "a refused arm must not enable fast cadence"
+
+  fakebin=$(make_fake_curl "$TMP_ROOT/symlinked-home")
+  calls="$TMP_ROOT/symlinked-home/calls.log"
+  out=$(FAKE_PHONE_CALL_LOG="$calls" run_poll "$link" "$fakebin")
+  assert_contains "$out" "phone-mode-error local filesystem precondition" \
+    "the poller must reject exactly the state directories bootstrap refuses to arm"
+  assert_absent "$calls" "a refused private state directory must be rejected before contacting Discord"
+  pass "an unpreparable private state directory refuses to arm and matches the poll-time gate"
+}
+
 test_bootstrap_generation_identity_and_opt_out() {
   local home out before after
   home="$TMP_ROOT/bootstrap"
@@ -530,6 +578,7 @@ test_watcher_shim_pins_identity_to_the_home_env
 test_reply_reads_file_verbatim_and_suppresses_mentions
 test_generic_errors_never_echo_configuration
 test_nonprivate_state_is_repaired_before_arm_and_rejected_during_poll
+test_unpreparable_private_state_refuses_to_arm
 test_bootstrap_generation_identity_and_opt_out
 test_partial_bootstrap_config_stays_off_without_leaking_values
 test_authority_boundary_keeps_its_exact_classes
