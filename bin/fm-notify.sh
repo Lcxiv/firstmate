@@ -133,7 +133,8 @@
 #                    calls its home channel, so an operator's unrelated Hermes
 #                    change can silently move firstmate's alerts to a different
 #                    conversation - delivered, but to the wrong reader. The bare
-#                    form still works and warns once per delivered message.
+#                    form still works and warns once per notification, before
+#                    anything is sent, however many parts it splits into.
 #                    Wire format, exactly:
 #                      <emoji> <WORD>[ · <title>][ (i/n)]
 #                      <blank>

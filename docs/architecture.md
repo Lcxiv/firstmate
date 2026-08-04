@@ -276,7 +276,7 @@ The seam is what keeps the shaping platform-agnostic: caps and per-part decorati
 The event class is extended along that same seam rather than beside it: one table row per class carries its lane, its mention decision, and its stripe colour together, so a class cannot acquire a room without also declaring whether it interrupts the captain.
 Delivery is best-effort by design: every failure is quiet, bounded, and non-blocking, and nothing is written anywhere under the fleet's state.
 An optional second address is a routing choice inside that contract, not a second sender, and it degrades back to the single address rather than dropping a message.
-A channel that delegates to an external sender owns that process's time bound too, so an unresponsive sender costs a notification rather than the turn that composed it, and it captures the sender's own output so no credential, target, or foreign diagnostic reaches firstmate's.
+A channel that delegates to an external sender owns that process's time bound too, so an unresponsive sender costs a notification rather than the turn that composed it, and it captures the sender's own output so no credential, target, or foreign diagnostic reaches firstmate's own diagnostics.
 The [phone notification configuration reference](configuration.md#phone-notifications-env) owns the setup steps, keys, defaults, event classes, routing and mention table, caps, opt-out, and security surface.
 
 ## Optional Discord phone mode

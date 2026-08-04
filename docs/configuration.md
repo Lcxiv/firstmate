@@ -435,7 +435,7 @@ Confirm the target first with `hermes send --list`, then send the same test line
 
 Use an explicit target such as `FM_NOTIFY_TARGET=hermes:telegram:<chat id>` for any real configuration.
 A bare platform such as `hermes:telegram` resolves to whatever Hermes currently calls its home channel, so an unrelated change to Hermes' configuration can move firstmate's alerts to a different conversation - delivered successfully, but to the wrong reader, which is worse than a failure.
-The bare form still works and prints a configuration warning on every delivered message.
+The bare form still works and prints one configuration warning per notification, before anything is sent, so a notification split into several messages still warns exactly once.
 
 This channel is verified against Telegram.
 Describe it as supporting targets whose plain-text behaviour has actually been tested rather than every platform Hermes speaks: target syntax, caps, subject handling, and failure behaviour are platform-specific, and an untested platform is an untested claim.
@@ -493,7 +493,7 @@ An oversized body is split on line and word boundaries into at most `FM_NOTIFY_M
 Run `bin/fm-notify.sh --help` for the exact flags, exit codes, and channel-seam contract.
 
 Losing a notification never blocks or delays fleet work.
-A rate limit is retried once, honouring the reported wait clamped by `FM_NOTIFY_RETRY_CAP_SECS`; a forbidden or missing target and any other delivery failure exit non-zero with one short line on stderr, with no further retry and no write anywhere under this home's state.
+A rate limit is retried once on the Discord webhook channel, honouring the reported wait clamped by `FM_NOTIFY_RETRY_CAP_SECS`; on either channel a forbidden or missing target and any other delivery failure exit non-zero with one short line on stderr, with no further retry and no write anywhere under this home's state.
 The Hermes sender runs under a hard time bound taken from `FM_NOTIFY_TIMEOUT_SECS`, so a sender that hangs on configuration, credentials, transport retry, or a broken provider costs one notification instead of stalling the turn that composed it.
 Its own `0`/`1`/`2` exit codes are mapped deliberately rather than passed through: `0` is delivered, `1` becomes firstmate's delivery-failure code `4`, `2` becomes the misconfiguration code `3` because it means the configured target form is one the sender will not accept, hitting the time bound or any other code becomes `4`, and a missing or non-executable sender is reported as `3` before anything is sent.
 A sender killed by a signal is reported as `128` plus the signal number and so lands on `4` as well, never on success.
@@ -507,12 +507,12 @@ There is no generated state to clean up.
 Security surface, stated plainly: the webhook URL is a write-only capability for one channel.
 Someone who obtains it can post fake notifications into that channel, which is why it belongs only in the gitignored 0600 `.env` and never in the repo, a commit, or a task note.
 It grants no read access to the channel, no access to the rest of the Discord server, and no authority through the separately configured Discord phone bot.
+Revoke on suspicion by deleting the webhook in Discord and creating a new one.
 
 The Hermes channel holds no credential of its own: it delegates to Hermes' existing platform credentials, which stay under `~/.hermes/` and are never read, copied, or modified by firstmate.
 The message body is handed to the sender through a file rather than a command-line argument, so captain-facing text is never exposed in the process table.
 The target is a known residual exposure: `hermes send` offers no way to pass a destination other than `--to`, so an explicit chat id is visible in that process's arguments to other local users for the life of the request.
 The sender is always run with `--quiet` and both of its streams are captured, because its normal success line prints the chat id; firstmate reports its own generic diagnostic instead and never relays that output into its logs.
-Revoke on suspicion by deleting the webhook in Discord and creating a new one.
 
 ## Discord phone mode (.env)
 
@@ -533,7 +533,7 @@ The bot token is a secret, while the two numeric ids are authentication configur
 An existing Discord bot may be reused if it can view the private channel, read message history, read message content, send messages, and add reactions there.
 No other permission is required: editing its own messages needs none, and the optional pin described under "The live summary" degrades when Manage Messages is withheld.
 Enable Discord Developer Mode to copy the captain user id and private channel id, and enable the bot's message-content intent when Discord requires it.
-The outbound `FM_NOTIFY_TARGET` webhook may point at the same channel, but it remains a separate write-only capability and is not used to authenticate inbound commands.
+An outbound Discord webhook configured in `FM_NOTIFY_TARGET` may point at the same channel, but it remains a separate write-only capability and is not used to authenticate inbound commands.
 
 All three values are the opt-in boundary.
 No `.env`, three absent or empty values, or an incomplete configuration does not arm a poll.
