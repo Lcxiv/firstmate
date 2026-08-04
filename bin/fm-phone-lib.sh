@@ -171,6 +171,12 @@ fm_phone_url_config_file() {
       fm_phone_discord_id_valid "$arg" || return 1
       url="$FM_PHONE_DISCORD_API/channels/$FM_PHONE_CHANNEL/pins/$arg"
       ;;
+    pins)
+      # The channel's pinned messages. Reading them needs only the same view and
+      # message-history access the poll route already uses, not the Manage
+      # Messages permission that placing a pin does.
+      url="$FM_PHONE_DISCORD_API/channels/$FM_PHONE_CHANNEL/pins"
+      ;;
     *) return 1 ;;
   esac
   file=$(umask 077; mktemp "${TMPDIR:-/tmp}/fm-phone-url.XXXXXX") || return 1
@@ -214,6 +220,13 @@ fm_phone_recent_request() {
   fm_phone_api_request GET recent "${2:-50}" "$1"
 }
 
+# The channel's pinned messages into BODY. Prints the HTTP code. Editing a
+# message never moves it, so this is how a long-lived message is found again
+# once it has sunk past a bounded page of recent history.
+fm_phone_pins_request() {
+  fm_phone_api_request GET pins '' "$1"
+}
+
 # One bounded Discord message POST using a payload file. When BODY_OUT is given
 # the created message object is written there so a caller can keep its id. It is
 # intentionally silent; callers translate failure without ever printing config
@@ -235,49 +248,46 @@ fm_phone_post_payload() (
   esac
 )
 
-# Add this home's receipt reaction to one captain message. Returns 0 only on a
-# 2xx, so a caller can never report a receipt Discord did not record.
-fm_phone_react() (
-  local message_id=$1 body='' code rc
+# One bounded request against a single message. Validates the snowflake, sends
+# the request with its response body discarded, and prints the HTTP code;
+# returns 1 only when the request could not be made at all. Every message-scoped
+# verb shares this, so the id check and the discarded body cannot drift apart
+# between them the way three hand-written copies would.
+fm_phone_message_request() (
+  local method=$1 mode=$2 message_id=$3 payload=${4:-} body='' code rc
   fm_phone_discord_id_valid "$message_id" || return 1
   trap 'rm -f "$body"' EXIT HUP INT TERM
-  body=$(mktemp "${TMPDIR:-/tmp}/fm-phone-react.XXXXXX") || return 1
-  code=$(fm_phone_api_request PUT react "$message_id" "$body")
+  body=$(mktemp "${TMPDIR:-/tmp}/fm-phone-$mode.XXXXXX") || return 1
+  code=$(fm_phone_api_request "$method" "$mode" "$message_id" "$body" "$payload")
   rc=$?
   [ "$rc" = 0 ] || return 1
+  printf '%s' "$code"
+)
+
+# Add this home's receipt reaction to one captain message. Returns 0 only on a
+# 2xx, so a caller can never report a receipt Discord did not record.
+fm_phone_react() {
+  local code
+  code=$(fm_phone_message_request PUT react "$1") || return 1
   case "$code" in
     2[0-9][0-9]) return 0 ;;
     *) return 1 ;;
   esac
-)
+}
 
 # Edit one existing message in place. Prints the HTTP code so the caller can
 # tell "someone else's or deleted message" (403/404) apart from a real failure,
 # and returns 1 only when the request could not be made at all.
-fm_phone_edit_message() (
-  local message_id=$1 payload=$2 body='' code rc
-  fm_phone_discord_id_valid "$message_id" || return 1
-  trap 'rm -f "$body"' EXIT HUP INT TERM
-  body=$(mktemp "${TMPDIR:-/tmp}/fm-phone-edit.XXXXXX") || return 1
-  code=$(fm_phone_api_request PATCH message "$message_id" "$body" "$payload")
-  rc=$?
-  [ "$rc" = 0 ] || return 1
-  printf '%s' "$code"
-)
+fm_phone_edit_message() {
+  fm_phone_message_request PATCH message "$1" "$2"
+}
 
 # Pin one message. Prints the HTTP code; 403 means the bot has no Manage
 # Messages permission in that channel, which callers must degrade around rather
 # than treat as a delivery failure.
-fm_phone_pin_message() (
-  local message_id=$1 body='' code rc
-  fm_phone_discord_id_valid "$message_id" || return 1
-  trap 'rm -f "$body"' EXIT HUP INT TERM
-  body=$(mktemp "${TMPDIR:-/tmp}/fm-phone-pin.XXXXXX") || return 1
-  code=$(fm_phone_api_request PUT pin "$message_id" "$body")
-  rc=$?
-  [ "$rc" = 0 ] || return 1
-  printf '%s' "$code"
-)
+fm_phone_pin_message() {
+  fm_phone_message_request PUT pin "$1"
+}
 
 # Build a Discord message payload. REPLY_ID may be empty; when present it is a
 # safe numeric snowflake and only the first chunk should carry the reference.

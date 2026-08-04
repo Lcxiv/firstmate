@@ -22,20 +22,27 @@
 #   1. state/phone-summary-id holds the message id as a private mode-0600
 #      artifact. This is the normal path and it survives restart, compaction,
 #      and a new session.
-#   2. If that record is missing or Discord no longer accepts an edit to it, one
-#      bounded page of recent channel history is read and the newest bot-written
-#      message that carries the summary marker is adopted. Narrowing to
-#      bot-written candidates only saves requests; Discord permits editing a
+#   2. If that record is missing or Discord no longer accepts an edit to it, two
+#      read-only lookups are consulted together - one bounded page of recent
+#      channel history, and the channel's pinned messages - and the newest
+#      bot-written message that carries the summary marker is adopted. Narrowing
+#      to bot-written candidates only saves requests; Discord permits editing a
 #      message this bot itself authored and nothing else, so any other bot's
 #      message that starts with the same marker is still refused by Discord
 #      rather than overwritten. That refusal is the actual guarantee.
 #      A history read that does not succeed is a failure, not an empty channel:
 #      reposting on a rate limit would leave two live summaries, so the read has
 #      to answer before a new message may be posted.
+#      The pinned list is what reaches a summary older than that page. Editing a
+#      message never moves it, so a long-lived summary keeps its original place
+#      and sinks out of the recent window while a busy day scrolls past it. It is
+#      a second way in and not a replacement, because pinning can be refused and
+#      must not become the only way back; when the pinned list cannot be read,
+#      that is said plainly rather than being taken for "there is no summary".
 #   3. Only when neither yields an editable message is a new one posted, and its
 #      id is recorded before anything else.
-#   Recovery reads history through the same already-permitted route the command
-#   poll uses; it needs no pin access.
+#   Both lookups use read access this integration already holds. Neither needs
+#   the Manage Messages permission that placing a pin does.
 #
 # PINNING IS OPTIONAL AND MAY BE REFUSED
 #   Pinning needs Manage Messages, which the bot is not required to hold. A
@@ -78,7 +85,8 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 FM_PHONE_LEGACY_ACK='⚓ received'
 
 # How many recent messages recovery inspects. Bounded so a lost record costs one
-# ordinary page read, never a channel crawl.
+# ordinary page read, never a channel crawl. Reaching further back is the pinned
+# list's job, not this number's.
 FM_PHONE_SUMMARY_SCAN=50
 
 warn() {
@@ -169,7 +177,12 @@ BODY_FILE=$(mktemp "${TMPDIR:-/tmp}/fm-phone-summary-body.XXXXXX") || {
   warn "cannot create a private payload"
   exit 4
 }
-trap 'rm -f "$PAYLOAD_FILE" "$BODY_FILE"' EXIT HUP INT TERM
+PINS_FILE=$(mktemp "${TMPDIR:-/tmp}/fm-phone-summary-pins.XXXXXX") || {
+  rm -f "$PAYLOAD_FILE" "$BODY_FILE"
+  warn "cannot create a private payload"
+  exit 4
+}
+trap 'rm -f "$PAYLOAD_FILE" "$BODY_FILE" "$PINS_FILE"' EXIT HUP INT TERM
 
 fm_phone_summary_payload "$TEXT" > "$PAYLOAD_FILE" || {
   warn "cannot shape the summary"
@@ -241,6 +254,35 @@ fi
 
 # Recovery: adopt this home's own most recent marked message rather than adding
 # a second live summary to the channel.
+
+# summary_candidates <file>: this home's own marked message ids in a Discord
+# message list, newest first. Tolerates the pinned list's wrapped shape as well
+# as a plain array, so a route that answers in either form still yields
+# candidates instead of silently yielding none.
+summary_candidates() {
+  jq -r \
+    --arg marker "$FM_PHONE_SUMMARY_MARKER" \
+    --arg legacy "$FM_PHONE_LEGACY_ACK" '
+      (if type == "array" then . else [ (.items // [])[] | .message ] end)
+      | [ .[]
+          | select(type == "object")
+          | select((.content // "") | startswith($marker))
+          | select((.content // "") != $legacy)
+          | select(.author.bot == true)
+          | .id // empty
+        ]
+      | sort_by([(tostring | length), tostring])
+      | reverse
+      | .[]
+    ' "$1" 2>/dev/null
+}
+
+# summary_list_usable <file>: a body that is a message list in either shape.
+summary_list_usable() {
+  jq -e 'type == "array" or (type == "object" and (.items | type) == "array")' \
+    "$1" >/dev/null 2>&1
+}
+
 CODE=$(fm_phone_recent_request "$BODY_FILE" "$FM_PHONE_SUMMARY_SCAN") || CODE=
 # A read that did not succeed is not evidence that no summary exists. An empty
 # channel still answers 200 with an empty list, so anything else here would be a
@@ -249,6 +291,21 @@ CODE=$(fm_phone_recent_request "$BODY_FILE" "$FM_PHONE_SUMMARY_SCAN") || CODE=
 if [ "$CODE" != 200 ] || ! jq -e 'type == "array"' "$BODY_FILE" >/dev/null 2>&1; then
   warn "cannot read recent messages to find the live summary; it was left as it is"
   exit 4
+fi
+CANDIDATES=$(summary_candidates "$BODY_FILE")
+
+# The recent page alone cannot see far enough. Editing a message never moves it,
+# so a summary that has been live through a busy day is still sitting where it
+# was first posted, below anything one page reaches. The pinned list finds it
+# whatever its age. Pinning may have been refused, so this is consulted in
+# addition to the page rather than instead of it, and a pinned list that will
+# not answer is reported as the narrower search it leaves behind - never taken
+# for a channel with no summary in it.
+PINS_CODE=$(fm_phone_pins_request "$PINS_FILE") || PINS_CODE=
+if [ "$PINS_CODE" = 200 ] && summary_list_usable "$PINS_FILE"; then
+  CANDIDATES=$(printf '%s\n%s\n' "$CANDIDATES" "$(summary_candidates "$PINS_FILE")")
+else
+  warn "the pinned messages could not be listed, so the search for the live summary reached only the most recent messages"
 fi
 
 ADOPTED=
@@ -260,19 +317,7 @@ while IFS= read -r CANDIDATE; do
     0) ADOPTED=$CANDIDATE; break ;;
     2) warn "cannot reach Discord to update the summary"; exit 4 ;;
   esac
-done < <(jq -r \
-  --arg marker "$FM_PHONE_SUMMARY_MARKER" \
-  --arg legacy "$FM_PHONE_LEGACY_ACK" '
-    [ .[]
-      | select((.content // "") | startswith($marker))
-      | select((.content // "") != $legacy)
-      | select(.author.bot == true)
-      | .id // empty
-    ]
-    | sort_by([(tostring | length), tostring])
-    | reverse
-    | .[]
-  ' "$BODY_FILE" 2>/dev/null)
+done < <(printf '%s\n' "$CANDIDATES" | awk 'NF && !seen[$0]++')
 
 if [ -n "$ADOPTED" ]; then
   if ! fm_phone_summary_id_set "$STATE" "$ADOPTED"; then

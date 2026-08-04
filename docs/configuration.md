@@ -555,9 +555,11 @@ Its identity has to survive a restart, because a "live" summary that is reposted
 The message id is recorded as a private mode-`0600` `state/phone-summary-id`, which is the normal path across restarts, compaction, and new sessions.
 If that record is lost or Discord no longer accepts an edit to it, one bounded page of recent channel history is read and the newest bot-written message carrying the summary's leading anchor marker is adopted instead; leftover `⚓ received` acknowledgements from older builds are excluded so a stale receipt is never turned into the summary.
 Discord permits editing only a message the bot itself authored, so any other message that happens to start with the same marker is refused by Discord rather than overwritten; skipping the captain's own messages before asking only saves requests and does not replace that refusal.
-That recovery uses the same already-permitted read route as the command poll and needs no pin access.
+The channel's pinned messages are listed as well, because editing a message never moves it: a summary that has been live through a busy day is still sitting where it was posted, below anything one page of history reaches.
+The pinned list is consulted in addition to that page and never instead of it, since pinning can be refused and must not become the only way back, and a pinned list that cannot be read is reported as the narrower search it leaves behind rather than being taken for a channel with no summary in it.
+Both lookups use the same already-permitted read access as the command poll; neither needs the Manage Messages permission that placing a pin does.
 A history read that does not answer is a failure rather than an empty channel, because reposting on a rate limit would leave two live summaries with no way back.
-Only when neither the record nor a successful history read yields an editable message is a new one posted, and its id is recorded before anything else; a posted summary whose id cannot be recorded exits non-zero rather than risking a repost on the next update.
+Only when neither the record nor a successful lookup yields an editable message is a new one posted, and its id is recorded before anything else; a posted summary whose id cannot be recorded exits non-zero rather than risking a repost on the next update.
 
 Pinning is optional and may be refused.
 It needs the bot's Manage Messages permission, which this integration does not require: a pin is attempted when the message is first created, or on `--repin`, and a refusal is reported by name along with the permission that would fix it while the summary continues to work as an ordinary message edited in place.

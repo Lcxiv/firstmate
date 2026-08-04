@@ -119,6 +119,16 @@ if [ "$method" = PATCH ]; then
   exit 0
 fi
 
+# The pinned list is a distinct read from the recent page, so it answers
+# separately: a test can starve one and still serve the other.
+case "$url" in
+  */pins)
+    [ -n "$ofile" ] && printf '%s' "${FAKE_PHONE_PINS_BODY:-[]}" > "$ofile"
+    printf '%s' "${FAKE_PHONE_PINS_CODE:-200}"
+    exit 0
+    ;;
+esac
+
 after=$(printf '%s' "$url" | sed -n 's/^.*[?&]after=\([0-9][0-9]*\).*$/\1/p')
 if [ -n "${FAKE_PHONE_CURSOR_LOG:-}" ]; then
   printf 'after=%s\n' "${after:-0}" >> "$FAKE_PHONE_CURSOR_LOG"
@@ -562,6 +572,65 @@ test_summary_recovers_from_history_rather_than_posting_a_second_one() {
   pass "a lost record recovers the existing summary instead of adding another"
 }
 
+test_summary_recovers_a_summary_that_has_scrolled_past_recent_history() {
+  local home fakebin out urls pinned
+  home="$TMP_ROOT/summary-recover-pinned"
+  write_phone_env "$home"
+  fakebin=$(make_fake_curl "$home")
+  urls="$home/urls.log"
+  # The durable record is gone and a busy day has pushed the live summary off
+  # the recent page: editing never moves a message, so it is still sitting where
+  # it was posted. The pinned list is what still reaches it.
+  pinned=$(jq -cn --arg channel "$CHANNEL_ID" '
+    [{id:"9251",channel_id:$channel,author:{bot:true},content:"⚓ 5 running, 1 needs you"}]')
+  printf 'recovered summary\n' > "$home/summary.txt"
+
+  out=$(FAKE_PHONE_URL_LOG="$urls" FAKE_PHONE_POLL_BODY='[]' \
+    FAKE_PHONE_PINS_BODY="$pinned" \
+    run_summary "$home" "$fakebin" -- --text-file "$home/summary.txt")
+  [ "$out" = 9251 ] || fail "the pinned live summary was not found again: $out"
+  [ "$(grep -c POST "$urls")" = 0 ] || fail "a summary older than the recent page was reposted"
+  [ "$(cat "$home/state/phone-summary-id")" = 9251 ] \
+    || fail "the adopted pinned summary was not recorded"
+  pass "a summary that has scrolled past recent history is still found, not duplicated"
+}
+
+test_summary_says_so_when_the_pinned_list_cannot_be_consulted() {
+  local home fakebin out rc err
+  home="$TMP_ROOT/summary-pins-refused"
+  write_phone_env "$home"
+  fakebin=$(make_fake_curl "$home")
+  printf 'a fresh summary\n' > "$home/summary.txt"
+
+  # A pinned list that will not answer must never read as "no summary exists".
+  # Recovery still degrades to the recent page, but it says which ground it
+  # could not cover rather than reporting a clean search it did not run.
+  err=$(FAKE_PHONE_POLL_BODY='[]' FAKE_PHONE_PINS_CODE=403 \
+    FAKE_PHONE_POST_BODY='{"id":"9261"}' \
+    run_summary "$home" "$fakebin" -- --text-file "$home/summary.txt" 2>&1 >/dev/null)
+  rc=$?
+  expect_code 0 "$rc" "a recovery whose pinned list was refused"
+  assert_contains "$err" "pinned messages could not be listed" \
+    "a refused pinned list must be reported, not passed off as an empty channel"
+  assert_not_contains "$err" "$CHANNEL_ID" "a refused pinned list leaked the channel id"
+  assert_not_contains "$err" "$PHONE_TOKEN" "a refused pinned list leaked the token"
+  [ "$(cat "$home/state/phone-summary-id")" = 9261 ] \
+    || fail "the fallback publish did not record its identity"
+
+  # The pinned list is a second way in, never the only one: the recent page on
+  # its own still recovers when it can see the summary.
+  home="$TMP_ROOT/summary-pins-refused-history"
+  write_phone_env "$home"
+  fakebin=$(make_fake_curl "$home")
+  printf 'a fresh summary\n' > "$home/summary.txt"
+  out=$(FAKE_PHONE_PINS_CODE=403 \
+    FAKE_PHONE_POLL_BODY="$(jq -cn --arg channel "$CHANNEL_ID" '
+      [{id:"9262",channel_id:$channel,author:{bot:true},content:"⚓ 2 running"}]')" \
+    run_summary "$home" "$fakebin" -- --text-file "$home/summary.txt" 2>/dev/null)
+  [ "$out" = 9262 ] || fail "a refused pinned list cost recovery the recent page: $out"
+  pass "a pinned list that cannot be read is named plainly and never mistaken for an empty channel"
+}
+
 test_summary_fails_rather_than_reposting_when_history_cannot_be_read() {
   local home fakebin urls rc out
   home="$TMP_ROOT/summary-unreadable"
@@ -966,6 +1035,8 @@ test_ack_can_still_be_turned_off
 test_summary_is_created_once_then_edited_in_place
 test_summary_survives_a_restart_through_its_durable_record
 test_summary_recovers_from_history_rather_than_posting_a_second_one
+test_summary_recovers_a_summary_that_has_scrolled_past_recent_history
+test_summary_says_so_when_the_pinned_list_cannot_be_consulted
 test_summary_fails_rather_than_reposting_when_history_cannot_be_read
 test_summary_repin_reaches_a_message_recovered_from_history
 test_summary_never_overwrites_a_message_it_did_not_author
