@@ -270,11 +270,13 @@ The sender is deliberately dumb.
 [`AGENTS.md`](../AGENTS.md) section 9 remains the single owner of what is worth escalating and of the wording, and the caller names the event class rather than letting the script invent, classify, re-word, or suppress anything on its own judgement.
 The watcher deliberately does not get its own send path, because that would fork section 9's single ownership of escalation policy and leak internal wake labels to the captain's phone.
 
-Inside the script the channel seam is resolve-target, format-payload, deliver, where a channel is one delivery platform rather than one Discord room.
-Only the Discord webhook platform is implemented; a second one can be added later as one resolver arm plus its three functions, without changing the caller contract or the configuration surface.
+Inside the script the channel seam is resolve-target, validate, reserve, format-payload, deliver, where a channel is one delivery platform rather than one Discord room.
+The Discord webhook and Hermes channels are both implemented behind it; a further channel is one resolver arm plus that function set, without changing the caller contract or the configuration surface.
+The seam is what keeps the shaping platform-agnostic: caps and per-part decoration are declared per channel and reserved out of one shared splitter, rather than each channel growing a parallel presentation layer.
 The event class is extended along that same seam rather than beside it: one table row per class carries its lane, its mention decision, and its stripe colour together, so a class cannot acquire a room without also declaring whether it interrupts the captain.
 Delivery is best-effort by design: every failure is quiet, bounded, and non-blocking, and nothing is written anywhere under the fleet's state.
 An optional second address is a routing choice inside that contract, not a second sender, and it degrades back to the single address rather than dropping a message.
+A channel that delegates to an external sender owns that process's time bound too, so an unresponsive sender costs a notification rather than the turn that composed it, and it captures the sender's own output so no credential, target, or foreign diagnostic reaches firstmate's.
 The [phone notification configuration reference](configuration.md#phone-notifications-env) owns the setup steps, keys, defaults, event classes, routing and mention table, caps, opt-out, and security surface.
 
 ## Optional Discord phone mode
