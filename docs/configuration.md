@@ -486,7 +486,9 @@ That refusal reaches only the classes that would use the broadcast address; the 
 On Discord each message is one embed whose title carries an emoji and an uppercase state word alongside the matching colour, so the colour never carries the state alone.
 Discord's caps are enforced before sending rather than left for the API to reject: 256 characters of title, 4096 of description, and 6000 across one message.
 On Hermes each message is plain text carrying the same emoji and uppercase state word on a header line, then a blank line, then the body, then the `--url` link on the first part, then the reply-route note for an actionable class.
-No Hermes subject line is used, so the delivered text is exactly what firstmate shaped; the header, link, and note are reserved out of the 4096-character platform budget before splitting, so a part plus its header never exceeds the cap.
+No Hermes subject line is used, so firstmate controls the whole plain-text composition it hands to the sender.
+That is not the same as the reader seeing those bytes verbatim: the sender applies its own platform formatting, rewriting markdown to MarkdownV2 or switching to HTML when the body matches its HTML autodetect, and then re-chunks the formatted text on UTF-16 units.
+The header, link, and note are still reserved out of the 4096-character platform budget before splitting, so firstmate never composes an over-cap part; the sender's own split boundary is the formatted UTF-16 length rather than firstmate's codepoint budget.
 An oversized body is split on line and word boundaries into at most `FM_NOTIFY_MAX_PARTS` numbered messages, with the last kept part marked by an ellipsis, so a full `https://` URL is never broken across parts.
 Run `bin/fm-notify.sh --help` for the exact flags, exit codes, and channel-seam contract.
 
@@ -494,6 +496,8 @@ Losing a notification never blocks or delays fleet work.
 A rate limit is retried once, honouring the reported wait clamped by `FM_NOTIFY_RETRY_CAP_SECS`; a forbidden or missing target and any other delivery failure exit non-zero with one short line on stderr, with no further retry and no write anywhere under this home's state.
 The Hermes sender runs under a hard time bound taken from `FM_NOTIFY_TIMEOUT_SECS`, so a sender that hangs on configuration, credentials, transport retry, or a broken provider costs one notification instead of stalling the turn that composed it.
 Its own `0`/`1`/`2` exit codes are mapped deliberately rather than passed through: `0` is delivered, `1` becomes firstmate's delivery-failure code `4`, `2` becomes the misconfiguration code `3` because it means the configured target form is one the sender will not accept, hitting the time bound or any other code becomes `4`, and a missing or non-executable sender is reported as `3` before anything is sent.
+A sender killed by a signal is reported as `128` plus the signal number and so lands on `4` as well, never on success.
+A host that has none of `timeout`, `gtimeout`, or `perl` cannot bound the sender at all, so it refuses rather than running unbounded and reports `3`, because nothing was launched and nothing hung.
 
 Opt out by deleting `FM_NOTIFY_TARGET` from `.env`, which restores the silent no-op immediately, and by deleting the webhook in Discord so the URL stops working for anyone who still holds it.
 Dropping only `FM_NOTIFY_LOG_TARGET` collapses both lanes back onto the single channel.

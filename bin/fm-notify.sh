@@ -143,11 +143,17 @@
 #                                                   part, so a captain who sees
 #                                                   only one part still has the
 #                                                   route
-#                    No `--subject` is sent: all presentation lives in the body
-#                    so the delivered bytes are exactly what this script shaped.
-#                    The header, url, and note bytes are reserved out of the
-#                    body budget before the shared splitter runs, so a part
-#                    plus its decoration always fits the platform cap.
+#                    No `--subject` is sent: all presentation lives in the body,
+#                    so this script controls the whole plain-text composition it
+#                    hands over. The reader does NOT necessarily see those
+#                    bytes verbatim: the sender applies its own platform
+#                    formatting (markdown rewritten to MarkdownV2, or HTML when
+#                    the body matches its HTML autodetect) and re-chunks the
+#                    FORMATTED text on UTF-16 units. The header, url, and note
+#                    bytes are still reserved out of the body budget before the
+#                    shared splitter runs, so this script never composes an
+#                    over-cap part; the sender's own split boundary is the
+#                    formatted UTF-16 length rather than this codepoint budget.
 #
 # CHANNEL SEAM
 #   Everything above the channel functions is platform-agnostic. A channel is
@@ -198,8 +204,14 @@
 #     hermes 2            -> 3  the sender rejected our invocation, which means
 #                               the configured target form is wrong
 #     hit the time bound  -> 4  bounded delivery failure
+#     killed by a signal  -> 4  delivery failure; the sender reports this as
+#                               128 plus the signal, so a signal death can never
+#                               be mistaken for a clean exit 0
 #     any other code      -> 4  delivery failure
 #     binary missing      -> 3  misconfiguration, reported before any delivery
+#     no way to bound the -> 3  misconfiguration; this host has no timeout,
+#     sender                    gtimeout, or perl, so the sender was never
+#                               launched and nothing hung
 set -u
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -437,10 +449,17 @@ fm_notify_split_body() {
 # --- shared transport helpers -----------------------------------------------
 
 # fm_notify_run_timed <seconds> <command...>: run a command under a hard time
-# bound, returning 124 when the bound was hit. This mirrors the selection in
-# bin/fm-auth-preflight.sh and bin/fm-fleet-snapshot.sh: macOS ships no GNU
-# `timeout`, so the perl arm is the one that actually runs on the captain's
-# host, and a host with none of the three refuses rather than running unbounded.
+# bound, returning 124 when the bound was hit and 125 when this host offers no
+# bounding mechanism at all, in which case nothing was ever launched. This
+# mirrors the selection in bin/fm-auth-preflight.sh and bin/fm-fleet-snapshot.sh:
+# macOS ships no GNU `timeout`, so the perl arm is the one that actually runs on
+# the captain's host, and a host with none of the three refuses rather than
+# running unbounded.
+#
+# The perl arm reports a signal-killed child the way GNU `timeout` does, as
+# 128 plus the signal number. A raw `$? >> 8` would be 0 for a child that died
+# from SIGKILL or SIGSEGV, and a caller mapping that status straight to delivery
+# success would then claim a notification it never sent.
 # shellcheck disable=SC2329 # Reached only from a channel-seam deliver function.
 fm_notify_run_timed() {
   local seconds=$1
@@ -451,10 +470,10 @@ fm_notify_run_timed() {
     gtimeout "$seconds" "$@"
   elif command -v perl >/dev/null 2>&1; then
     # shellcheck disable=SC2016 # single quotes are deliberate: perl expands its own variables.
-    perl -e 'my $t = shift; my $pid = fork; die "fork failed" unless defined $pid; if (!$pid) { setpgrp(0, 0); exec @ARGV } local $SIG{ALRM} = sub { kill "TERM", -$pid; select undef, undef, undef, 0.2; kill "KILL", -$pid; exit 124 }; alarm $t; waitpid $pid, 0; exit($? >> 8)' \
+    perl -e 'my $t = shift; my $pid = fork; die "fork failed" unless defined $pid; if (!$pid) { setpgrp(0, 0); exec @ARGV } local $SIG{ALRM} = sub { kill "TERM", -$pid; select undef, undef, undef, 0.2; kill "KILL", -$pid; exit 124 }; alarm $t; waitpid $pid, 0; exit($? & 127 ? 128 + ($? & 127) : $? >> 8)' \
       "$seconds" "$@"
   else
-    return 124
+    return 125
   fi
 }
 
@@ -686,10 +705,13 @@ fm_notify_reserve_hermes() {
 
 # fm_notify_payload_hermes <emoji> <word> <colour> <title> <body> [url]
 #                          [mention-id] [class]
-# Pure builder: the exact plain text that goes on the wire. No subject line is
-# used, so the delivered bytes are precisely what this script shaped. The
-# mention id is Discord's own addressing and has no meaning here, so this
-# channel ignores it: an actionable class carries the reply-route note instead.
+# Pure builder: the exact plain text handed to the sender. No subject line is
+# used, so this script controls the whole composition it hands over; the sender
+# then applies its own platform formatting and its own re-chunking of that
+# formatted text, so these are the bytes given to it rather than the bytes the
+# reader is guaranteed to see. The mention id is Discord's own addressing and
+# has no meaning here, so this channel ignores it: an actionable class carries
+# the reply-route note instead.
 # shellcheck disable=SC2329 # Invoked through the channel seam by name.
 fm_notify_payload_hermes() {
   local emoji=$1 word=$2 title=$4 body=$5 url=${6:-} class=${8:-}
@@ -734,6 +756,10 @@ fm_notify_deliver_hermes() (
     124)
       warn "delivery failed: the message sender did not finish within ${FM_NOTIFY_TIMEOUT}s"
       return 4
+      ;;
+    125)
+      warn "this host has no timeout, gtimeout, or perl to bound the message sender, so nothing was sent"
+      return 3
       ;;
     1)
       warn "delivery failed: the message sender reported a delivery or backend error"

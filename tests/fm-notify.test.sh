@@ -875,13 +875,23 @@ FAKE_HERMES_TARGET='hermes:telegram:-1009999999999'
 FAKE_HERMES_SECRET='chat_id: -1009999999999'
 
 # make_hermes_home <name>: an isolated home whose `hermes` stub captures every
-# invocation. FM_NOTIFY_TEST_HERMES_EXIT chooses the exit code, and
-# FM_NOTIFY_TEST_HERMES_SLEEP makes it hang.
+# invocation. FM_NOTIFY_TEST_HERMES_EXIT chooses the exit code,
+# FM_NOTIFY_TEST_HERMES_SLEEP makes it hang, and FM_NOTIFY_TEST_HERMES_SIGNAL
+# makes it die from that signal instead of exiting.
 make_hermes_home() {  # <name>
   local home="$TMP_ROOT/$1" fakebin
   mkdir -p "$home/state" "$home/capture"
   fakebin=$(fm_fakebin "$home")
-  # curl is removed outright: the hermes channel must never reach for it.
+  # curl is shadowed by a stub that always fails: the hermes channel must never
+  # reach for it, and this turns that invariant into an assertion rather than a
+  # claim, since a regression that shelled out to curl would otherwise silently
+  # use the host's real binary.
+  cat > "$fakebin/curl" <<'SH'
+#!/usr/bin/env bash
+printf 'the hermes channel must never shell out to curl\n' >&2
+exit 99
+SH
+  chmod +x "$fakebin/curl"
   cat > "$fakebin/hermes" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$@" >> "$FM_NOTIFY_TEST_CAPTURE/argv"
@@ -894,6 +904,10 @@ while [ "$#" -gt 0 ]; do
 done
 if [ -n "${FM_NOTIFY_TEST_HERMES_SLEEP:-}" ]; then
   sleep "$FM_NOTIFY_TEST_HERMES_SLEEP"
+fi
+if [ -n "${FM_NOTIFY_TEST_HERMES_SIGNAL:-}" ]; then
+  kill "-$FM_NOTIFY_TEST_HERMES_SIGNAL" $$
+  sleep 5
 fi
 n=$(cat "$FM_NOTIFY_TEST_CAPTURE/count" 2>/dev/null || echo 0)
 n=$((n + 1))
@@ -1117,6 +1131,53 @@ test_hermes_hanging_sender_is_bounded() {
   pass "a hanging sender is cut off by a hard bound instead of stalling the caller"
 }
 
+test_hermes_signal_killed_sender_is_never_read_as_delivered() {
+  local home rc out
+  # The portable perl arm is the one that runs on this repo's macOS hosts, and a
+  # child that dies from a signal leaves a wait status whose exit byte is 0. If
+  # that were passed on unchanged, firstmate would exit 0 claiming a delivery it
+  # never made and would keep sending the remaining parts of a split message.
+  home=$(make_hermes_home hermes-signal)
+  configure "$home" "$FAKE_HERMES_TARGET"
+  out=$(FM_NOTIFY_TEST_HERMES_SIGNAL=KILL FM_NOTIFY_FORCE_TIMEOUT_FALLBACK=1 \
+    run_hermes "$home" -- --event failed "boom" 2>&1)
+  rc=$?
+  expect_code 4 "$rc" "signal-killed sender"
+  assert_contains "$out" "delivery failed" "a signal-killed sender must read as a delivery failure"
+  assert_not_contains "$out" "$FAKE_HERMES_SECRET" \
+    "the sender's chat id must never reach firstmate's diagnostics"
+  pass "a sender killed by a signal is a delivery failure, never a claimed delivery"
+}
+
+test_hermes_refuses_when_the_host_cannot_bound_the_sender() {
+  local home rc out bindir tool resolved
+  # With no timeout, gtimeout, or perl the sender is never launched at all, so
+  # reporting a hang would tell the operator the wrong thing about the wrong
+  # component. Refusing as a misconfiguration is what the header promises.
+  home=$(make_hermes_home hermes-no-bound)
+  configure "$home" "$FAKE_HERMES_TARGET"
+  bindir="$home/unboundable-bin"
+  mkdir -p "$bindir"
+  for tool in bash env jq grep tail tr mktemp cat sed awk dirname rm sleep cp mkdir chmod; do
+    resolved=$(command -v "$tool" 2>/dev/null) || continue
+    ln -sf "$resolved" "$bindir/$tool"
+  done
+  ln -sf "$home/fakebin/hermes" "$bindir/hermes"
+  out=$(PATH="$bindir" FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
+    FM_NOTIFY_TEST_CAPTURE="$home/capture" \
+    FM_NOTIFY_TEST_HERMES_SECRET="$FAKE_HERMES_SECRET" \
+    "$NOTIFY" --event blocked "text" 2>&1)
+  rc=$?
+  expect_code 3 "$rc" "no way to bound the sender"
+  [ ! -f "$home/capture/count" ] \
+    || fail "the sender must never be launched on a host that cannot bound it"
+  assert_contains "$out" "bound" \
+    "the diagnostic should name the missing bounding mechanism"
+  assert_not_contains "$out" "did not finish within" \
+    "a host that never launched the sender must not be reported as a hang"
+  pass "a host that cannot bound the sender refuses instead of reporting a hang"
+}
+
 test_hermes_sender_output_never_reaches_firstmate() {
   local home out rc
   # The sender's normal success line prints the chat id. None of its output may
@@ -1292,6 +1353,8 @@ test_hermes_missing_binary_is_a_reported_misconfiguration
 test_hermes_binary_override_is_honoured
 test_hermes_exit_codes_are_mapped_deliberately
 test_hermes_hanging_sender_is_bounded
+test_hermes_signal_killed_sender_is_never_read_as_delivered
+test_hermes_refuses_when_the_host_cannot_bound_the_sender
 test_hermes_sender_output_never_reaches_firstmate
 test_hermes_bare_platform_warns_but_still_delivers
 test_hermes_empty_and_malformed_targets_are_misconfiguration
