@@ -107,10 +107,14 @@ jobs:
   tests-portable-serial:
     name: Behavior portable serial
     runs-on: ubuntu-latest
-    # Measured serial remainder is ~13 min wall without Herdr. Cap is a hang
-    # tripwire above observed p99 script cost and suite wall, not the expected
-    # healthy end (interim 25m full-suite slack reduced after sharding).
-    timeout-minutes: 20
+    # Measured serial remainder is 15-20 min wall without Herdr (10 consecutive
+    # green runs to 2026-08-04: 15.1 min low, 19.6 min high). The cap is a hang
+    # tripwire, NOT the expected healthy end of the lane: a healthy run finishes
+    # well under it. 20m sat inside that observed range and cancelled a run at
+    # 20m03s, so this cap must stay clear of the range rather than bound it.
+    # Stopgap. Rebalancing the lane so it stops running near its own ceiling is
+    # tracked separately; raising this number again is not the fix.
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v6
         with:
