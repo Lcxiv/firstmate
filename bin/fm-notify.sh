@@ -26,7 +26,24 @@
 #   FM_NOTIFY_TARGET          "<channel>:<address>", or a bare Discord webhook
 #                             URL, which resolves to the discord-webhook
 #                             channel. Presence is the opt-in; absent is a
-#                             silent no-op.
+#                             silent no-op. This is the conversation lane.
+#   FM_NOTIFY_LOG_TARGET      optional second address, same two forms, for the
+#                             broadcast lane. Absent means the broadcast lane
+#                             uses FM_NOTIFY_TARGET, which is exactly the
+#                             single-address behaviour of a home that never
+#                             configured one. It has to resolve to the same
+#                             channel as FM_NOTIFY_TARGET - channel meaning the
+#                             delivery platform of CHANNEL SEAM below, not the
+#                             Discord room, which is the whole point of setting
+#                             this - and a value that does not is refused. That
+#                             refusal reaches only the classes that use this
+#                             address; the four interrupt classes below still
+#                             send on FM_NOTIFY_TARGET.
+#   FM_NOTIFY_MENTION_ID      the captain's Discord user id, used to mention
+#                             them on the four interrupt classes below; falls
+#                             back to FM_PHONE_CAPTAIN_ID when that is already
+#                             configured. Absent means no mention is added and
+#                             the message is still delivered.
 #   FM_NOTIFY_EVENTS          comma-separated event classes to mirror, or "all",
 #                             or "none". Default: every class except dispatched
 #                             (see DEFAULT EVENT SET below).
@@ -40,11 +57,43 @@
 #                             marked with an ellipsis.
 #
 # EVENT CLASSES (the caller passes one with --event; default "update"):
-#   dispatched needs-decision blocked failed pr-ready merged done update
+#   dispatched needs-decision blocked failed alarm pr-ready merged done update
 # DEFAULT EVENT SET
 #   Every class except "dispatched". AGENTS.md section 9 suppresses routine
 #   progress in captain chat, so mirroring dispatches to the phone is an
 #   explicit captain preference that FM_NOTIFY_EVENTS has to record.
+#
+# ROUTING
+#   One table row per class carries its lane, its mention decision, and its
+#   stripe colour together, so those three can never drift apart:
+#
+#     class            lane           mention  stripe
+#     needs-decision   conversation   yes      red
+#     blocked          conversation   yes      red
+#     failed           conversation   yes      red
+#     alarm            conversation   yes      red
+#     pr-ready         broadcast      no       blue
+#     merged           broadcast      no       green
+#     done             broadcast      no       green
+#     dispatched       broadcast      no       grey
+#     update           broadcast      no       grey
+#
+#   Both Discord rooms are expected to be muted, where a mention is the only
+#   thing that reaches the captain. Urgency therefore rides on the message rather
+#   than on which room it landed in, which is why exactly the four classes above
+#   ever carry a mention, and why only their opening part carries it. Every
+#   message suppresses mention parsing in the payload itself, so @everyone,
+#   @here, or role text inside a body can never ping anyone.
+#
+# DEGRADING BACK TO ONE ADDRESS
+#   With no FM_NOTIFY_LOG_TARGET the broadcast lane simply uses FM_NOTIFY_TARGET.
+#   If a configured broadcast address is rejected (403/404 - the channel or its
+#   webhook was deleted), the message falls back to FM_NOTIFY_TARGET once and
+#   says so on stderr, so removing the second channel degrades to single-address
+#   delivery instead of losing the message.
+#   A broadcast address that is misconfigured rather than deleted is refused with
+#   exit 3 instead of being guessed around, but only for the broadcast classes:
+#   the four interrupt classes never read it, so they still send.
 #
 # PRESENTATION
 #   One embed per message: an emoji and an uppercase word in the title, plus the
@@ -103,31 +152,40 @@ print_header() {
   awk 'NR==1 {next} /^#/ {sub(/^# ?/, ""); print; next} {exit}' "$SELF"
 }
 
-# --- event classes and presentation -----------------------------------------
+# --- event classes, routing, and presentation --------------------------------
 #
-# One tab-separated row per class: emoji, word, colour. The colour is a
-# 0xRRGGBB integer and is deliberately never the only carrier of the state.
-# The palette matches the captain's existing Discord surface.
+# The four stripe colours, and nothing else. Each one means one thing across
+# both lanes: red needs the captain, blue is ready for review, green landed,
+# grey is routine. A colour is deliberately never the only carrier of the state.
+FM_NOTIFY_RED=$((0xF23F43))
+FM_NOTIFY_BLUE=$((0x5865F2))
+FM_NOTIFY_GREEN=$((0x23A55A))
+FM_NOTIFY_GREY=$((0x80848E))
+
+# One tab-separated row per class: emoji, word, colour, lane, mention. Keeping
+# all five in a single row is what stops the lane, the mention, and the colour
+# from drifting apart as classes are added. See ROUTING in the header.
 fm_notify_state_row() {
   case "$1" in
-    dispatched)     printf '%s\t%s\t%s\n' '🚢' 'DISPATCHED'     "$((0x5865F2))" ;;
-    update)         printf '%s\t%s\t%s\n' 'ℹ️' 'UPDATE'         "$((0x5865F2))" ;;
-    pr-ready)       printf '%s\t%s\t%s\n' '📋' 'PR READY'       "$((0xF39C12))" ;;
-    merged)         printf '%s\t%s\t%s\n' '✅' 'MERGED'         "$((0x2ECC71))" ;;
-    done)           printf '%s\t%s\t%s\n' '🟢' 'DONE'           "$((0x2ECC71))" ;;
-    needs-decision) printf '%s\t%s\t%s\n' '🤔' 'NEEDS DECISION' "$((0xF1C40F))" ;;
-    blocked)        printf '%s\t%s\t%s\n' '🔴' 'BLOCKED'        "$((0xE74C3C))" ;;
-    failed)         printf '%s\t%s\t%s\n' '❌' 'FAILED'         "$((0xE74C3C))" ;;
+    dispatched)     printf '%s\t%s\t%s\t%s\t%s\n' '🚢' 'DISPATCHED'     "$FM_NOTIFY_GREY"  broadcast    0 ;;
+    update)         printf '%s\t%s\t%s\t%s\t%s\n' 'ℹ️' 'UPDATE'         "$FM_NOTIFY_GREY"  broadcast    0 ;;
+    pr-ready)       printf '%s\t%s\t%s\t%s\t%s\n' '📋' 'PR READY'       "$FM_NOTIFY_BLUE"  broadcast    0 ;;
+    merged)         printf '%s\t%s\t%s\t%s\t%s\n' '✅' 'MERGED'         "$FM_NOTIFY_GREEN" broadcast    0 ;;
+    done)           printf '%s\t%s\t%s\t%s\t%s\n' '🟢' 'DONE'           "$FM_NOTIFY_GREEN" broadcast    0 ;;
+    needs-decision) printf '%s\t%s\t%s\t%s\t%s\n' '🤔' 'NEEDS DECISION' "$FM_NOTIFY_RED"   conversation 1 ;;
+    blocked)        printf '%s\t%s\t%s\t%s\t%s\n' '🔴' 'BLOCKED'        "$FM_NOTIFY_RED"   conversation 1 ;;
+    failed)         printf '%s\t%s\t%s\t%s\t%s\n' '❌' 'FAILED'         "$FM_NOTIFY_RED"   conversation 1 ;;
+    alarm)          printf '%s\t%s\t%s\t%s\t%s\n' '🚨' 'ALARM'          "$FM_NOTIFY_RED"   conversation 1 ;;
     *) return 1 ;;
   esac
 }
 
 fm_notify_list_events() {
-  printf '%s\n' dispatched needs-decision blocked failed pr-ready merged 'done' update
+  printf '%s\n' dispatched needs-decision blocked failed alarm pr-ready merged 'done' update
 }
 
 # Every class except dispatched; see DEFAULT EVENT SET in the header.
-FM_NOTIFY_DEFAULT_EVENTS='needs-decision,blocked,failed,pr-ready,merged,done,update'
+FM_NOTIFY_DEFAULT_EVENTS='needs-decision,blocked,failed,alarm,pr-ready,merged,done,update'
 
 # --- config resolution ------------------------------------------------------
 
@@ -198,6 +256,22 @@ fm_notify_resolve_target() {
 # fm_notify_fn_suffix <channel>: the function-name suffix for a channel name.
 fm_notify_fn_suffix() {
   printf '%s' "$1" | tr -c 'A-Za-z0-9\n' '_'
+}
+
+# fm_notify_mention_id: print the captain's Discord user id, or return 1 when no
+# usable id is configured. FM_PHONE_CAPTAIN_ID is accepted as a fallback so a
+# home that already runs the inbound phone channel does not configure the same
+# id twice. A malformed value is treated as absent: a mention that cannot be
+# addressed must degrade to an ordinary delivered message, never to a lost one.
+fm_notify_mention_id() {
+  local id
+  id=$(fm_notify_config_get FM_NOTIFY_MENTION_ID)
+  [ -n "$id" ] || id=$(fm_notify_config_get FM_PHONE_CAPTAIN_ID)
+  case "$id" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  [ "${#id}" -ge 15 ] && [ "${#id}" -le 21 ] || return 1
+  printf '%s' "$id"
 }
 
 # --- text shaping (platform-agnostic) ---------------------------------------
@@ -301,19 +375,30 @@ fm_notify_limits_discord_webhook() {
 }
 
 # fm_notify_payload_discord_webhook <emoji> <word> <colour> <title> <body> [url]
+#                                   [mention-id]
 # Pure builder: no network and no IO beyond stdout.
+#
+# allowed_mentions is present on EVERY payload with an empty parse list, so the
+# only ping this script can ever produce is the explicitly addressed captain id
+# on a mention class. Nothing written inside a title or body - @everyone, @here,
+# or a role - can add one.
 # shellcheck disable=SC2329 # Invoked through the channel seam by name.
 fm_notify_payload_discord_webhook() {
-  local emoji=$1 word=$2 colour=$3 title=$4 body=$5 url=${6:-}
+  local emoji=$1 word=$2 colour=$3 title=$4 body=$5 url=${6:-} mention=${7:-}
   jq -cn \
     --arg title "$emoji $word${title:+ · $title}" \
     --arg body "$body" \
     --argjson colour "$colour" \
     --arg url "$url" \
+    --arg mention "$mention" \
     '{embeds: [
        ({title: $title, description: $body, color: $colour}
         + (if ($url | length) > 0 then {url: $url} else {} end))
-     ]}'
+     ]}
+     + (if ($mention | length) > 0
+        then {content: "<@\($mention)>", allowed_mentions: {parse: [], users: [$mention]}}
+        else {allowed_mentions: {parse: []}}
+        end)'
 }
 
 # fm_notify_deliver_discord_webhook <address> <payload-file>
@@ -487,7 +572,49 @@ FM_NOTIFY_TIMEOUT=$(fm_notify_bounded "$(fm_notify_config_get FM_NOTIFY_TIMEOUT_
 FM_NOTIFY_RETRY_CAP=$(fm_notify_bounded "$(fm_notify_config_get FM_NOTIFY_RETRY_CAP_SECS)" 5 0 30)
 MAX_PARTS=$(fm_notify_bounded "$(fm_notify_config_get FM_NOTIFY_MAX_PARTS)" 4 1 10)
 
-IFS=$'\t' read -r EMOJI WORD COLOUR <<< "$STATE_ROW"
+IFS=$'\t' read -r EMOJI WORD COLOUR LANE MENTION <<< "$STATE_ROW"
+
+# Select the lane's address, and remember whether there is a distinct address to
+# fall back to if the broadcast one has been deleted. The broadcast lane
+# defaults to the conversation address, so a home that never configures a second
+# one behaves exactly as it did before this lane existed.
+#
+# The optional broadcast address is resolved ONLY for a message that would
+# actually use it. This scoping is deliberate and must not be "simplified" back
+# into one uniform refusal: on 2026-08-02 an alarm existed and could not reach
+# the captain for nineteen hours, and a safety net must not share a failure mode
+# with the thing it exists to catch. The four interrupt classes never touch this
+# address, so a typo in it must never silence them. It is not a fail-open: a
+# broadcast message still refuses its own misconfiguration loudly below.
+ACTIVE_ADDRESS=$ADDRESS
+FALLBACK_ADDRESS=
+if [ "$LANE" = broadcast ]; then
+  LOG_RAW=$(fm_notify_config_get FM_NOTIFY_LOG_TARGET)
+  if [ -n "$LOG_RAW" ]; then
+    LOG_RESOLVED=$(fm_notify_resolve_target "$LOG_RAW")
+    LOG_RESOLVE_RC=$?
+    if [ "$LOG_RESOLVE_RC" != 0 ]; then
+      warn "FM_NOTIFY_LOG_TARGET names no supported channel"
+      exit 3
+    fi
+    IFS=$'\t' read -r LOG_CHANNEL LOG_ADDRESS <<< "$LOG_RESOLVED"
+    # Both lanes share one set of caps and one payload shape, so a mismatch is
+    # refused rather than silently shaping a message for the wrong one.
+    if [ "$LOG_CHANNEL" != "$CHANNEL" ]; then
+      warn "FM_NOTIFY_LOG_TARGET must use the same channel as FM_NOTIFY_TARGET"
+      exit 3
+    fi
+    ACTIVE_ADDRESS=$LOG_ADDRESS
+    [ "$LOG_ADDRESS" = "$ADDRESS" ] || FALLBACK_ADDRESS=$ADDRESS
+  fi
+fi
+
+# Resolve the mention once. A mention class with no configured id still sends;
+# it simply lands without an interrupt rather than not landing at all.
+MENTION_ID=
+if [ "$MENTION" = 1 ]; then
+  MENTION_ID=$(fm_notify_mention_id) || MENTION_ID=
+fi
 
 SUFFIX=$(fm_notify_fn_suffix "$CHANNEL")
 read -r TITLE_CAP BODY_CAP MESSAGE_CAP < <("fm_notify_limits_$SUFFIX")
@@ -503,8 +630,11 @@ if [ -n "$TITLE" ]; then
 fi
 
 # Honour the message-wide cap too, not just the description cap: on Discord the
-# title and the marker count against the same per-message budget.
-TITLE_COST=$(( ${#EMOJI} + ${#WORD} + ${#TITLE} + MARKER_RESERVE + 4 ))
+# title, the marker, and the mention content all count against the same
+# per-message budget.
+MENTION_COST=0
+[ -z "$MENTION_ID" ] || MENTION_COST=$(( ${#MENTION_ID} + 4 ))
+TITLE_COST=$(( ${#EMOJI} + ${#WORD} + ${#TITLE} + MARKER_RESERVE + MENTION_COST + 4 ))
 BODY_BUDGET=$(( MESSAGE_CAP - TITLE_COST ))
 [ "$BODY_BUDGET" -le "$BODY_CAP" ] || BODY_BUDGET=$BODY_CAP
 [ "$BODY_BUDGET" -ge 16 ] || BODY_BUDGET=16
@@ -526,6 +656,25 @@ PAYLOAD_FILE=$(mktemp "${TMPDIR:-/tmp}/fm-notify-payload.XXXXXX") || {
 trap 'rm -f "$PAYLOAD_FILE"' EXIT
 trap 'rm -f "$PAYLOAD_FILE"; exit 143' HUP INT TERM
 
+# deliver_part: send the staged payload to the lane's address, falling back to
+# the conversation address exactly once if the broadcast one has been deleted.
+# The fallback latches, so a split message does not re-try the dead address for
+# every remaining part.
+deliver_part() {
+  local rc
+  "fm_notify_deliver_$SUFFIX" "$ACTIVE_ADDRESS" "$PAYLOAD_FILE"
+  rc=$?
+  [ "$rc" = 0 ] && return 0
+  if [ "$rc" = 5 ] && [ -n "$FALLBACK_ADDRESS" ]; then
+    warn "the broadcast address is gone; delivering to the main address instead"
+    ACTIVE_ADDRESS=$FALLBACK_ADDRESS
+    FALLBACK_ADDRESS=
+    "fm_notify_deliver_$SUFFIX" "$ACTIVE_ADDRESS" "$PAYLOAD_FILE"
+    return $?
+  fi
+  return "$rc"
+}
+
 i=0
 while [ "$i" -lt "$COUNT" ]; do
   BODY=$(printf '%s' "$PARTS" | jq -r --argjson i "$i" '.[$i]')
@@ -533,15 +682,21 @@ while [ "$i" -lt "$COUNT" ]; do
   if [ "$COUNT" -gt 1 ]; then
     PART_TITLE="${TITLE:+$TITLE }($((i + 1))/$COUNT)"
   fi
-  # Only the opening part carries the link, so a split message does not repeat
-  # the same title link on every card.
+  # Only the opening part carries the link and the mention, so a split message
+  # neither repeats the same title link on every card nor interrupts the captain
+  # once per part.
   PART_LINK=
-  [ "$i" = 0 ] && PART_LINK=$LINK
-  if ! "fm_notify_payload_$SUFFIX" "$EMOJI" "$WORD" "$COLOUR" "$PART_TITLE" "$BODY" "$PART_LINK" > "$PAYLOAD_FILE"; then
+  PART_MENTION=
+  if [ "$i" = 0 ]; then
+    PART_LINK=$LINK
+    PART_MENTION=$MENTION_ID
+  fi
+  if ! "fm_notify_payload_$SUFFIX" "$EMOJI" "$WORD" "$COLOUR" "$PART_TITLE" "$BODY" \
+    "$PART_LINK" "$PART_MENTION" > "$PAYLOAD_FILE"; then
     warn "cannot build the message payload"
     exit 4
   fi
-  "fm_notify_deliver_$SUFFIX" "$ADDRESS" "$PAYLOAD_FILE" || exit $?
+  deliver_part || exit $?
   i=$((i + 1))
 done
 

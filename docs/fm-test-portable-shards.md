@@ -73,7 +73,7 @@ Portable shards, the portable serial lane, and the Herdr lane upload runner-gene
 | Job | timeout-minutes | Rationale |
 |---|---:|---|
 | portable parallel 1/2 | 10 | The measured shard sums are about three minutes and the timeout is a hang tripwire. |
-| portable serial | 20 | The serial remainder needs a larger hang tripwire. |
+| portable serial | 35 | The serial remainder measures 15.1-19.6 min wall across 10 consecutive green runs to 2026-08-04, so the cap stays clear of that range as a hang tripwire rather than bounding it. |
 | Herdr | 40 | The real-Herdr lane keeps its dedicated timeout. |
 
 Timeouts are hang tripwires rather than expected healthy durations.

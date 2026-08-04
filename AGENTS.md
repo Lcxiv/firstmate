@@ -105,6 +105,7 @@ state/               volatile runtime signals; gitignored
   x-watch.check.sh   generated X-mode relay poll shim; present only when opted in (section 14)
   phone-watch.check.sh phone-watch.check-trust  generated and identity-bound Discord phone poll; present only when opted in (section 15)
   phone-cursor       private monotonic Discord message cursor (section 15)
+  phone-summary-id   private durable identity of the one live pinned-style summary, so it is edited rather than reposted (section 15)
   phone-inbox/       private accepted Discord command objects; fmphone-respond drains it (section 15)
   pending-replies/   parent-owned secondmate pending-reply records (correlation id, delivery vs reply, recovery, escalation); fm-pending-reply-lib.sh
   x-inbox/           generated X-mode pending mention payloads; fmx-respond drains it (section 14)
@@ -438,6 +439,7 @@ Use plain chat for a yes-or-no decision and `lavish-axi` only when several optio
 Whenever a PR is mentioned, include its full `https://...` URL before any shorthand reference.
 Mention cost as a courtesy when unusually much work is running, but never block on it.
 After sending a captain-facing outcome here, also mirror that same message through `bin/fm-notify.sh --event <class>`, which is a silent no-op until this home configures phone notifications and never blocks work when delivery fails; `docs/configuration.md` owns its setup, classes, and keys.
+The class chosen there decides both which channel the mirror lands in and whether it interrupts the captain, so name the class that matches the outcome rather than reaching for an urgent one.
 
 ## 10. Backlog contract
 
@@ -523,6 +525,7 @@ Discord phone mode ships inert and causes no behavior change until all three req
 A phone-only home still requires the live supervision cycle so commands can wake it without fleet work.
 On a `phone-message <message_id>` or `phone-mode-error ...` check wake, load `fmphone-respond`, which owns inbox draining, the exact phone authority boundary, normal lifecycle action, explicit helm-only refusals, and replies.
 The phone channel may authorize routine direction, questions, dispatch, routine decisions, and explicit PR merges, but never discarding unlanded work, forced teardown, force-push, repository or project deletion, credential or secret changes, spending, or any other destructive, irreversible, or security-sensitive action.
+One live fleet summary is kept current in that channel by `bin/fm-phone-summary.sh`, which edits the same message rather than posting a new one.
 
 ## Maintaining this file
 

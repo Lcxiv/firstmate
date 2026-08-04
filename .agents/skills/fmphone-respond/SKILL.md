@@ -89,9 +89,20 @@ One watcher wake may cover several messages, so drain the inbox rather than hand
 
 ## Response behavior
 
-The poller may already have sent `⚓ received` as a delivery acknowledgement.
-That acknowledgement means only that the command is durable; it never claims that an action succeeded.
+The poller may already have placed an anchor reaction on the captain's own message as a delivery receipt.
+That receipt means only that the command is durable; it never claims that an action succeeded, and its absence never means the command was lost.
+Never post a separate "received" message: the reaction is the receipt, and duplicating it in the channel is the clutter it removed.
 Every handled message still receives the outcome, under-way acknowledgement, or explicit helm-only refusal above.
+
+After an outcome that changes what the whole fleet is doing - work dispatched, a decision landed, a PR merged, a task finished - refresh the standing summary:
+
+```sh
+bin/fm-phone-summary.sh --text-file <path>
+```
+
+Compose one short captain-facing line, write it with the file-writing tool exactly as for a reply, and let the script edit the existing message.
+Never post the summary as an ordinary message, and never treat exit 6 as a failure: it means the summary is current but the channel does not grant the pin permission.
+This standing summary is not the on-demand glance of step 4: a `board` or `fleet summary` request is still answered in the moment with `bin/fm-phone-fleet-summary.sh` through the normal reply path.
 
 Phone replies are private-channel messages but remain cloud-readable Discord content.
 Keep them outcome-focused and omit secrets and unnecessary private implementation detail.

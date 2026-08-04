@@ -425,11 +425,44 @@ Put that URL into `$FM_HOME/.env` as `FM_NOTIFY_TARGET=<url>`, and keep that fil
 Send a test line with `bin/fm-notify.sh --event update "test from firstmate"` and confirm it lands in the channel.
 
 Every `FM_NOTIFY_*` key is read from `$FM_HOME/.env` unless the same name is set explicitly in the environment, which wins; the names and defaults are listed under "Environment variables" below.
-`FM_NOTIFY_TARGET` holds either a bare Discord webhook URL or the explicit `<channel>:<address>` form, and `FM_NOTIFY_ENV_FILE` redirects the file read for direct invocations and tests.
+`FM_NOTIFY_TARGET` holds either a bare Discord webhook URL or the explicit `<channel>:<address>` form, where `<channel>` names the delivery platform rather than a Discord channel, and `FM_NOTIFY_ENV_FILE` redirects the file read for direct invocations and tests.
 
-The event classes are `dispatched`, `needs-decision`, `blocked`, `failed`, `pr-ready`, `merged`, `done`, and `update`.
+The event classes are `dispatched`, `needs-decision`, `blocked`, `failed`, `alarm`, `pr-ready`, `merged`, `done`, and `update`.
+`alarm` is the away-mode delivery alarm, for when firstmate cannot reach the captain at all; `docs/wedge-alarm.md` owns how that alarm selects its channels.
 The default set is every class except `dispatched`, because section 9 suppresses routine progress in captain chat, so mirroring dispatches to the phone is an explicit captain preference that `FM_NOTIFY_EVENTS` has to record.
 Add it with `FM_NOTIFY_EVENTS=all` or by listing the wanted classes, for example `FM_NOTIFY_EVENTS=dispatched,pr-ready,merged,blocked,needs-decision`.
+
+### Two channels, and the mention that carries the urgency
+
+The intended Discord layout is two muted channels: a conversation channel the captain talks to firstmate in, and a one-way broadcast channel that carries the feed.
+Muting stops the interruptions, and a mention is then the only thing that reaches the captain, so urgency rides on the individual message rather than on which channel it landed in.
+The second channel exists only to stop broadcast traffic interleaving between a captain question and its answer; a third channel for "needs you" is deliberately not part of this layout, because the mention already carries that.
+
+Each class names its own lane, its own mention decision, and its own stripe colour:
+
+| Event | Channel | Mention | Stripe |
+| --- | --- | --- | --- |
+| `needs-decision` | conversation | yes | red |
+| `blocked` | conversation | yes | red |
+| `failed` | conversation | yes | red |
+| `alarm` | conversation | yes | red |
+| `pr-ready` | broadcast | no | blue |
+| `merged` | broadcast | no | green |
+| `done` | broadcast | no | green |
+| `dispatched` | broadcast | no | grey |
+| `update` | broadcast | no | grey |
+
+Exactly those four classes mention the captain, and only the opening part of a split message carries the mention, so one decision is one interruption.
+Every message pins its own mention list, so `@everyone`, `@here`, or role text written inside a title or body can never produce a ping.
+The mention is addressed to `FM_NOTIFY_MENTION_ID`, falling back to `FM_PHONE_CAPTAIN_ID` when Discord phone mode already records the same id; with neither configured the message still lands, simply without the interrupt.
+
+The conversation lane always uses `FM_NOTIFY_TARGET`.
+The broadcast lane uses `FM_NOTIFY_LOG_TARGET` when it is configured and `FM_NOTIFY_TARGET` otherwise, so a home that never adds a second channel behaves exactly as it did before this lane existed.
+Setting up the broadcast channel is the captain's two-minute job: create it with the same privacy as the conversation channel, add a webhook to it, and put that URL in `.env` as `FM_NOTIFY_LOG_TARGET`.
+Mute both channels and leave "suppress @mentions" off, which is what makes the mention the dial.
+Deleting that channel later degrades rather than breaks: a rejected broadcast address falls back to `FM_NOTIFY_TARGET` for that message and says so on stderr.
+A `FM_NOTIFY_LOG_TARGET` that names no supported delivery platform, or a different delivery platform from `FM_NOTIFY_TARGET`, is reported as a misconfiguration rather than guessed around; pointing the two at different Discord channels of the same platform is the intended setup, not a mismatch.
+That refusal reaches only the classes that would use the broadcast address; the four mentioning classes never read it, so a typo there cannot silence an alarm, a decision, a block, or a failure.
 
 Each message is one embed whose title carries an emoji and an uppercase state word alongside the matching colour, so the colour never carries the state alone.
 Discord's caps are enforced before sending rather than left for the API to reject: 256 characters of title, 4096 of description, and 6000 across one message.
@@ -438,9 +471,10 @@ Run `bin/fm-notify.sh --help` for the exact flags, exit codes, and channel-seam 
 
 Losing a notification never blocks or delays fleet work.
 A rate limit is retried once, honouring the reported wait clamped by `FM_NOTIFY_RETRY_CAP_SECS`; a forbidden or missing target and any other delivery failure exit non-zero with one short line on stderr, with no further retry and no write anywhere under this home's state.
-Only the Discord webhook channel is implemented today, behind a thin internal seam so a second channel can be added later without changing the caller contract or these keys.
+Discord webhooks are the only delivery platform implemented today, behind a thin internal seam so a second platform can be added later without changing the caller contract or these keys.
 
 Opt out by deleting `FM_NOTIFY_TARGET` from `.env`, which restores the silent no-op immediately, and by deleting the webhook in Discord so the URL stops working for anyone who still holds it.
+Dropping only `FM_NOTIFY_LOG_TARGET` collapses both lanes back onto the single channel.
 There is no generated state to clean up.
 
 Security surface, stated plainly: the webhook URL is a write-only capability for one channel.
@@ -464,7 +498,8 @@ FM_PHONE_CHANNEL_ID=<private-discord-channel-id>
 
 Keep `.env` at mode 0600.
 The bot token is a secret, while the two numeric ids are authentication configuration that must still never be printed in operator diagnostics or wake lines.
-An existing Discord bot may be reused if it can view the private channel, read message history, read message content, and send messages there.
+An existing Discord bot may be reused if it can view the private channel, read message history, read message content, send messages, and add reactions there.
+No other permission is required: editing its own messages needs none, and the optional pin described under "The live summary" degrades when Manage Messages is withheld.
 Enable Discord Developer Mode to copy the captain user id and private channel id, and enable the bot's message-content intent when Discord requires it.
 The outbound `FM_NOTIFY_TARGET` webhook may point at the same channel, but it remains a separate write-only capability and is not used to authenticate inbound commands.
 
@@ -487,7 +522,7 @@ The token and channel URL are staged in mode-0600 temporary files rather than ex
 Network unavailability, rate limiting, and non-success responses exit cleanly without a retry loop or response-body logging.
 
 A message is accepted only when its Discord `author.id` equals `FM_PHONE_CAPTAIN_ID` and its `channel_id` equals `FM_PHONE_CHANNEL_ID`.
-Both checks are required, and bot-authored messages are independently rejected so outbound acknowledgements and replies can never loop back into the bridge.
+Both checks are required, and bot-authored messages are independently rejected so firstmate's own replies and its live summary can never loop back into the bridge.
 Every other sender or channel is dropped silently with no reply, pairing chatter, or diagnostic to the sender.
 The poller's visible authentication/configuration failures are generic local `phone-mode-error` wakes that contain none of the configured values.
 If the private state-directory precondition later drifts, the same wake channel explicitly attributes the failure to the local filesystem and names only the directory and required mode, before any Discord request is made.
@@ -502,9 +537,34 @@ One `phone-message <message_id>` wake may represent several accepted objects, so
 The inbox plus cursor preserve at-least-once delivery while giving firstmate exactly-once command processing under normal retries.
 
 `FM_PHONE_ACK` defaults on.
-After at least one command is durably accepted and the cursor advances, the poller makes at most one additional bounded POST containing `⚓ received`.
-That acknowledgement reports durable receipt only; failure is silent, and the command wake still proceeds.
+After at least one command is durably accepted and the cursor advances, the poller makes at most one additional bounded request, adding an anchor reaction to the captain's own newest accepted message.
+A reaction rather than a reply is what keeps receipts out of the channel's message flow entirely.
+The receipt still reports durable receipt only and never claims an action succeeded: it is placed after the inbox write and the cursor advance, and only when Discord confirms it.
+Failure is silent, and the command wake still proceeds.
+A sweep that accepts several messages at once places one receipt, on the newest, which is the same single extra request the older acknowledgement message cost.
 Set `FM_PHONE_ACK=0` to disable it.
+
+### The live summary
+
+`bin/fm-phone-summary.sh` keeps one standing fleet summary current in the phone channel by editing the same message, never by posting a new one.
+Firstmate composes the line; the script is a dumb writer that takes the text on stdin or through `--text-file`, exactly as `bin/fm-phone-reply.sh` does, so Discord-influenced text never reaches shell interpolation.
+The summary suppresses every mention: it is a standing reference the captain reads when they choose to, not an interruption.
+`FM_PHONE_SUMMARY_MAX_CHARS` defaults to 1900 and clamps to 50 through 1900.
+
+Its identity has to survive a restart, because a "live" summary that is reposted is the scroll clutter it exists to remove.
+The message id is recorded as a private mode-`0600` `state/phone-summary-id`, which is the normal path across restarts, compaction, and new sessions.
+If that record is lost or Discord no longer accepts an edit to it, one bounded page of recent channel history is read and the newest bot-written message carrying the summary's leading anchor marker is adopted instead; leftover `⚓ received` acknowledgements from older builds are excluded so a stale receipt is never turned into the summary.
+Discord permits editing only a message the bot itself authored, so any other message that happens to start with the same marker is refused by Discord rather than overwritten; skipping the captain's own messages before asking only saves requests and does not replace that refusal.
+The channel's pinned messages are listed as well, because editing a message never moves it: a summary that has been live through a busy day is still sitting where it was posted, below anything one page of history reaches.
+The pinned list is consulted in addition to that page and never instead of it, since pinning can be refused and must not become the only way back, and a pinned list that cannot be read is reported as the narrower search it leaves behind rather than being taken for a channel with no summary in it.
+Both lookups use the same already-permitted read access as the command poll; neither needs the Manage Messages permission that placing a pin does.
+A history read that does not answer is a failure rather than an empty channel, because reposting on a rate limit would leave two live summaries with no way back.
+Only when neither the record nor a successful lookup yields an editable message is a new one posted, and its id is recorded before anything else; a posted summary whose id cannot be recorded exits non-zero rather than risking a repost on the next update.
+
+Pinning is optional and may be refused.
+It needs the bot's Manage Messages permission, which this integration does not require: a pin is attempted when the message is first created, or on `--repin`, and a refusal is reported by name along with the permission that would fix it while the summary continues to work as an ordinary message edited in place.
+`--repin` reaches the summary however it was found, including one recovered from history, which is the case a captain who has just granted the permission is most likely to hit.
+That partial outcome exits 6 so it is visible rather than silent; run `bin/fm-phone-summary.sh --help` for the full exit-code contract.
 
 `fmphone-respond` owns classification and the phone authority procedure.
 Routine direction, priorities, questions, ship or scout dispatch, routine decisions, and explicit PR merge approval are eligible; destructive, irreversible, security-sensitive, credential, secret, spending, force, discard, teardown, and deletion requests receive an explicit helm-only refusal with no partial execution.
@@ -514,7 +574,7 @@ Replies go through `bin/fm-phone-reply.sh <message_id> --text-file <path>`, whic
 
 To opt out, remove the three required `FM_PHONE_*` values and run the next locked session start.
 Bootstrap removes `state/phone-watch.check.sh`, `state/phone-watch.check-trust`, and `config/phone-mode.env`, so polling and the faster cadence stop.
-The durable `state/phone-inbox/` and `state/phone-cursor` remain for deliberate review or cleanup rather than being destroyed automatically.
+The durable `state/phone-inbox/`, `state/phone-cursor`, and `state/phone-summary-id` remain for deliberate review or cleanup rather than being destroyed automatically.
 Revoke or rotate the Discord bot token platform-side when retiring the channel or after suspected exposure.
 
 Token theft permits reading and posting as the bot but does not forge a captain-authored Discord message.
@@ -569,7 +629,9 @@ FMX_X_THREAD_MAX=25     # maximum messages in one auto-split reply thread
 FMX_FOLLOWUP_MAX_AGE_SECS=604800   # local window for posting X-mode completion follow-ups (7 days)
 FMX_FOLLOWUP_MAX_COUNT=3   # local cap on X-mode completion follow-ups per linked mention
 FM_PF_RETRY_BACKOFF_SECS=900   # seconds before the next attempt after a retryable promised-public-reply delivery error
-FM_NOTIFY_TARGET=        # phone-notification channel; a bare Discord webhook URL or "<channel>:<address>"; presence is the .env opt-in, absence is a silent no-op
+FM_NOTIFY_TARGET=        # phone-notification conversation channel; a bare Discord webhook URL or "<channel>:<address>"; presence is the .env opt-in, absence is a silent no-op
+FM_NOTIFY_LOG_TARGET=    # optional broadcast channel for ready/landed/routine classes, same two forms and same delivery platform as FM_NOTIFY_TARGET; empty means both lanes use FM_NOTIFY_TARGET
+FM_NOTIFY_MENTION_ID=    # captain's Discord user id, mentioned on the needs-decision, blocked, failed, and alarm classes; empty falls back to FM_PHONE_CAPTAIN_ID, then to no mention
 FM_NOTIFY_EVENTS=        # comma-separated event classes to mirror, or "all", or "none"; empty means every class except dispatched
 FM_NOTIFY_TIMEOUT_SECS=10   # per-request phone-notification transport timeout; values outside 1..120 clamp into range
 FM_NOTIFY_RETRY_CAP_SECS=5   # upper bound on an honoured phone-notification rate-limit wait; values outside 0..30 clamp into range
@@ -578,10 +640,11 @@ FM_NOTIFY_ENV_FILE=      # optional alternate file every FM_NOTIFY_* read uses i
 FM_PHONE_DISCORD_TOKEN=  # Discord bot token for inbound phone mode; secret and required with both ids
 FM_PHONE_CAPTAIN_ID=     # only this Discord author id is accepted; required with token and channel id
 FM_PHONE_CHANNEL_ID=     # only this private Discord channel id is accepted; required with token and captain id
-FM_PHONE_ACK=1           # send one bounded receipt acknowledgement after durable acceptance; set 0 to disable
+FM_PHONE_ACK=1           # add one bounded receipt reaction to the captain's message after durable acceptance; set 0 to disable
 FM_PHONE_TIMEOUT_SECS=5  # Discord request timeout; values outside 1..10 clamp into range
 FM_PHONE_REPLY_MAX_CHARS=1900  # per-message phone reply budget; values outside 50..1900 clamp into range
 FM_PHONE_REPLY_MAX_PARTS=4     # maximum messages in one phone reply; values outside 1..10 clamp into range
+FM_PHONE_SUMMARY_MAX_CHARS=1900 # live-summary length budget; values outside 50..1900 clamp into range
 FM_PHONE_ENV_FILE=       # optional alternate .env-style file for direct phone clients; bootstrap and the generated watcher shim still use $FM_HOME/.env
 FM_LOCK_STALE_AFTER=2   # seconds before dead-pid lock records can be reclaimed; mid-acquire locks keep at least 2s grace
 FM_GUARD_GRACE=300      # seconds before guard warnings, arm health checks, and the primary turn-end guard treat a watcher beacon as stale

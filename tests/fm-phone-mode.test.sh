@@ -70,14 +70,64 @@ if [ -n "${FAKE_PHONE_CALL_LOG:-}" ]; then
   printf '%s timeout=%s connect=%s\n' "$method" "$timeout" "$connect_timeout" >> "$FAKE_PHONE_CALL_LOG"
 fi
 
+if [ -n "${FAKE_PHONE_URL_LOG:-}" ]; then
+  printf '%s %s\n' "$method" "$url" >> "$FAKE_PHONE_URL_LOG"
+fi
+
 if [ "$method" = POST ]; then
   if [ -n "${FAKE_PHONE_POST_LOG:-}" ]; then
     jq -c '.' "$data_file" >> "$FAKE_PHONE_POST_LOG"
   fi
-  [ -n "$ofile" ] && printf '%s' "${FAKE_PHONE_POST_BODY:-{}}" > "$ofile"
+  # Assigned before use: "${VAR:-{}}" parses its braces wrong and appends a
+  # stray '}', which corrupts any body a test actually reads back.
+  post_body=${FAKE_PHONE_POST_BODY:-}
+  [ -n "$post_body" ] || post_body='{}'
+  [ -n "$ofile" ] && printf '%s' "$post_body" > "$ofile"
   printf '%s' "${FAKE_PHONE_POST_CODE:-200}"
   exit 0
 fi
+
+if [ "$method" = PUT ]; then
+  [ -n "$ofile" ] && : > "$ofile"
+  case "$url" in
+    */reactions/*)
+      [ -n "${FAKE_PHONE_REACT_LOG:-}" ] && printf '%s\n' "$url" >> "$FAKE_PHONE_REACT_LOG"
+      printf '%s' "${FAKE_PHONE_REACT_CODE:-204}"
+      ;;
+    */pins/*)
+      [ -n "${FAKE_PHONE_PIN_LOG:-}" ] && printf '%s\n' "$url" >> "$FAKE_PHONE_PIN_LOG"
+      printf '%s' "${FAKE_PHONE_PIN_CODE:-204}"
+      ;;
+    *) printf '404' ;;
+  esac
+  exit 0
+fi
+
+if [ "$method" = PATCH ]; then
+  if [ -n "${FAKE_PHONE_PATCH_LOG:-}" ]; then
+    printf '%s ' "$url" >> "$FAKE_PHONE_PATCH_LOG"
+    jq -c '.' "$data_file" >> "$FAKE_PHONE_PATCH_LOG"
+  fi
+  patch_body=${FAKE_PHONE_PATCH_BODY:-}
+  [ -n "$patch_body" ] || patch_body='{}'
+  [ -n "$ofile" ] && printf '%s' "$patch_body" > "$ofile"
+  # A per-message code lets a test model "that message is not ours to edit".
+  edit_id=${url##*/}
+  eval "code=\${FAKE_PHONE_PATCH_CODE_$edit_id:-}"
+  [ -n "$code" ] || code=${FAKE_PHONE_PATCH_CODE:-200}
+  printf '%s' "$code"
+  exit 0
+fi
+
+# The pinned list is a distinct read from the recent page, so it answers
+# separately: a test can starve one and still serve the other.
+case "$url" in
+  */pins)
+    [ -n "$ofile" ] && printf '%s' "${FAKE_PHONE_PINS_BODY:-[]}" > "$ofile"
+    printf '%s' "${FAKE_PHONE_PINS_CODE:-200}"
+    exit 0
+    ;;
+esac
 
 after=$(printf '%s' "$url" | sed -n 's/^.*[?&]after=\([0-9][0-9]*\).*$/\1/p')
 if [ -n "${FAKE_PHONE_CURSOR_LOG:-}" ]; then
@@ -165,26 +215,85 @@ test_two_part_filter_and_bot_loop_guard_are_silent() {
 }
 
 test_accepted_message_stashes_acks_and_wakes() {
-  local home fakebin out posts body inbox
+  local home fakebin out posts reacts body inbox
   home="$TMP_ROOT/accepted"
   write_phone_env "$home"
   seed_phone_cursor "$home" 2000
   fakebin=$(make_fake_curl "$home")
   posts="$home/posts.log"
+  reacts="$home/reacts.log"
   body=$(jq -cn --arg captain "$CAPTAIN_ID" --arg channel "$CHANNEL_ID" '
     [{id:"2001",channel_id:$channel,author:{id:$captain,bot:false},content:"Prioritize the release review."}]
   ')
 
-  out=$(FAKE_PHONE_POST_LOG="$posts" FAKE_PHONE_POLL_BODY="$body" run_poll "$home" "$fakebin")
+  out=$(FAKE_PHONE_POST_LOG="$posts" FAKE_PHONE_REACT_LOG="$reacts" \
+    FAKE_PHONE_POLL_BODY="$body" run_poll "$home" "$fakebin")
   [ "$out" = "phone-message 2001" ] || fail "accepted command emitted the wrong wake: $out"
   inbox="$home/state/phone-inbox/2001.json"
   assert_present "$inbox" "accepted command must be durably stashed"
   [ "$(jq -r .content "$inbox")" = "Prioritize the release review." ] \
     || fail "accepted command content was not preserved"
   [ "$(cat "$home/state/phone-cursor")" = 2001 ] || fail "accepted command did not advance the cursor"
-  [ "$(wc -l < "$posts" | tr -d ' ')" = 1 ] || fail "accepted poll must send at most one acknowledgement"
-  [ "$(jq -r .content "$posts")" = "⚓ received" ] || fail "acknowledgement text changed"
-  pass "two-part-authenticated Discord commands are durable before acknowledgement and wake"
+  # The receipt is a reaction on the captain's own message, not a message of its
+  # own: that is what removes the acknowledgement traffic from the channel.
+  assert_absent "$posts" "an accepted command must not produce an acknowledgement message"
+  [ "$(wc -l < "$reacts" | tr -d ' ')" = 1 ] || fail "accepted poll must add exactly one receipt"
+  assert_grep '/messages/2001/reactions/' "$reacts" \
+    "the receipt must be placed on the captain's own message"
+  pass "two-part-authenticated Discord commands are durable before the receipt and wake"
+}
+
+test_receipt_is_a_reaction_and_never_claims_an_action_succeeded() {
+  local home fakebin out reacts calls body order
+  home="$TMP_ROOT/receipt-order"
+  write_phone_env "$home"
+  seed_phone_cursor "$home" 8000
+  fakebin=$(make_fake_curl "$home")
+  reacts="$home/reacts.log"
+  calls="$home/urls.log"
+  body=$(jq -cn --arg captain "$CAPTAIN_ID" --arg channel "$CHANNEL_ID" '
+    [{id:"8001",channel_id:$channel,author:{id:$captain,bot:false},content:"Merge it"}]
+  ')
+
+  out=$(FAKE_PHONE_URL_LOG="$calls" FAKE_PHONE_REACT_LOG="$reacts" \
+    FAKE_PHONE_POLL_BODY="$body" run_poll "$home" "$fakebin")
+  [ "$out" = "phone-message 8001" ] || fail "accepted command emitted the wrong wake: $out"
+  # Durable first, receipt second: the receipt reports storage, never an outcome.
+  assert_present "$home/state/phone-inbox/8001.json" "the command must be durable"
+  order=$(awk 'NR==1 {print $1}' "$calls")
+  [ "$order" = GET ] || fail "the receipt was attempted before the command was read"
+  [ "$(grep -c PUT "$calls")" = 1 ] || fail "the receipt must be one bounded extra request"
+
+  # A refused reaction must stay silent and must not disturb the wake.
+  home="$TMP_ROOT/receipt-refused"
+  write_phone_env "$home"
+  seed_phone_cursor "$home" 8100
+  fakebin=$(make_fake_curl "$home")
+  body=$(jq -cn --arg captain "$CAPTAIN_ID" --arg channel "$CHANNEL_ID" '
+    [{id:"8101",channel_id:$channel,author:{id:$captain,bot:false},content:"Merge it"}]
+  ')
+  out=$(FAKE_PHONE_REACT_CODE=403 FAKE_PHONE_POLL_BODY="$body" run_poll "$home" "$fakebin" 2>&1)
+  [ "$out" = "phone-message 8101" ] \
+    || fail "a refused receipt must not add output or lose the wake: $out"
+  assert_present "$home/state/phone-inbox/8101.json" "a refused receipt must not lose the command"
+  pass "the receipt is a reaction placed after durable storage, and its failure is silent"
+}
+
+test_ack_can_still_be_turned_off() {
+  local home fakebin out reacts body
+  home="$TMP_ROOT/receipt-off"
+  write_phone_env "$home"
+  seed_phone_cursor "$home" 8200
+  fakebin=$(make_fake_curl "$home")
+  reacts="$home/reacts.log"
+  body=$(jq -cn --arg captain "$CAPTAIN_ID" --arg channel "$CHANNEL_ID" '
+    [{id:"8201",channel_id:$channel,author:{id:$captain,bot:false},content:"Status?"}]
+  ')
+  out=$(FM_PHONE_ACK=0 FAKE_PHONE_REACT_LOG="$reacts" FAKE_PHONE_POLL_BODY="$body" \
+    run_poll "$home" "$fakebin")
+  [ "$out" = "phone-message 8201" ] || fail "the wake was lost with receipts off"
+  assert_absent "$reacts" "FM_PHONE_ACK=0 must suppress the receipt reaction"
+  pass "receipts remain opt-out through the existing setting"
 }
 
 test_cursor_is_monotonic_and_inbox_is_idempotent() {
@@ -374,6 +483,351 @@ test_reply_reads_file_verbatim_and_suppresses_mentions() {
   [ "$(jq -c .allowed_mentions "$posts")" = '{"parse":[],"replied_user":false}' ] \
     || fail "phone reply did not suppress Discord mentions"
   pass "phone replies keep Discord-influenced text out of shell interpolation"
+}
+
+# --- the live summary -------------------------------------------------------
+
+run_summary() {  # <home> <fakebin> -- <args...>
+  local home=$1 fakebin=$2
+  shift 2
+  [ "${1:-}" = "--" ] && shift
+  PATH="$fakebin:$BASE_PATH" \
+    FM_HOME="$home" \
+    FAKE_PHONE_EXPECTED_TOKEN="$PHONE_TOKEN" \
+    "$ROOT/bin/fm-phone-summary.sh" "$@"
+}
+
+test_summary_is_created_once_then_edited_in_place() {
+  local home fakebin out urls first second
+  home="$TMP_ROOT/summary-edit"
+  write_phone_env "$home"
+  fakebin=$(make_fake_curl "$home")
+  urls="$home/urls.log"
+  printf '3 running, 1 needs you, 2 green\n' > "$home/summary.txt"
+
+  first=$(FAKE_PHONE_URL_LOG="$urls" \
+    FAKE_PHONE_POST_BODY='{"id":"9001"}' \
+    run_summary "$home" "$fakebin" -- --text-file "$home/summary.txt")
+  [ "$first" = 9001 ] || fail "the first publish did not report its message: $first"
+  [ "$(grep -c ' POST ' "$urls")" = 0 ] || true
+  [ "$(grep -c POST "$urls")" = 1 ] || fail "the first publish should post exactly one message"
+
+  # Second run: same message, edited. No second post, ever.
+  printf '4 running, none need you\n' > "$home/summary.txt"
+  second=$(FAKE_PHONE_URL_LOG="$urls" \
+    run_summary "$home" "$fakebin" -- --text-file "$home/summary.txt")
+  [ "$second" = 9001 ] || fail "the update did not reuse the same message: $second"
+  [ "$(grep -c POST "$urls")" = 1 ] || fail "the update posted a second summary instead of editing"
+  [ "$(grep -c PATCH "$urls")" = 1 ] || fail "the update did not edit the existing message"
+  assert_grep '/messages/9001' "$urls" "the edit must target the recorded message"
+  pass "one summary is created once and then edited in place, never reposted"
+}
+
+test_summary_survives_a_restart_through_its_durable_record() {
+  local home fakebin urls again record
+  home="$TMP_ROOT/summary-restart"
+  write_phone_env "$home"
+  fakebin=$(make_fake_curl "$home")
+  urls="$home/urls.log"
+  printf 'first line\n' > "$home/summary.txt"
+  FAKE_PHONE_POST_BODY='{"id":"9101"}' \
+    run_summary "$home" "$fakebin" -- --text-file "$home/summary.txt" >/dev/null \
+    || fail "initial publish failed"
+
+  record="$home/state/phone-summary-id"
+  assert_present "$record" "the summary's identity must be recorded on disk"
+  [ "$(cat "$record")" = 9101 ] || fail "the recorded identity is wrong"
+
+  # A restart carries no memory: a fresh process must find the message on disk.
+  printf 'after a restart\n' > "$home/summary.txt"
+  again=$(FAKE_PHONE_URL_LOG="$urls" \
+    run_summary "$home" "$fakebin" -- --text-file "$home/summary.txt")
+  [ "$again" = 9101 ] || fail "a restart lost the summary and started a new one: $again"
+  [ "$(grep -c POST "$urls")" = 0 ] || fail "a restart reposted the summary"
+  pass "the summary is found again after a restart from its durable record"
+}
+
+test_summary_recovers_from_history_rather_than_posting_a_second_one() {
+  local home fakebin out urls history
+  home="$TMP_ROOT/summary-recover"
+  write_phone_env "$home"
+  fakebin=$(make_fake_curl "$home")
+  urls="$home/urls.log"
+  # The durable record is gone, and the channel holds a stale receipt from an
+  # older build alongside the real summary. Only the summary may be adopted.
+  history=$(jq -cn --arg channel "$CHANNEL_ID" '
+    [
+      {id:"9203",channel_id:$channel,author:{bot:true},content:"⚓ received"},
+      {id:"9202",channel_id:$channel,author:{bot:true},content:"⚓ 2 running, 1 needs you"},
+      {id:"9201",channel_id:$channel,author:{bot:true},content:"an ordinary message"}
+    ]')
+  printf 'recovered summary\n' > "$home/summary.txt"
+
+  out=$(FAKE_PHONE_URL_LOG="$urls" FAKE_PHONE_POLL_BODY="$history" \
+    run_summary "$home" "$fakebin" -- --text-file "$home/summary.txt")
+  [ "$out" = 9202 ] || fail "recovery adopted the wrong message: $out"
+  [ "$(grep -c POST "$urls")" = 0 ] || fail "recovery posted a second live summary"
+  [ "$(cat "$home/state/phone-summary-id")" = 9202 ] \
+    || fail "recovery did not record the adopted message"
+  pass "a lost record recovers the existing summary instead of adding another"
+}
+
+test_summary_recovers_a_summary_that_has_scrolled_past_recent_history() {
+  local home fakebin out urls pinned
+  home="$TMP_ROOT/summary-recover-pinned"
+  write_phone_env "$home"
+  fakebin=$(make_fake_curl "$home")
+  urls="$home/urls.log"
+  # The durable record is gone and a busy day has pushed the live summary off
+  # the recent page: editing never moves a message, so it is still sitting where
+  # it was posted. The pinned list is what still reaches it.
+  pinned=$(jq -cn --arg channel "$CHANNEL_ID" '
+    [{id:"9251",channel_id:$channel,author:{bot:true},content:"⚓ 5 running, 1 needs you"}]')
+  printf 'recovered summary\n' > "$home/summary.txt"
+
+  out=$(FAKE_PHONE_URL_LOG="$urls" FAKE_PHONE_POLL_BODY='[]' \
+    FAKE_PHONE_PINS_BODY="$pinned" \
+    run_summary "$home" "$fakebin" -- --text-file "$home/summary.txt")
+  [ "$out" = 9251 ] || fail "the pinned live summary was not found again: $out"
+  [ "$(grep -c POST "$urls")" = 0 ] || fail "a summary older than the recent page was reposted"
+  [ "$(cat "$home/state/phone-summary-id")" = 9251 ] \
+    || fail "the adopted pinned summary was not recorded"
+  pass "a summary that has scrolled past recent history is still found, not duplicated"
+}
+
+test_summary_says_so_when_the_pinned_list_cannot_be_consulted() {
+  local home fakebin out rc err
+  home="$TMP_ROOT/summary-pins-refused"
+  write_phone_env "$home"
+  fakebin=$(make_fake_curl "$home")
+  printf 'a fresh summary\n' > "$home/summary.txt"
+
+  # A pinned list that will not answer must never read as "no summary exists".
+  # Recovery still degrades to the recent page, but it says which ground it
+  # could not cover rather than reporting a clean search it did not run.
+  err=$(FAKE_PHONE_POLL_BODY='[]' FAKE_PHONE_PINS_CODE=403 \
+    FAKE_PHONE_POST_BODY='{"id":"9261"}' \
+    run_summary "$home" "$fakebin" -- --text-file "$home/summary.txt" 2>&1 >/dev/null)
+  rc=$?
+  expect_code 0 "$rc" "a recovery whose pinned list was refused"
+  assert_contains "$err" "pinned messages could not be listed" \
+    "a refused pinned list must be reported, not passed off as an empty channel"
+  assert_not_contains "$err" "$CHANNEL_ID" "a refused pinned list leaked the channel id"
+  assert_not_contains "$err" "$PHONE_TOKEN" "a refused pinned list leaked the token"
+  [ "$(cat "$home/state/phone-summary-id")" = 9261 ] \
+    || fail "the fallback publish did not record its identity"
+
+  # The pinned list is a second way in, never the only one: the recent page on
+  # its own still recovers when it can see the summary.
+  home="$TMP_ROOT/summary-pins-refused-history"
+  write_phone_env "$home"
+  fakebin=$(make_fake_curl "$home")
+  printf 'a fresh summary\n' > "$home/summary.txt"
+  out=$(FAKE_PHONE_PINS_CODE=403 \
+    FAKE_PHONE_POLL_BODY="$(jq -cn --arg channel "$CHANNEL_ID" '
+      [{id:"9262",channel_id:$channel,author:{bot:true},content:"⚓ 2 running"}]')" \
+    run_summary "$home" "$fakebin" -- --text-file "$home/summary.txt" 2>/dev/null)
+  [ "$out" = 9262 ] || fail "a refused pinned list cost recovery the recent page: $out"
+  pass "a pinned list that cannot be read is named plainly and never mistaken for an empty channel"
+}
+
+test_summary_fails_rather_than_reposting_when_history_cannot_be_read() {
+  local home fakebin urls rc out
+  home="$TMP_ROOT/summary-unreadable"
+  write_phone_env "$home"
+  fakebin=$(make_fake_curl "$home")
+  urls="$home/urls.log"
+  printf 'recovered summary\n' > "$home/summary.txt"
+
+  # The record is gone and the history read is rate limited. A read that did not
+  # answer says nothing about whether a live summary exists, so posting here
+  # would leave two of them in the channel with no way back.
+  out=$(FAKE_PHONE_URL_LOG="$urls" FAKE_PHONE_POLL_CODE=429 \
+    run_summary "$home" "$fakebin" -- --text-file "$home/summary.txt" 2>&1)
+  rc=$?
+  expect_code 4 "$rc" "a recovery read that did not succeed"
+  assert_no_grep 'POST' "$urls" "an unreadable history must not post a second summary"
+  assert_absent "$home/state/phone-summary-id" "a failed recovery must record no identity"
+  assert_not_contains "$out" "$CHANNEL_ID" "a failed recovery leaked the channel id"
+  pass "a history read that fails is not mistaken for a channel with no summary"
+}
+
+test_summary_repin_reaches_a_message_recovered_from_history() {
+  local home fakebin pins out rc history
+  home="$TMP_ROOT/summary-repin-recovered"
+  write_phone_env "$home"
+  fakebin=$(make_fake_curl "$home")
+  pins="$home/pins.log"
+  history=$(jq -cn --arg channel "$CHANNEL_ID" '
+    [{id:"9202",channel_id:$channel,author:{bot:true},content:"⚓ 2 running"}]')
+  printf 'recovered summary\n' > "$home/summary.txt"
+
+  # Losing the record is exactly when a captain who has just granted the
+  # permission reaches for --repin, so the adopted message must be pinned too.
+  out=$(FAKE_PHONE_PIN_LOG="$pins" FAKE_PHONE_POLL_BODY="$history" \
+    run_summary "$home" "$fakebin" -- --repin --text-file "$home/summary.txt")
+  rc=$?
+  expect_code 0 "$rc" "a --repin on a summary recovered from history"
+  [ "$out" = 9202 ] || fail "recovery adopted the wrong message: $out"
+  assert_grep '/pins/9202' "$pins" "--repin must pin the message recovery adopted"
+  pass "--repin is honoured on the recovery path, not only on the recorded one"
+}
+
+test_summary_never_overwrites_a_message_it_did_not_author() {
+  local home fakebin out urls patches history
+  home="$TMP_ROOT/summary-foreign"
+  write_phone_env "$home"
+  fakebin=$(make_fake_curl "$home")
+  urls="$home/urls.log"
+  patches="$home/patches.log"
+  # Two marked messages, neither ours: one written by the captain and one by
+  # another bot. Discord refuses the edit on the bot one, which is the guarantee
+  # that matters; the captain's is never even offered for editing. The summary
+  # must be created rather than forced onto either of them.
+  history=$(jq -cn --arg channel "$CHANNEL_ID" --arg captain "$CAPTAIN_ID" '
+    [
+      {id:"9301",channel_id:$channel,author:{id:$captain,bot:false},content:"⚓ my own pinned note"},
+      {id:"9303",channel_id:$channel,author:{bot:true},content:"⚓ another bot summary"}
+    ]')
+  printf 'a fresh summary\n' > "$home/summary.txt"
+
+  out=$(FAKE_PHONE_URL_LOG="$urls" \
+    FAKE_PHONE_PATCH_LOG="$patches" \
+    FAKE_PHONE_POLL_BODY="$history" \
+    FAKE_PHONE_PATCH_CODE_9301=403 \
+    FAKE_PHONE_PATCH_CODE_9303=403 \
+    FAKE_PHONE_POST_BODY='{"id":"9302"}' \
+    run_summary "$home" "$fakebin" -- --text-file "$home/summary.txt")
+  [ "$out" = 9302 ] || fail "a refused edit did not fall through to a new summary: $out"
+  [ "$(cat "$home/state/phone-summary-id")" = 9302 ] \
+    || fail "the newly created summary was not recorded"
+  assert_grep '/messages/9303' "$patches" \
+    "another bot's marked message must still be offered to Discord, which refuses it"
+  assert_no_grep '/messages/9301' "$patches" \
+    "a captain message must never be offered for editing"
+  pass "a message this home did not author is never overwritten"
+}
+
+test_summary_degrades_when_pinning_is_refused() {
+  local home fakebin out rc err
+  home="$TMP_ROOT/summary-nopin"
+  write_phone_env "$home"
+  fakebin=$(make_fake_curl "$home")
+  printf 'pinless summary\n' > "$home/summary.txt"
+
+  err=$(FAKE_PHONE_PIN_CODE=403 FAKE_PHONE_POST_BODY='{"id":"9401"}' \
+    run_summary "$home" "$fakebin" -- --text-file "$home/summary.txt" 2>&1 >/dev/null)
+  rc=$?
+  expect_code 6 "$rc" "a summary whose pin was refused"
+  assert_contains "$err" "Manage Messages" \
+    "a refused pin must name the permission that would fix it"
+  [ "$(cat "$home/state/phone-summary-id")" = 9401 ] \
+    || fail "a refused pin must not cost the summary its identity"
+
+  # The next update still edits in place: pinning is optional, editing is not.
+  out=$(run_summary "$home" "$fakebin" -- --text-file "$home/summary.txt")
+  rc=$?
+  expect_code 0 "$rc" "an update after a refused pin"
+  [ "$out" = 9401 ] || fail "an unpinned summary lost its identity: $out"
+  pass "a refused pin degrades to an edited message and names the permission needed"
+}
+
+test_summary_repin_retries_only_when_asked() {
+  local home fakebin pins out rc
+  home="$TMP_ROOT/summary-repin"
+  write_phone_env "$home"
+  fakebin=$(make_fake_curl "$home")
+  pins="$home/pins.log"
+  printf 'summary\n' > "$home/summary.txt"
+  FAKE_PHONE_PIN_CODE=403 FAKE_PHONE_POST_BODY='{"id":"9601"}' \
+    run_summary "$home" "$fakebin" -- --text-file "$home/summary.txt" >/dev/null 2>&1
+
+  # An ordinary update must not ask a channel that already refused. The pin log
+  # is armed on this run, so a re-request would create the file and be caught.
+  FAKE_PHONE_PIN_LOG="$pins" \
+    run_summary "$home" "$fakebin" -- --text-file "$home/summary.txt" >/dev/null 2>&1
+  assert_absent "$pins" "an ordinary update should not re-request the pin"
+
+  # --repin is the deliberate retry, for after the permission is granted.
+  out=$(FAKE_PHONE_PIN_LOG="$pins" \
+    run_summary "$home" "$fakebin" -- --repin --text-file "$home/summary.txt")
+  rc=$?
+  expect_code 0 "$rc" "a --repin once the permission exists"
+  [ "$out" = 9601 ] || fail "--repin changed the summary's identity: $out"
+  assert_grep '/pins/9601' "$pins" "--repin must pin the existing summary"
+  pass "pinning is retried only when deliberately asked for"
+}
+
+test_summary_accepts_stdin_like_the_reply_client() {
+  local home fakebin posts out
+  home="$TMP_ROOT/summary-stdin"
+  write_phone_env "$home"
+  fakebin=$(make_fake_curl "$home")
+  posts="$home/posts.log"
+  out=$(printf '2 running, none need you\n' \
+    | FAKE_PHONE_POST_LOG="$posts" FAKE_PHONE_POST_BODY='{"id":"9701"}' \
+      run_summary "$home" "$fakebin" -- -)
+  [ "$out" = 9701 ] || fail "the stdin form did not publish: $out"
+  [ "$(jq -r .content "$posts")" = "⚓ 2 running, none need you" ] \
+    || fail "the stdin form altered the summary text"
+  pass "the summary reads stdin exactly as the reply client does"
+}
+
+test_summary_refuses_to_forget_a_message_it_just_posted() {
+  local home fakebin rc out
+  home="$TMP_ROOT/summary-no-id"
+  write_phone_env "$home"
+  fakebin=$(make_fake_curl "$home")
+  printf 'summary text\n' > "$home/summary.txt"
+  out=$(FAKE_PHONE_POST_BODY='{"no_id_here":true}' \
+    run_summary "$home" "$fakebin" -- --text-file "$home/summary.txt" 2>&1)
+  rc=$?
+  expect_code 4 "$rc" "a publish whose message id came back unusable"
+  assert_contains "$out" "identity" "an unrecorded summary must say so plainly"
+  assert_absent "$home/state/phone-summary-id" "an unusable id must not be recorded"
+  pass "a summary that cannot be identified again fails loudly instead of silently reposting"
+}
+
+test_summary_is_inert_and_leaks_nothing() {
+  local home fakebin rc out
+  home="$TMP_ROOT/summary-inert"
+  mkdir -p "$home"
+  printf 'summary\n' > "$home/summary.txt"
+  out=$(FM_HOME="$home" PATH="$BASE_PATH" \
+    "$ROOT/bin/fm-phone-summary.sh" --text-file "$home/summary.txt" 2>&1)
+  rc=$?
+  expect_code 3 "$rc" "an unconfigured home"
+  assert_contains "$out" "not configured" "an unconfigured home should say so"
+
+  home="$TMP_ROOT/summary-noleak"
+  write_phone_env "$home"
+  fakebin=$(make_fake_curl "$home")
+  printf 'summary\n' > "$home/summary.txt"
+  out=$(FAKE_PHONE_PIN_CODE=403 FAKE_PHONE_POST_CODE=500 \
+    run_summary "$home" "$fakebin" -- --text-file "$home/summary.txt" 2>&1)
+  assert_not_contains "$out" "$PHONE_TOKEN" "a summary failure leaked the bot token"
+  assert_not_contains "$out" "$CHANNEL_ID" "a summary failure leaked the channel id"
+  assert_not_contains "$out" "$CAPTAIN_ID" "a summary failure leaked the captain id"
+  pass "the summary is inert without opt-in and never echoes a configured value"
+}
+
+test_summary_suppresses_mentions_and_keeps_text_out_of_the_shell() {
+  local home fakebin posts text
+  home="$TMP_ROOT/summary-safe"
+  write_phone_env "$home"
+  fakebin=$(make_fake_curl "$home")
+  posts="$home/posts.log"
+  # shellcheck disable=SC2016 # Shell metacharacters must remain literal test data.
+  text='@everyone $(whoami) `date` 3 running'
+  printf '%s' "$text" > "$home/summary.txt"
+  FAKE_PHONE_POST_LOG="$posts" FAKE_PHONE_POST_BODY='{"id":"9501"}' \
+    run_summary "$home" "$fakebin" -- --text-file "$home/summary.txt" >/dev/null \
+    || fail "publish failed"
+  [ "$(jq -r .content "$posts")" = "⚓ $text" ] \
+    || fail "the summary text was altered beyond its marker"
+  [ "$(jq -c .allowed_mentions "$posts")" = '{"parse":[]}' ] \
+    || fail "the standing summary must never be able to ping"
+  pass "the summary stays literal text and can never interrupt the captain"
 }
 
 test_generic_errors_never_echo_configuration() {
@@ -576,6 +1030,22 @@ test_baselined_empty_channel_still_delivers_the_next_command
 test_unreadable_message_content_reports_a_generic_error
 test_watcher_shim_pins_identity_to_the_home_env
 test_reply_reads_file_verbatim_and_suppresses_mentions
+test_receipt_is_a_reaction_and_never_claims_an_action_succeeded
+test_ack_can_still_be_turned_off
+test_summary_is_created_once_then_edited_in_place
+test_summary_survives_a_restart_through_its_durable_record
+test_summary_recovers_from_history_rather_than_posting_a_second_one
+test_summary_recovers_a_summary_that_has_scrolled_past_recent_history
+test_summary_says_so_when_the_pinned_list_cannot_be_consulted
+test_summary_fails_rather_than_reposting_when_history_cannot_be_read
+test_summary_repin_reaches_a_message_recovered_from_history
+test_summary_never_overwrites_a_message_it_did_not_author
+test_summary_degrades_when_pinning_is_refused
+test_summary_repin_retries_only_when_asked
+test_summary_accepts_stdin_like_the_reply_client
+test_summary_refuses_to_forget_a_message_it_just_posted
+test_summary_is_inert_and_leaks_nothing
+test_summary_suppresses_mentions_and_keeps_text_out_of_the_shell
 test_generic_errors_never_echo_configuration
 test_nonprivate_state_is_repaired_before_arm_and_rejected_during_poll
 test_unpreparable_private_state_refuses_to_arm

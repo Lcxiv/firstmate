@@ -19,8 +19,12 @@
 # the fmphone-respond skill drains every pending inbox file.
 #
 # FM_PHONE_ACK defaults on. When at least one command is accepted, one additional
-# bounded POST sends "⚓ received" as a delivery acknowledgement. Its failure is
-# silent and never blocks the durable inbox wake.
+# bounded request adds an anchor reaction to the captain's own newest accepted
+# message, replacing the acknowledgement message this used to post. The receipt
+# still reports durable receipt only and never claims an action succeeded; the
+# reaction is added only after the inbox write and the cursor advance, and only
+# when Discord itself confirms it. Its failure is silent and never blocks the
+# durable inbox wake.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -69,11 +73,7 @@ MESSAGE_FILE=$(mktemp "${TMPDIR:-/tmp}/fm-phone-message.XXXXXX") || {
   rm -f "$BODY_FILE"
   exit 0
 }
-ACK_FILE=$(mktemp "${TMPDIR:-/tmp}/fm-phone-ack.XXXXXX") || {
-  rm -f "$BODY_FILE" "$MESSAGE_FILE"
-  exit 0
-}
-trap 'rm -f "$BODY_FILE" "$MESSAGE_FILE" "$ACK_FILE"' EXIT HUP INT TERM
+trap 'rm -f "$BODY_FILE" "$MESSAGE_FILE"' EXIT HUP INT TERM
 
 CURSOR=$(fm_phone_cursor_get "$STATE" 2>/dev/null) || {
   emit_error_once "cannot read cursor"
@@ -183,9 +183,8 @@ fi
 clear_error
 [ -n "$WAKE_ID" ] || exit 0
 
-if [ "$FM_PHONE_ACK_ENABLED" = 1 ] \
-  && fm_phone_message_payload '⚓ received' "$WAKE_ID" > "$ACK_FILE"; then
-  fm_phone_post_payload "$ACK_FILE" >/dev/null 2>&1 || true
+if [ "$FM_PHONE_ACK_ENABLED" = 1 ]; then
+  fm_phone_react "$WAKE_ID" >/dev/null 2>&1 || true
 fi
 
 printf 'phone-message %s\n' "$WAKE_ID"
