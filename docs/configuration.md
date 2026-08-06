@@ -419,20 +419,39 @@ Notifications are off until the firstmate home's gitignored `.env` sets a non-em
 With no target a well-formed call prints nothing, writes nothing, contacts nothing, and exits 0, so an unconfigured home is completely unaffected.
 A malformed call is still a usage error even when unconfigured, so a caller bug stays visible during development.
 
-Setup is three steps and takes about two minutes.
+Two channels are implemented: a Discord webhook, and Hermes' `hermes send` CLI.
+`FM_NOTIFY_TARGET` selects between them, and everything else on this page applies to both.
+
+Discord webhook setup is three steps and takes about two minutes.
 In the Discord server, open the target channel's settings, choose Integrations, then New Webhook, name it, and use Copy Webhook URL.
 Put that URL into `$FM_HOME/.env` as `FM_NOTIFY_TARGET=<url>`, and keep that file at mode 0600 like every other secret this home holds.
 Send a test line with `bin/fm-notify.sh --event update "test from firstmate"` and confirm it lands in the channel.
 
+Hermes setup reuses an install the captain already has.
+`hermes send` is a plain sender that reuses Hermes' own platform credentials in `~/.hermes/`, with no agent, no model, and no running gateway needed for bot-token platforms.
+The dependency is real: this channel needs `hermes` installed, on the calling process's `PATH` or named by `FM_NOTIFY_HERMES_BIN`, and already configured for the platform being targeted.
+Set `FM_NOTIFY_TARGET=hermes:<hermes target>`; the part after `hermes:` is passed to `hermes send --to` unchanged.
+Confirm the target first with `hermes send --list`, then send the same test line as above.
+
+Use an explicit target such as `FM_NOTIFY_TARGET=hermes:telegram:<chat id>` for any real configuration.
+A bare platform such as `hermes:telegram` resolves to whatever Hermes currently calls its home channel, so an unrelated change to Hermes' configuration can move firstmate's alerts to a different conversation - delivered successfully, but to the wrong reader, which is worse than a failure.
+The bare form still works and prints one configuration warning per notification, before anything is sent, so a notification split into several messages still warns exactly once.
+
+This channel is verified against Telegram.
+Describe it as supporting targets whose plain-text behaviour has actually been tested rather than every platform Hermes speaks: target syntax, caps, subject handling, and failure behaviour are platform-specific, and an untested platform is an untested claim.
+
+The Hermes channel is outbound only, exactly like the Discord webhook one.
+firstmate never reads that platform, so `needs-decision`, `blocked`, and `failed` messages carry a short note naming where an answer has to go; the captain's inbound path stays the separately opted-in Discord phone mode below.
+
 Every `FM_NOTIFY_*` key is read from `$FM_HOME/.env` unless the same name is set explicitly in the environment, which wins; the names and defaults are listed under "Environment variables" below.
-`FM_NOTIFY_TARGET` holds either a bare Discord webhook URL or the explicit `<channel>:<address>` form, where `<channel>` names the delivery platform rather than a Discord channel, and `FM_NOTIFY_ENV_FILE` redirects the file read for direct invocations and tests.
+`FM_NOTIFY_TARGET` holds either a bare Discord webhook URL or the explicit `<channel>:<address>` form, where `<channel>` is `discord-webhook` or `hermes` and names the delivery platform rather than a Discord channel, and `FM_NOTIFY_ENV_FILE` redirects the file read for direct invocations and tests.
 
 The event classes are `dispatched`, `needs-decision`, `blocked`, `failed`, `alarm`, `pr-ready`, `merged`, `done`, and `update`.
 `alarm` is the away-mode delivery alarm, for when firstmate cannot reach the captain at all; `docs/wedge-alarm.md` owns how that alarm selects its channels.
 The default set is every class except `dispatched`, because section 9 suppresses routine progress in captain chat, so mirroring dispatches to the phone is an explicit captain preference that `FM_NOTIFY_EVENTS` has to record.
 Add it with `FM_NOTIFY_EVENTS=all` or by listing the wanted classes, for example `FM_NOTIFY_EVENTS=dispatched,pr-ready,merged,blocked,needs-decision`.
 
-### Two channels, and the mention that carries the urgency
+### Two Discord channels, and the mention that carries the urgency
 
 The intended Discord layout is two muted channels: a conversation channel the captain talks to firstmate in, and a one-way broadcast channel that carries the feed.
 Muting stops the interruptions, and a mention is then the only thing that reaches the captain, so urgency rides on the individual message rather than on which channel it landed in.
@@ -464,23 +483,36 @@ Deleting that channel later degrades rather than breaks: a rejected broadcast ad
 A `FM_NOTIFY_LOG_TARGET` that names no supported delivery platform, or a different delivery platform from `FM_NOTIFY_TARGET`, is reported as a misconfiguration rather than guessed around; pointing the two at different Discord channels of the same platform is the intended setup, not a mismatch.
 That refusal reaches only the classes that would use the broadcast address; the four mentioning classes never read it, so a typo there cannot silence an alarm, a decision, a block, or a failure.
 
-Each message is one embed whose title carries an emoji and an uppercase state word alongside the matching colour, so the colour never carries the state alone.
+On Discord each message is one embed whose title carries an emoji and an uppercase state word alongside the matching colour, so the colour never carries the state alone.
 Discord's caps are enforced before sending rather than left for the API to reject: 256 characters of title, 4096 of description, and 6000 across one message.
+On Hermes each message is plain text carrying the same emoji and uppercase state word on a header line, then a blank line, then the body, then the `--url` link on the first part, then the reply-route note for an actionable class.
+No Hermes subject line is used, so firstmate controls the whole plain-text composition it hands to the sender.
+That is not the same as the reader seeing those bytes verbatim: the sender applies its own platform formatting, rewriting markdown to MarkdownV2 or switching to HTML when the body matches its HTML autodetect, and then re-chunks the formatted text on UTF-16 units.
+The header, link, and note are still reserved out of the 4096-character platform budget before splitting, so firstmate never composes an over-cap part; the sender's own split boundary is the formatted UTF-16 length rather than firstmate's codepoint budget.
 An oversized body is split on line and word boundaries into at most `FM_NOTIFY_MAX_PARTS` numbered messages, with the last kept part marked by an ellipsis, so a full `https://` URL is never broken across parts.
 Run `bin/fm-notify.sh --help` for the exact flags, exit codes, and channel-seam contract.
 
 Losing a notification never blocks or delays fleet work.
-A rate limit is retried once, honouring the reported wait clamped by `FM_NOTIFY_RETRY_CAP_SECS`; a forbidden or missing target and any other delivery failure exit non-zero with one short line on stderr, with no further retry and no write anywhere under this home's state.
-Discord webhooks are the only delivery platform implemented today, behind a thin internal seam so a second platform can be added later without changing the caller contract or these keys.
+A rate limit is retried once on the Discord webhook channel, honouring the reported wait clamped by `FM_NOTIFY_RETRY_CAP_SECS`; on either channel a forbidden or missing target and any other delivery failure exit non-zero with one short line on stderr, with no further retry and no write anywhere under this home's state.
+The Hermes sender runs under a hard time bound taken from `FM_NOTIFY_TIMEOUT_SECS`, so a sender that hangs on configuration, credentials, transport retry, or a broken provider costs one notification instead of stalling the turn that composed it.
+Its own `0`/`1`/`2` exit codes are mapped deliberately rather than passed through: `0` is delivered, `1` becomes firstmate's delivery-failure code `4`, `2` becomes the misconfiguration code `3` because it means the configured target form is one the sender will not accept, hitting the time bound or any other code becomes `4`, and a missing or non-executable sender is reported as `3` before anything is sent.
+A sender killed by a signal is reported as `128` plus the signal number and so lands on `4` as well, never on success.
+A host that has none of `timeout`, `gtimeout`, or `perl` cannot bound the sender at all, so it refuses rather than running unbounded and reports `3`, because nothing was launched and nothing hung.
 
 Opt out by deleting `FM_NOTIFY_TARGET` from `.env`, which restores the silent no-op immediately, and by deleting the webhook in Discord so the URL stops working for anyone who still holds it.
 Dropping only `FM_NOTIFY_LOG_TARGET` collapses both lanes back onto the single channel.
+Opting out of the Hermes channel needs nothing beyond removing that key; firstmate writes nothing under `~/.hermes/` and changes no Hermes configuration.
 There is no generated state to clean up.
 
 Security surface, stated plainly: the webhook URL is a write-only capability for one channel.
 Someone who obtains it can post fake notifications into that channel, which is why it belongs only in the gitignored 0600 `.env` and never in the repo, a commit, or a task note.
 It grants no read access to the channel, no access to the rest of the Discord server, and no authority through the separately configured Discord phone bot.
 Revoke on suspicion by deleting the webhook in Discord and creating a new one.
+
+The Hermes channel holds no credential of its own: it delegates to Hermes' existing platform credentials, which stay under `~/.hermes/` and are never read, copied, or modified by firstmate.
+The message body is handed to the sender through a file rather than a command-line argument, so captain-facing text is never exposed in the process table.
+The target is a known residual exposure: `hermes send` offers no way to pass a destination other than `--to`, so an explicit chat id is visible in that process's arguments to other local users for the life of the request.
+The sender is always run with `--quiet` and both of its streams are captured, because its normal success line prints the chat id; firstmate reports its own generic diagnostic instead and never relays that output into its logs.
 
 ## Discord phone mode (.env)
 
@@ -501,7 +533,7 @@ The bot token is a secret, while the two numeric ids are authentication configur
 An existing Discord bot may be reused if it can view the private channel, read message history, read message content, send messages, and add reactions there.
 No other permission is required: editing its own messages needs none, and the optional pin described under "The live summary" degrades when Manage Messages is withheld.
 Enable Discord Developer Mode to copy the captain user id and private channel id, and enable the bot's message-content intent when Discord requires it.
-The outbound `FM_NOTIFY_TARGET` webhook may point at the same channel, but it remains a separate write-only capability and is not used to authenticate inbound commands.
+An outbound Discord webhook configured in `FM_NOTIFY_TARGET` may point at the same channel, but it remains a separate write-only capability and is not used to authenticate inbound commands.
 
 All three values are the opt-in boundary.
 No `.env`, three absent or empty values, or an incomplete configuration does not arm a poll.
@@ -629,11 +661,12 @@ FMX_X_THREAD_MAX=25     # maximum messages in one auto-split reply thread
 FMX_FOLLOWUP_MAX_AGE_SECS=604800   # local window for posting X-mode completion follow-ups (7 days)
 FMX_FOLLOWUP_MAX_COUNT=3   # local cap on X-mode completion follow-ups per linked mention
 FM_PF_RETRY_BACKOFF_SECS=900   # seconds before the next attempt after a retryable promised-public-reply delivery error
-FM_NOTIFY_TARGET=        # phone-notification conversation channel; a bare Discord webhook URL or "<channel>:<address>"; presence is the .env opt-in, absence is a silent no-op
-FM_NOTIFY_LOG_TARGET=    # optional broadcast channel for ready/landed/routine classes, same two forms and same delivery platform as FM_NOTIFY_TARGET; empty means both lanes use FM_NOTIFY_TARGET
+FM_NOTIFY_TARGET=        # phone-notification conversation channel; a bare Discord webhook URL, "discord-webhook:<url>", or "hermes:<hermes target>"; presence is the .env opt-in, absence is a silent no-op
+FM_NOTIFY_LOG_TARGET=    # optional broadcast channel for ready/landed/routine classes, same forms and same delivery platform as FM_NOTIFY_TARGET; empty means both lanes use FM_NOTIFY_TARGET
 FM_NOTIFY_MENTION_ID=    # captain's Discord user id, mentioned on the needs-decision, blocked, failed, and alarm classes; empty falls back to FM_PHONE_CAPTAIN_ID, then to no mention
+FM_NOTIFY_HERMES_BIN=hermes   # hermes executable for the hermes channel; resolved on PATH by default, so a hook or service with a different PATH names it here
 FM_NOTIFY_EVENTS=        # comma-separated event classes to mirror, or "all", or "none"; empty means every class except dispatched
-FM_NOTIFY_TIMEOUT_SECS=10   # per-request phone-notification transport timeout; values outside 1..120 clamp into range
+FM_NOTIFY_TIMEOUT_SECS=10   # per-request phone-notification transport timeout, and the hard bound on one hermes-channel sender run; values outside 1..120 clamp into range
 FM_NOTIFY_RETRY_CAP_SECS=5   # upper bound on an honoured phone-notification rate-limit wait; values outside 0..30 clamp into range
 FM_NOTIFY_MAX_PARTS=4    # maximum messages one oversized notification body is split into; values outside 1..10 clamp into range
 FM_NOTIFY_ENV_FILE=      # optional alternate file every FM_NOTIFY_* read uses instead of $FM_HOME/.env, the opt-in target included

@@ -862,6 +862,434 @@ test_no_configured_value_appears_in_any_emitted_string() {
   pass "no configured address or captain id appears in anything this prints"
 }
 
+# --- channel: hermes --------------------------------------------------------
+#
+# The hermes channel shells out to an external sender, so these tests drive the
+# real executable against a stub `hermes` on PATH. The stub records its argv and
+# the exact bytes it was handed, so assertions are made against what actually
+# went to the sender rather than against the script's source.
+
+FAKE_HERMES_TARGET='hermes:telegram:-1009999999999'
+# Stands in for the chat id the real sender prints on success. No test may find
+# this string in firstmate's own output.
+FAKE_HERMES_SECRET='chat_id: -1009999999999'
+
+# make_hermes_home <name>: an isolated home whose `hermes` stub captures every
+# invocation. FM_NOTIFY_TEST_HERMES_EXIT chooses the exit code,
+# FM_NOTIFY_TEST_HERMES_SLEEP makes it hang, and FM_NOTIFY_TEST_HERMES_SIGNAL
+# makes it die from that signal instead of exiting.
+make_hermes_home() {  # <name>
+  local home="$TMP_ROOT/$1" fakebin
+  mkdir -p "$home/state" "$home/capture"
+  fakebin=$(fm_fakebin "$home")
+  # curl is shadowed by a stub that always fails: the hermes channel must never
+  # reach for it, and this turns that invariant into an assertion rather than a
+  # claim, since a regression that shelled out to curl would otherwise silently
+  # use the host's real binary.
+  cat > "$fakebin/curl" <<'SH'
+#!/usr/bin/env bash
+printf 'the hermes channel must never shell out to curl\n' >&2
+exit 99
+SH
+  chmod +x "$fakebin/curl"
+  cat > "$fakebin/hermes" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$@" >> "$FM_NOTIFY_TEST_CAPTURE/argv"
+body=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --file) body=$2; shift 2 ;;
+    *) shift ;;
+  esac
+done
+if [ -n "${FM_NOTIFY_TEST_HERMES_SLEEP:-}" ]; then
+  sleep "$FM_NOTIFY_TEST_HERMES_SLEEP"
+fi
+if [ -n "${FM_NOTIFY_TEST_HERMES_SIGNAL:-}" ]; then
+  kill "-$FM_NOTIFY_TEST_HERMES_SIGNAL" $$
+  sleep 5
+fi
+n=$(cat "$FM_NOTIFY_TEST_CAPTURE/count" 2>/dev/null || echo 0)
+n=$((n + 1))
+printf '%s\n' "$n" > "$FM_NOTIFY_TEST_CAPTURE/count"
+[ -z "$body" ] || cp "$body" "$FM_NOTIFY_TEST_CAPTURE/body-$n.txt"
+# The real sender prints the chat id on success; both streams are noisy here so
+# the capture-and-replace contract is actually exercised.
+printf 'Sent to telegram home channel (%s)\n' "$FM_NOTIFY_TEST_HERMES_SECRET"
+printf 'sender debug: %s\n' "$FM_NOTIFY_TEST_HERMES_SECRET" >&2
+exit "${FM_NOTIFY_TEST_HERMES_EXIT:-0}"
+SH
+  chmod +x "$fakebin/hermes"
+  printf '%s\n' "$home"
+}
+
+run_hermes() {  # <home> -- <args...>
+  local home=$1
+  shift
+  [ "${1:-}" = "--" ] && shift
+  PATH="$home/fakebin:$PATH" \
+    FM_HOME="$home" \
+    FM_STATE_OVERRIDE="$home/state" \
+    FM_NOTIFY_TEST_CAPTURE="$home/capture" \
+    FM_NOTIFY_TEST_HERMES_SECRET="$FAKE_HERMES_SECRET" \
+    "$NOTIFY" "$@"
+}
+
+hermes_body() {  # <home> <n>
+  cat "$1/capture/body-$2.txt"
+}
+
+test_hermes_target_routes_to_the_sender() {
+  local home argv
+  home=$(make_hermes_home hermes-routing)
+  configure "$home" "$FAKE_HERMES_TARGET"
+  run_hermes "$home" -- --event update "routed" >/dev/null || fail "hermes send failed"
+  [ "$(sent_count "$home")" = 1 ] || fail "the hermes target did not reach the sender"
+  argv="$home/capture/argv"
+  assert_grep 'send' "$argv" "the sender must be invoked as its send subcommand"
+  assert_grep '--to' "$argv" "the sender must be given an explicit target"
+  assert_grep 'telegram:-1009999999999' "$argv" "the configured target did not reach the sender"
+  assert_grep '--quiet' "$argv" "the sender must always be run quietly"
+  assert_grep '--file' "$argv" "the body must be handed over as a file"
+  pass "a hermes target routes to the sender with an explicit target and --quiet"
+}
+
+test_hermes_body_never_reaches_the_process_arguments() {
+  local home
+  # Process arguments are readable by every local user, so captain-facing text
+  # is handed over as a file and never positionally.
+  home=$(make_hermes_home hermes-argv-secrecy)
+  configure "$home" "$FAKE_HERMES_TARGET"
+  run_hermes "$home" -- --event blocked "a private captain-facing sentence" >/dev/null \
+    || fail "hermes send failed"
+  assert_no_grep 'a private captain-facing sentence' "$home/capture/argv" \
+    "the message body must never be passed to the sender through argv"
+  assert_grep 'a private captain-facing sentence' "$home/capture/body-1.txt" \
+    "the message body did not reach the sender's file"
+  assert_no_grep '--subject' "$home/capture/argv" \
+    "no subject line is sent: all presentation lives in the body"
+  pass "the message body goes to the sender by file, never through argv"
+}
+
+test_hermes_wire_format_is_exactly_the_documented_text() {
+  local home body expected
+  home=$(make_hermes_home hermes-wire)
+  configure "$home" "$FAKE_HERMES_TARGET"
+  run_hermes "$home" -- --event merged --title 'sniper' \
+    --url 'https://github.com/owner/repo/pull/7' "landed on main" >/dev/null \
+    || fail "hermes send failed"
+  body=$(hermes_body "$home" 1)
+  expected='✅ MERGED · sniper
+
+landed on main
+
+https://github.com/owner/repo/pull/7'
+  [ "$body" = "$expected" ] || fail "unexpected hermes wire text:
+--- got ---
+$body
+--- want ---
+$expected"
+  pass "the hermes wire text is the documented header, body, and link"
+}
+
+test_hermes_carries_the_link_so_a_pr_is_never_dropped() {
+  local home
+  home=$(make_hermes_home hermes-url)
+  configure "$home" "$FAKE_HERMES_TARGET"
+  run_hermes "$home" -- --event pr-ready \
+    --url 'https://github.com/owner/repo/pull/12345' "ready for review" >/dev/null \
+    || fail "hermes send failed"
+  assert_grep 'https://github.com/owner/repo/pull/12345' "$home/capture/body-1.txt" \
+    "--url must reach the delivered text, never be silently dropped"
+  pass "--url reaches the delivered text on a plain-text channel"
+}
+
+test_hermes_actionable_classes_name_the_reply_route() {
+  local home class
+  # This channel is outbound only, so an alert that asks the captain for
+  # something has to say where the answer goes.
+  for class in needs-decision blocked failed; do
+    home=$(make_hermes_home "hermes-route-$class")
+    configure "$home" "$FAKE_HERMES_TARGET"
+    run_hermes "$home" -- --event "$class" "text" >/dev/null || fail "$class send failed"
+    assert_grep 'Outbound only' "$home/capture/body-1.txt" \
+      "$class must name where a reply has to go"
+  done
+  home=$(make_hermes_home hermes-route-merged)
+  configure "$home" "$FAKE_HERMES_TARGET"
+  run_hermes "$home" -- --event merged "text" >/dev/null || fail "merged send failed"
+  assert_no_grep 'Outbound only' "$home/capture/body-1.txt" \
+    "an informational class needs no reply-route note"
+  pass "actionable classes name the reply route; informational ones stay clean"
+}
+
+test_hermes_splits_within_the_platform_cap_with_the_header_present() {
+  local home n i body len
+  # Telegram's limit is 4096 for the WHOLE message, so the header, the link and
+  # the reply-route note all have to be inside that budget, not on top of it.
+  home=$(make_hermes_home hermes-split)
+  configure "$home" "$FAKE_HERMES_TARGET"
+  { for i in $(seq 1 400); do
+      printf 'line %s - captain-facing detail about the work under way\n' "$i"
+    done; } | FM_NOTIFY_MAX_PARTS=10 run_hermes "$home" -- --event blocked \
+      --title 'sniper' --url 'https://github.com/owner/repo/pull/12345' >/dev/null \
+    || fail "long hermes send failed"
+  n=$(sent_count "$home")
+  [ "$n" -gt 1 ] || fail "a body far past the cap should have been split, got $n message(s)"
+  i=1
+  while [ "$i" -le "$n" ]; do
+    body=$(hermes_body "$home" "$i")
+    len=$(printf '%s' "$body" | jq -Rs 'length')
+    [ "$len" -le 4096 ] || fail "part $i: $len codepoints exceeds the 4096 platform cap"
+    case "$body" in
+      '🔴 BLOCKED · sniper ('"$i"'/'"$n"')'*) : ;;
+      *) fail "part $i does not open with the numbered state header: $(printf '%s' "$body" | head -1)" ;;
+    esac
+    assert_grep 'Outbound only' "$home/capture/body-$i.txt" \
+      "part $i of an actionable alert must still carry the reply route"
+    i=$((i + 1))
+  done
+  pass "an oversized hermes body splits within the platform cap, header included"
+}
+
+test_hermes_missing_binary_is_a_reported_misconfiguration() {
+  local home rc out started elapsed
+  home=$(make_hermes_home hermes-missing-bin)
+  configure "$home" "$FAKE_HERMES_TARGET"
+  rm -f "$home/fakebin/hermes"
+  started=$(date +%s)
+  out=$(PATH="$home/fakebin:/usr/bin:/bin" FM_HOME="$home" \
+    FM_NOTIFY_TEST_CAPTURE="$home/capture" "$NOTIFY" --event blocked "text" 2>&1)
+  rc=$?
+  elapsed=$(( $(date +%s) - started ))
+  expect_code 3 "$rc" "missing sender binary"
+  [ "$elapsed" -lt 30 ] || fail "a missing sender took ${elapsed}s instead of failing promptly"
+  [ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" = 1 ] \
+    || fail "a missing sender should print one short line, got: $out"
+  assert_contains "$out" "not available" "the diagnostic should name the missing sender"
+  pass "a missing sender is a bounded, reported misconfiguration, not a crash"
+}
+
+test_hermes_binary_override_is_honoured() {
+  local home
+  home=$(make_hermes_home hermes-bin-override)
+  configure "$home" "$FAKE_HERMES_TARGET"
+  mv "$home/fakebin/hermes" "$home/sender-elsewhere"
+  printf 'FM_NOTIFY_HERMES_BIN=%s\n' "$home/sender-elsewhere" >> "$home/.env"
+  run_hermes "$home" -- --event update "text" >/dev/null \
+    || fail "send through an overridden sender path failed"
+  [ "$(sent_count "$home")" = 1 ] || fail "the overridden sender path was not used"
+  pass "FM_NOTIFY_HERMES_BIN resolves a sender that is not on the caller's PATH"
+}
+
+test_hermes_exit_codes_are_mapped_deliberately() {
+  local home rc out
+  # The sender uses 0/1/2; this script keeps its own distinct codes rather than
+  # passing a foreign one through.
+  home=$(make_hermes_home hermes-exit-1)
+  configure "$home" "$FAKE_HERMES_TARGET"
+  out=$(FM_NOTIFY_TEST_HERMES_EXIT=1 run_hermes "$home" -- --event failed "boom" 2>&1)
+  rc=$?
+  expect_code 4 "$rc" "sender delivery error"
+  [ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" = 1 ] \
+    || fail "a delivery error should print one short line, got: $out"
+
+  home=$(make_hermes_home hermes-exit-2)
+  configure "$home" "$FAKE_HERMES_TARGET"
+  out=$(FM_NOTIFY_TEST_HERMES_EXIT=2 run_hermes "$home" -- --event failed "boom" 2>&1)
+  rc=$?
+  expect_code 3 "$rc" "sender usage error"
+  assert_contains "$out" "refused" "a refused invocation should read as a configuration problem"
+
+  home=$(make_hermes_home hermes-exit-9)
+  configure "$home" "$FAKE_HERMES_TARGET"
+  FM_NOTIFY_TEST_HERMES_EXIT=9 run_hermes "$home" -- --event failed "boom" >/dev/null 2>&1
+  rc=$?
+  expect_code 4 "$rc" "unexpected sender exit code"
+  pass "the sender's 0/1/2 and anything else map to distinct firstmate codes"
+}
+
+test_hermes_hanging_sender_is_bounded() {
+  local home rc started elapsed fallback
+  # The whole point of the bound: a sender that hangs on config, credentials, or
+  # a broken provider costs one notification, never the caller's turn. Both the
+  # default arm and the forced portable fallback are exercised, because this
+  # repo's macOS hosts ship no GNU `timeout` and run the fallback in production.
+  for fallback in 0 1; do
+    home=$(make_hermes_home "hermes-hang-$fallback")
+    configure "$home" "$FAKE_HERMES_TARGET"
+    printf 'FM_NOTIFY_TIMEOUT_SECS=2\n' >> "$home/.env"
+    started=$(date +%s)
+    FM_NOTIFY_TEST_HERMES_SLEEP=120 FM_NOTIFY_FORCE_TIMEOUT_FALLBACK="$fallback" \
+      run_hermes "$home" -- --event blocked "text" >/dev/null 2>&1
+    rc=$?
+    elapsed=$(( $(date +%s) - started ))
+    expect_code 4 "$rc" "hanging sender (fallback=$fallback)"
+    [ "$elapsed" -lt 30 ] \
+      || fail "a hanging sender blocked the caller for ${elapsed}s (fallback=$fallback)"
+  done
+  pass "a hanging sender is cut off by a hard bound instead of stalling the caller"
+}
+
+test_hermes_signal_killed_sender_is_never_read_as_delivered() {
+  local home rc out
+  # The portable perl arm is the one that runs on this repo's macOS hosts, and a
+  # child that dies from a signal leaves a wait status whose exit byte is 0. If
+  # that were passed on unchanged, firstmate would exit 0 claiming a delivery it
+  # never made and would keep sending the remaining parts of a split message.
+  home=$(make_hermes_home hermes-signal)
+  configure "$home" "$FAKE_HERMES_TARGET"
+  out=$(FM_NOTIFY_TEST_HERMES_SIGNAL=KILL FM_NOTIFY_FORCE_TIMEOUT_FALLBACK=1 \
+    run_hermes "$home" -- --event failed "boom" 2>&1)
+  rc=$?
+  expect_code 4 "$rc" "signal-killed sender"
+  assert_contains "$out" "delivery failed" "a signal-killed sender must read as a delivery failure"
+  assert_not_contains "$out" "$FAKE_HERMES_SECRET" \
+    "the sender's chat id must never reach firstmate's diagnostics"
+  pass "a sender killed by a signal is a delivery failure, never a claimed delivery"
+}
+
+test_hermes_refuses_when_the_host_cannot_bound_the_sender() {
+  local home rc out bindir tool resolved
+  # With no timeout, gtimeout, or perl the sender is never launched at all, so
+  # reporting a hang would tell the operator the wrong thing about the wrong
+  # component. Refusing as a misconfiguration is what the header promises.
+  home=$(make_hermes_home hermes-no-bound)
+  configure "$home" "$FAKE_HERMES_TARGET"
+  bindir="$home/unboundable-bin"
+  mkdir -p "$bindir"
+  for tool in bash env jq grep tail tr mktemp cat sed awk dirname rm sleep cp mkdir chmod; do
+    resolved=$(command -v "$tool" 2>/dev/null) || continue
+    ln -sf "$resolved" "$bindir/$tool"
+  done
+  ln -sf "$home/fakebin/hermes" "$bindir/hermes"
+  out=$(PATH="$bindir" FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
+    FM_NOTIFY_TEST_CAPTURE="$home/capture" \
+    FM_NOTIFY_TEST_HERMES_SECRET="$FAKE_HERMES_SECRET" \
+    "$NOTIFY" --event blocked "text" 2>&1)
+  rc=$?
+  expect_code 3 "$rc" "no way to bound the sender"
+  [ ! -f "$home/capture/count" ] \
+    || fail "the sender must never be launched on a host that cannot bound it"
+  assert_contains "$out" "bound" \
+    "the diagnostic should name the missing bounding mechanism"
+  assert_not_contains "$out" "did not finish within" \
+    "a host that never launched the sender must not be reported as a hang"
+  pass "a host that cannot bound the sender refuses instead of reporting a hang"
+}
+
+test_hermes_sender_output_never_reaches_firstmate() {
+  local home out rc
+  # The sender's normal success line prints the chat id. None of its output may
+  # appear in firstmate's own stdout, stderr, or diagnostics.
+  home=$(make_hermes_home hermes-sanitize-ok)
+  configure "$home" "$FAKE_HERMES_TARGET"
+  out=$(run_hermes "$home" -- --event merged "merged" 2>&1)
+  rc=$?
+  expect_code 0 "$rc" "successful hermes send"
+  [ -z "$out" ] || fail "a successful send must be silent, got: $out"
+
+  home=$(make_hermes_home hermes-sanitize-fail)
+  configure "$home" "$FAKE_HERMES_TARGET"
+  out=$(FM_NOTIFY_TEST_HERMES_EXIT=1 run_hermes "$home" -- --event failed "boom" 2>&1)
+  assert_not_contains "$out" "$FAKE_HERMES_SECRET" \
+    "the sender's chat id must never reach firstmate's diagnostics"
+  assert_not_contains "$out" "sender debug" \
+    "raw sender output must never be relayed"
+  assert_not_contains "$out" '-1009999999999' \
+    "no target identifier may appear in firstmate's diagnostics"
+  pass "the sender's output and chat id never reach firstmate's own output"
+}
+
+test_hermes_bare_platform_warns_but_still_delivers() {
+  local home out rc
+  # A bare platform follows the sender's mutable home channel, so alerts can
+  # move without firstmate noticing. Delivered to the wrong reader is worse than
+  # not delivered, which is why this is never silent.
+  home=$(make_hermes_home hermes-bare)
+  configure "$home" 'hermes:telegram'
+  out=$(run_hermes "$home" -- --event merged "merged" 2>&1)
+  rc=$?
+  expect_code 0 "$rc" "bare platform target"
+  [ "$(sent_count "$home")" = 1 ] || fail "a bare platform target should still deliver"
+  assert_contains "$out" "bare platform" "a bare platform target must warn"
+
+  home=$(make_hermes_home hermes-explicit)
+  configure "$home" "$FAKE_HERMES_TARGET"
+  out=$(run_hermes "$home" -- --event merged "merged" 2>&1)
+  [ -z "$out" ] || fail "an explicit target must warn about nothing, got: $out"
+  pass "a bare platform target warns; the recommended explicit target is silent"
+}
+
+test_hermes_empty_and_malformed_targets_are_misconfiguration() {
+  local home rc out
+  home=$(make_hermes_home hermes-empty-target)
+  configure "$home" 'hermes:'
+  out=$(run_hermes "$home" -- --event update "text" 2>&1)
+  rc=$?
+  expect_code 3 "$rc" "hermes target with no address"
+  [ "$(sent_count "$home")" = 0 ] || fail "an empty hermes target still delivered"
+
+  home=$(make_hermes_home hermes-spacey-target)
+  configure "$home" 'hermes:telegram 12 34'
+  out=$(run_hermes "$home" -- --event update "text" 2>&1)
+  rc=$?
+  expect_code 3 "$rc" "hermes target with whitespace"
+  [ "$(sent_count "$home")" = 0 ] || fail "a malformed hermes target still delivered"
+  assert_contains "$out" "whitespace" "the diagnostic should name the malformed target"
+  pass "an empty or malformed hermes target is refused before any delivery"
+}
+
+test_hermes_stays_inert_and_refuses_malformed_calls() {
+  local home rc out
+  # The opt-in and usage contracts are channel-independent: no target is still a
+  # silent no-op, and a malformed call is still a usage error.
+  home=$(make_hermes_home hermes-inert)
+  rm -f "$home/fakebin/hermes"
+  out=$(run_hermes "$home" -- --event blocked "text" 2>&1)
+  rc=$?
+  expect_code 0 "$rc" "hermes home with no target configured"
+  [ -z "$out" ] || fail "an unconfigured home must stay silent, got: $out"
+
+  home=$(make_hermes_home hermes-malformed)
+  configure "$home" "$FAKE_HERMES_TARGET"
+  run_hermes "$home" -- --url 'javascript:alert(1)' "text" >/dev/null 2>&1
+  rc=$?
+  expect_code 2 "$rc" "bad --url on the hermes channel"
+  run_hermes "$home" -- --nope "text" >/dev/null 2>&1
+  rc=$?
+  expect_code 2 "$rc" "unknown option on the hermes channel"
+  [ "$(sent_count "$home")" = 0 ] || fail "a malformed call still reached the sender"
+  pass "the hermes channel keeps the inertness and usage contracts unchanged"
+}
+
+test_hermes_honours_the_event_filter() {
+  local home
+  home=$(make_hermes_home hermes-filter)
+  configure "$home" "$FAKE_HERMES_TARGET" 'merged'
+  run_hermes "$home" -- --event blocked "filtered out" >/dev/null \
+    || fail "a filtered-out class must still exit 0"
+  [ "$(sent_count "$home")" = 0 ] || fail "a filtered-out class reached the sender"
+  run_hermes "$home" -- --event merged "kept" >/dev/null || fail "listed class failed"
+  [ "$(sent_count "$home")" = 1 ] || fail "a listed class did not reach the sender"
+  pass "FM_NOTIFY_EVENTS filters the hermes channel exactly as it filters Discord"
+}
+
+test_hermes_delivery_leaves_no_temporary_files_behind() {
+  local home scratch left
+  home=$(make_hermes_home hermes-tempfiles)
+  scratch="$home/scratch"
+  mkdir -p "$scratch"
+  configure "$home" "$FAKE_HERMES_TARGET"
+  TMPDIR="$scratch" run_hermes "$home" -- --event merged "merged" >/dev/null \
+    || fail "send failed"
+  TMPDIR="$scratch" FM_NOTIFY_TEST_HERMES_EXIT=1 \
+    run_hermes "$home" -- --event failed "boom" >/dev/null 2>&1
+  left=$(find "$scratch" -type f | LC_ALL=C sort)
+  [ -z "$left" ] || fail "hermes delivery left temporary files behind: $left"
+  pass "hermes delivery leaves no payload or captured-output file behind"
+}
+
 # --- help -------------------------------------------------------------------
 
 test_help_and_list_events_need_no_config() {
@@ -915,4 +1343,22 @@ test_a_bad_log_address_cannot_silence_the_interrupt_classes
 test_a_decision_still_lands_without_a_configured_mention_id
 test_the_phone_captain_id_serves_as_the_mention_fallback
 test_no_configured_value_appears_in_any_emitted_string
+test_hermes_target_routes_to_the_sender
+test_hermes_body_never_reaches_the_process_arguments
+test_hermes_wire_format_is_exactly_the_documented_text
+test_hermes_carries_the_link_so_a_pr_is_never_dropped
+test_hermes_actionable_classes_name_the_reply_route
+test_hermes_splits_within_the_platform_cap_with_the_header_present
+test_hermes_missing_binary_is_a_reported_misconfiguration
+test_hermes_binary_override_is_honoured
+test_hermes_exit_codes_are_mapped_deliberately
+test_hermes_hanging_sender_is_bounded
+test_hermes_signal_killed_sender_is_never_read_as_delivered
+test_hermes_refuses_when_the_host_cannot_bound_the_sender
+test_hermes_sender_output_never_reaches_firstmate
+test_hermes_bare_platform_warns_but_still_delivers
+test_hermes_empty_and_malformed_targets_are_misconfiguration
+test_hermes_stays_inert_and_refuses_malformed_calls
+test_hermes_honours_the_event_filter
+test_hermes_delivery_leaves_no_temporary_files_behind
 test_help_and_list_events_need_no_config

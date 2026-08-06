@@ -26,7 +26,8 @@
 #   FM_NOTIFY_TARGET          "<channel>:<address>", or a bare Discord webhook
 #                             URL, which resolves to the discord-webhook
 #                             channel. Presence is the opt-in; absent is a
-#                             silent no-op. This is the conversation lane.
+#                             silent no-op. This is the conversation lane. See
+#                             CHANNELS below for the forms each channel accepts.
 #   FM_NOTIFY_LOG_TARGET      optional second address, same two forms, for the
 #                             broadcast lane. Absent means the broadcast lane
 #                             uses FM_NOTIFY_TARGET, which is exactly the
@@ -44,6 +45,11 @@
 #                             back to FM_PHONE_CAPTAIN_ID when that is already
 #                             configured. Absent means no mention is added and
 #                             the message is still delivered.
+#   FM_NOTIFY_HERMES_BIN      path to the hermes executable for the hermes
+#                             channel, default "hermes" resolved on PATH. A
+#                             hook or service PATH differs from an interactive
+#                             shell's, so this override is how a non-interactive
+#                             caller names the binary.
 #   FM_NOTIFY_EVENTS          comma-separated event classes to mirror, or "all",
 #                             or "none". Default: every class except dispatched
 #                             (see DEFAULT EVENT SET below).
@@ -96,37 +102,117 @@
 #   the four interrupt classes never read it, so they still send.
 #
 # PRESENTATION
-#   One embed per message: an emoji and an uppercase word in the title, plus the
-#   matching colour. Colour NEVER stands alone - the emoji and the word carry
+#   Every channel shows an emoji and an uppercase word for the state. Colour,
+#   where a channel has one, NEVER stands alone - the emoji and the word carry
 #   the same state for colourblind readers and for notification previews that
 #   drop the colour bar. Caps are enforced before sending rather than letting
 #   the API reject the message. Body text is split on line and word boundaries,
 #   so a full https:// URL is never broken across parts; only a single token
 #   longer than the whole per-part budget is ever hard-split.
 #
+#   The caller's text is sent verbatim apart from that cap-driven splitting.
+#   The state marker, the caller's own --title, the part marker, the --url, and
+#   the reply-route note below are sanctioned presentation metadata that a
+#   channel places around the body; nothing is ever added inside it.
+#
+# CHANNELS
+#   discord-webhook  one embed per message.
+#                    Target: "discord-webhook:<webhook url>", or a bare Discord
+#                    webhook URL. Needs curl.
+#   hermes           plain text through the `hermes send` CLI, which reuses
+#                    Hermes' own configured platform credentials. Outbound
+#                    ONLY: firstmate never reads that platform, so actionable
+#                    classes carry a reply-route note naming where an answer
+#                    has to go.
+#                    Target: "hermes:<hermes target>", passed to `hermes send
+#                    --to` unchanged. Verified against Telegram only; describe
+#                    it as supporting targets whose plain-text behaviour has
+#                    actually been tested, not every platform Hermes speaks.
+#                    PREFER AN EXPLICIT TARGET, "hermes:telegram:<chat id>". A
+#                    bare "hermes:telegram" follows whatever Hermes currently
+#                    calls its home channel, so an operator's unrelated Hermes
+#                    change can silently move firstmate's alerts to a different
+#                    conversation - delivered, but to the wrong reader. The bare
+#                    form still works and warns once per notification, before
+#                    anything is sent, however many parts it splits into.
+#                    Wire format, exactly:
+#                      <emoji> <WORD>[ · <title>][ (i/n)]
+#                      <blank>
+#                      <body>
+#                      [<blank> <url>]              first part only
+#                      [<blank> <reply-route note>] actionable classes, every
+#                                                   part, so a captain who sees
+#                                                   only one part still has the
+#                                                   route
+#                    No `--subject` is sent: all presentation lives in the body,
+#                    so this script controls the whole plain-text composition it
+#                    hands over. The reader does NOT necessarily see those
+#                    bytes verbatim: the sender applies its own platform
+#                    formatting (markdown rewritten to MarkdownV2, or HTML when
+#                    the body matches its HTML autodetect) and re-chunks the
+#                    FORMATTED text on UTF-16 units. The header, url, and note
+#                    bytes are still reserved out of the body budget before the
+#                    shared splitter runs, so this script never composes an
+#                    over-cap part; the sender's own split boundary is the
+#                    formatted UTF-16 length rather than this codepoint budget.
+#
 # CHANNEL SEAM
-#   Everything above is platform-agnostic. A channel is exactly three functions
-#   plus one resolver arm:
+#   Everything above the channel functions is platform-agnostic. A channel is
+#   exactly five functions plus one resolver arm:
 #     fm_notify_limits_<channel>    "<title cap> <body cap> <message cap>"
-#     fm_notify_payload_<channel>   build one wire payload on stdout
+#     fm_notify_validate_<channel>  <address>; called once, after the event
+#                                   filter, to check this channel's own
+#                                   dependencies and target form. May warn;
+#                                   return 3 to refuse as misconfiguration
+#     fm_notify_reserve_<channel>   <title> <url> <class>; codepoints this
+#                                   channel's decoration adds around each part,
+#                                   reserved out of the body budget. 0 when the
+#                                   channel carries decoration outside the body
+#     fm_notify_payload_<channel>   <emoji> <word> <colour> <title> <body>
+#                                   <url> <mention-id> <class>; build one wire
+#                                   payload on stdout
 #     fm_notify_deliver_<channel>   post one payload file, returning an exit
 #                                   code from the shared set below
-#   Only discord-webhook is implemented. Adding a second channel is additive:
-#   no change to the caller contract, the config surface, or the shaping logic.
+#   Adding a further channel is additive: no change to the caller contract, the
+#   config surface, or the shaping logic.
 #
 # FAILURE CONTRACT
 #   Losing a notification must never block or delay fleet work. Every failure
 #   path is quiet, bounded, and non-blocking: a short single-line diagnostic on
 #   stderr, a distinguishing exit code, no retry loop beyond the single
 #   rate-limit retry, no daemon, and no write anywhere under the fleet's state.
+#   A channel that shells out to an external sender bounds that process itself,
+#   so a sender that hangs on config, credentials, transport retry, or a broken
+#   provider costs one notification rather than stalling the caller.
+#
+#   No credential, target address, chat id, or raw output from an external
+#   sender ever reaches this script's own stdout or stderr. A channel captures
+#   that output and reports a generic firstmate diagnostic instead.
 #
 # EXIT CODES
 #   0  delivered, or inert (no target configured), or the class is filtered out
 #   2  usage error (bad flag, unknown event class, missing or empty message,
 #      bad --url)
-#   3  misconfiguration (unrecognised target form, or curl/jq missing)
+#   3  misconfiguration (unrecognised target form, jq missing, or a channel's
+#      own dependency or target form is unusable)
 #   4  delivery failed (transport error, or an unexpected HTTP status)
 #   5  the target rejected us (403/404) - the webhook is gone or revoked
+#
+#   The hermes channel maps `hermes send`'s own 0/1/2 deliberately rather than
+#   passing it through, and never reads HTTP-like meaning into it:
+#     hermes 0            -> 0  delivered
+#     hermes 1            -> 4  delivery or backend error
+#     hermes 2            -> 3  the sender rejected our invocation, which means
+#                               the configured target form is wrong
+#     hit the time bound  -> 4  bounded delivery failure
+#     killed by a signal  -> 4  delivery failure; the sender reports this as
+#                               128 plus the signal, so a signal death can never
+#                               be mistaken for a clean exit 0
+#     any other code      -> 4  delivery failure
+#     binary missing      -> 3  misconfiguration, reported before any delivery
+#     no way to bound the -> 3  misconfiguration; this host has no timeout,
+#     sender                    gtimeout, or perl, so the sender was never
+#                               launched and nothing hung
 set -u
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -187,6 +273,21 @@ fm_notify_list_events() {
 # Every class except dispatched; see DEFAULT EVENT SET in the header.
 FM_NOTIFY_DEFAULT_EVENTS='needs-decision,blocked,failed,alarm,pr-ready,merged,done,update'
 
+# The classes that ask the captain for something. On an outbound-only channel
+# these have to name where an answer goes, so an alert never arrives with no
+# route to act on it. This is presentation only: no channel here ever reads.
+FM_NOTIFY_ACTIONABLE_EVENTS='needs-decision,blocked,failed'
+FM_NOTIFY_REPLY_NOTE='Outbound only - this channel is not read. Reply where you normally reach firstmate.'
+
+# fm_notify_event_actionable <class>
+# shellcheck disable=SC2329 # Reached only from channel-seam functions.
+fm_notify_event_actionable() {
+  case ",$FM_NOTIFY_ACTIONABLE_EVENTS," in
+    *",$1,"*) return 0 ;;
+  esac
+  return 1
+}
+
 # --- config resolution ------------------------------------------------------
 
 # fm_notify_config_get <KEY>: an explicitly set environment variable wins,
@@ -239,6 +340,10 @@ fm_notify_resolve_target() {
   case "$raw" in
     discord-webhook:*)
       printf '%s\t%s\n' discord-webhook "${raw#discord-webhook:}"
+      return 0
+      ;;
+    hermes:*)
+      printf '%s\t%s\n' hermes "${raw#hermes:}"
       return 0
       ;;
   esac
@@ -342,7 +447,36 @@ fm_notify_split_body() {
   '
 }
 
-# --- shared transport helper ------------------------------------------------
+# --- shared transport helpers -----------------------------------------------
+
+# fm_notify_run_timed <seconds> <command...>: run a command under a hard time
+# bound, returning 124 when the bound was hit and 125 when this host offers no
+# bounding mechanism at all, in which case nothing was ever launched. This
+# mirrors the selection in bin/fm-auth-preflight.sh and bin/fm-fleet-snapshot.sh:
+# macOS ships no GNU `timeout`, so the perl arm is the one that actually runs on
+# the captain's host, and a host with none of the three refuses rather than
+# running unbounded.
+#
+# The perl arm reports a signal-killed child the way GNU `timeout` does, as
+# 128 plus the signal number. A raw `$? >> 8` would be 0 for a child that died
+# from SIGKILL or SIGSEGV, and a caller mapping that status straight to delivery
+# success would then claim a notification it never sent.
+# shellcheck disable=SC2329 # Reached only from a channel-seam deliver function.
+fm_notify_run_timed() {
+  local seconds=$1
+  shift
+  if [ "${FM_NOTIFY_FORCE_TIMEOUT_FALLBACK:-0}" != 1 ] && command -v timeout >/dev/null 2>&1; then
+    timeout "$seconds" "$@"
+  elif [ "${FM_NOTIFY_FORCE_TIMEOUT_FALLBACK:-0}" != 1 ] && command -v gtimeout >/dev/null 2>&1; then
+    gtimeout "$seconds" "$@"
+  elif command -v perl >/dev/null 2>&1; then
+    # shellcheck disable=SC2016 # single quotes are deliberate: perl expands its own variables.
+    perl -e 'my $t = shift; my $pid = fork; die "fork failed" unless defined $pid; if (!$pid) { setpgrp(0, 0); exec @ARGV } local $SIG{ALRM} = sub { kill "TERM", -$pid; select undef, undef, undef, 0.2; kill "KILL", -$pid; exit 124 }; alarm $t; waitpid $pid, 0; exit($? & 127 ? 128 + ($? & 127) : $? >> 8)' \
+      "$seconds" "$@"
+  else
+    return 125
+  fi
+}
 
 # fm_notify_stage_curl_target <address>: write <address> into a fresh 0600 curl
 # config file and print its path. The address is a write capability that lives
@@ -374,9 +508,26 @@ fm_notify_limits_discord_webhook() {
   printf '%s %s %s\n' 256 4096 6000
 }
 
+# fm_notify_validate_discord_webhook <address>
+# shellcheck disable=SC2329 # Invoked through the channel seam by name.
+fm_notify_validate_discord_webhook() {
+  command -v curl >/dev/null 2>&1 || { warn "curl not found"; return 3; }
+  return 0
+}
+
+# fm_notify_reserve_discord_webhook <title> <url> <class>
+# The state marker, the part marker, the title, and the link all live outside
+# the embed description, and the shared budget already accounts for the title,
+# so this channel reserves nothing further from the body.
+# shellcheck disable=SC2329 # Invoked through the channel seam by name.
+fm_notify_reserve_discord_webhook() {
+  printf '0\n'
+}
+
 # fm_notify_payload_discord_webhook <emoji> <word> <colour> <title> <body> [url]
-#                                   [mention-id]
-# Pure builder: no network and no IO beyond stdout.
+#                                   [mention-id] [class]
+# Pure builder: no network and no IO beyond stdout. The class is part of the
+# seam for channels that decorate the body with it; an embed does not.
 #
 # allowed_mentions is present on EVERY payload with an empty parse list, so the
 # only ping this script can ever produce is the explicitly addressed captain id
@@ -476,6 +627,156 @@ fm_notify_deliver_discord_webhook() (
   done
 )
 
+# --- channel: hermes --------------------------------------------------------
+#
+# `hermes send` is a plain sender: it reuses Hermes' own configured platform
+# credentials and needs no agent, model, or running gateway for bot-token
+# platforms. firstmate treats it strictly as an external dependency with a
+# contract - a bounded process, a fixed argument shape, a mapped exit code, and
+# no output of its own reaching firstmate's diagnostics.
+
+# The resolved sender path, set by fm_notify_validate_hermes before delivery.
+FM_NOTIFY_HERMES_BIN_RESOLVED=
+
+# Telegram's message limit is 4096, and this is the target the plain-text
+# contract has been verified against. The title cap bounds the header line, and
+# the message cap is the whole-message budget the shared shaper splits against.
+# shellcheck disable=SC2329 # Invoked through the channel seam by name.
+fm_notify_limits_hermes() {
+  printf '%s %s %s\n' 128 4096 4096
+}
+
+# fm_notify_validate_hermes <address>
+# Resolves the sender once and checks the target form. A missing or
+# non-executable sender is a reported misconfiguration, never a crash or a hang.
+# The address is whichever of FM_NOTIFY_TARGET and FM_NOTIFY_LOG_TARGET this
+# message's lane selected, so these diagnostics name the target rather than a
+# key that may not be the one at fault.
+# shellcheck disable=SC2329 # Invoked through the channel seam by name.
+fm_notify_validate_hermes() {
+  local address=$1 configured resolved
+  if [ -z "$address" ]; then
+    warn "the configured target names the hermes channel with no target"
+    return 3
+  fi
+  case "$address" in
+    *[[:space:]]*)
+      warn "the hermes target contains whitespace; expected hermes:<platform>[:<id>]"
+      return 3
+      ;;
+    -*)
+      warn "the hermes target may not start with a dash"
+      return 3
+      ;;
+  esac
+  configured=$(fm_notify_config_get FM_NOTIFY_HERMES_BIN)
+  [ -n "$configured" ] || configured=hermes
+  resolved=$(command -v "$configured" 2>/dev/null) || resolved=
+  if [ -z "$resolved" ] || [ ! -x "$resolved" ]; then
+    warn "the message sender is not available; install it or set FM_NOTIFY_HERMES_BIN"
+    return 3
+  fi
+  FM_NOTIFY_HERMES_BIN_RESOLVED=$resolved
+  case "$address" in
+    *:*) ;;
+    *)
+      # A bare platform follows the sender's own mutable home channel, so the
+      # captain's alerts can move without firstmate noticing. Delivered to the
+      # wrong reader is worse than not delivered, so this is never silent.
+      warn "the hermes target names a bare platform, so alerts follow the sender's home channel; pin it with hermes:<platform>:<id>"
+      ;;
+  esac
+  return 0
+}
+
+# fm_notify_reserve_hermes <title> <url> <class>
+# The header line, the link, and the reply-route note all live inside the body
+# this channel sends, so their bytes are reserved out of the body budget before
+# the shared splitter runs. The header itself is already reserved by the shared
+# title budget; what is counted here is the separators and the trailing blocks.
+# shellcheck disable=SC2329 # Invoked through the channel seam by name.
+fm_notify_reserve_hermes() {
+  local url=$2 class=$3 reserve=2
+  [ -z "$url" ] || reserve=$(( reserve + 2 + ${#url} ))
+  if fm_notify_event_actionable "$class"; then
+    reserve=$(( reserve + 2 + ${#FM_NOTIFY_REPLY_NOTE} ))
+  fi
+  printf '%s\n' "$reserve"
+}
+
+# fm_notify_payload_hermes <emoji> <word> <colour> <title> <body> [url]
+#                          [mention-id] [class]
+# Pure builder: the exact plain text handed to the sender. No subject line is
+# used, so this script controls the whole composition it hands over; the sender
+# then applies its own platform formatting and its own re-chunking of that
+# formatted text, so these are the bytes given to it rather than the bytes the
+# reader is guaranteed to see. The mention id is Discord's own addressing and
+# has no meaning here, so this channel ignores it: an actionable class carries
+# the reply-route note instead.
+# shellcheck disable=SC2329 # Invoked through the channel seam by name.
+fm_notify_payload_hermes() {
+  local emoji=$1 word=$2 title=$4 body=$5 url=${6:-} class=${8:-}
+  printf '%s %s%s\n\n%s\n' "$emoji" "$word" "${title:+ · $title}" "$body"
+  [ -z "$url" ] || printf '\n%s\n' "$url"
+  if fm_notify_event_actionable "$class"; then
+    printf '\n%s\n' "$FM_NOTIFY_REPLY_NOTE"
+  fi
+}
+
+# fm_notify_deliver_hermes <address> <payload-file>
+# One bounded sender run. The body goes through --file and never through argv,
+# where the process table would expose captain-facing text to every local user.
+# The target does reach argv: `hermes send` offers no non-argv target mechanism,
+# so that exposure is a documented residual risk of this channel.
+#
+# --quiet plus a captured stream is what keeps the chat id out of firstmate's
+# output: the sender's normal success line prints it. Nothing the sender writes
+# is ever relayed; the diagnostics below are firstmate's own words.
+# shellcheck disable=SC2329 # Invoked through the channel seam by name.
+fm_notify_deliver_hermes() (
+  local address=$1 payload_file=$2 sink='' rc
+
+  trap 'rm -f "$sink"' EXIT
+  trap 'rm -f "$sink"; exit 143' HUP INT TERM
+
+  sink=$(mktemp "${TMPDIR:-/tmp}/fm-notify-sender.XXXXXX") || {
+    warn "cannot create a temporary response file"
+    return 4
+  }
+
+  fm_notify_run_timed "$FM_NOTIFY_TIMEOUT" \
+    "$FM_NOTIFY_HERMES_BIN_RESOLVED" send \
+    --to "$address" \
+    --file "$payload_file" \
+    --quiet \
+    >"$sink" 2>&1 </dev/null
+  rc=$?
+
+  case "$rc" in
+    0) return 0 ;;
+    124)
+      warn "delivery failed: the message sender did not finish within ${FM_NOTIFY_TIMEOUT}s"
+      return 4
+      ;;
+    125)
+      warn "this host has no timeout, gtimeout, or perl to bound the message sender, so nothing was sent"
+      return 3
+      ;;
+    1)
+      warn "delivery failed: the message sender reported a delivery or backend error"
+      return 4
+      ;;
+    2)
+      warn "the message sender refused the request; the configured target is one it does not accept"
+      return 3
+      ;;
+    *)
+      warn "delivery failed: the message sender exited $rc"
+      return 4
+      ;;
+  esac
+)
+
 # --- argument parsing -------------------------------------------------------
 
 EVENT=update
@@ -566,7 +867,6 @@ if ! fm_notify_event_enabled "$EVENT" "$(fm_notify_config_get FM_NOTIFY_EVENTS)"
 fi
 
 command -v jq >/dev/null 2>&1 || { warn "jq not found"; exit 3; }
-command -v curl >/dev/null 2>&1 || { warn "curl not found"; exit 3; }
 
 FM_NOTIFY_TIMEOUT=$(fm_notify_bounded "$(fm_notify_config_get FM_NOTIFY_TIMEOUT_SECS)" 10 1 120)
 FM_NOTIFY_RETRY_CAP=$(fm_notify_bounded "$(fm_notify_config_get FM_NOTIFY_RETRY_CAP_SECS)" 5 0 30)
@@ -617,6 +917,14 @@ if [ "$MENTION" = 1 ]; then
 fi
 
 SUFFIX=$(fm_notify_fn_suffix "$CHANNEL")
+
+# The channel's own dependency and target check runs once, here: after the event
+# filter, so a filtered-out class stays a silent no-op, and before any shaping,
+# so an unusable channel never reaches delivery. It checks the address this
+# message will actually use, which on a broadcast class is the lane's own
+# address rather than the conversation one.
+"fm_notify_validate_$SUFFIX" "$ACTIVE_ADDRESS" || exit $?
+
 read -r TITLE_CAP BODY_CAP MESSAGE_CAP < <("fm_notify_limits_$SUFFIX")
 
 # The part marker lives in the title, so the body the captain reads is never
@@ -635,7 +943,14 @@ fi
 MENTION_COST=0
 [ -z "$MENTION_ID" ] || MENTION_COST=$(( ${#MENTION_ID} + 4 ))
 TITLE_COST=$(( ${#EMOJI} + ${#WORD} + ${#TITLE} + MARKER_RESERVE + MENTION_COST + 4 ))
-BODY_BUDGET=$(( MESSAGE_CAP - TITLE_COST ))
+# Whatever the channel wraps around the body counts against the same per-message
+# budget, so it is reserved before the splitter runs rather than discovered by
+# the platform rejecting an over-long message.
+CHANNEL_RESERVE=$("fm_notify_reserve_$SUFFIX" "$TITLE" "$LINK" "$EVENT")
+case "$CHANNEL_RESERVE" in
+  ''|*[!0-9]*) CHANNEL_RESERVE=0 ;;
+esac
+BODY_BUDGET=$(( MESSAGE_CAP - TITLE_COST - CHANNEL_RESERVE ))
 [ "$BODY_BUDGET" -le "$BODY_CAP" ] || BODY_BUDGET=$BODY_CAP
 [ "$BODY_BUDGET" -ge 16 ] || BODY_BUDGET=16
 
@@ -692,7 +1007,7 @@ while [ "$i" -lt "$COUNT" ]; do
     PART_MENTION=$MENTION_ID
   fi
   if ! "fm_notify_payload_$SUFFIX" "$EMOJI" "$WORD" "$COLOUR" "$PART_TITLE" "$BODY" \
-    "$PART_LINK" "$PART_MENTION" > "$PAYLOAD_FILE"; then
+    "$PART_LINK" "$PART_MENTION" "$EVENT" > "$PAYLOAD_FILE"; then
     warn "cannot build the message payload"
     exit 4
   fi
