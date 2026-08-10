@@ -13,6 +13,11 @@ metadata:
 This skill is the single owner of the decision procedure for ask-user findings.
 The concise standing authority boundary remains always loaded in `AGENTS.md` section 7.
 
+Before deciding any fix round, ask whether the root cause is in the instruction or the implementation, and classify the proposed correction at that layer before authorizing it.
+When evidence genuinely cannot distinguish them, prefer the instruction-level fix because it is more likely to produce coherent behavior than a patch at one symptom, subject to the authority boundaries below.
+After two fix rounds on the same causal theme, escalate instead of authorizing a third patch.
+Do not revert and re-derive existing work to answer this question: by review time a pushed branch or open PR is shared state, so take the diagnostic question without that manoeuvre.
+
 ## Decide who has authority
 
 1. Check the project's configured authority first.
@@ -25,9 +30,7 @@ The concise standing authority boundary remains always loaded in `AGENTS.md` sec
 4. Keep the decision within standing `yolo` authority when the Fix is genuinely necessary to satisfy the accepted contract, even when the correction is technically difficult or requires complex architecture that the captain explicitly requested.
 5. Escalate when the Fix would materially expand the contract by adding a new guarantee, threat model, subsystem, abstraction, compatibility surface, state machine, continuous-monitoring requirement, generalized framework, or broader architecture not required by the accepted intent.
 6. Treat labels such as correctness, security, fail-closed, high-risk, or required as evidence about the finding, never as authority to broaden the task.
-7. Examine the causal theme across prior findings and fix rounds.
-   Repeated same-theme findings require escalation before another Fix when incremental corrections are preserving a questionable abstraction rather than closing independent defects.
-8. Apply the existing stronger captain boundaries first.
+7. Apply the existing stronger captain boundaries first.
    Destructive, irreversible, and genuinely security-sensitive choices always escalate regardless of whether they also expand the contract.
 
 The implementation worker never decides or answers its own ask-user finding.
@@ -49,6 +52,6 @@ Do not relay reviewer labels or gate output as if they settled the decision.
 
 - Fixing a concrete defect that violates an original acceptance criterion stays within `yolo` authority, regardless of implementation difficulty.
 - Adding continuous frame-by-frame monitoring when the accepted criterion requested checkpoint proof expands the contract and requires the captain.
-- A new finding in the same causal theme requires the captain before another fix round when prior fixes are accreting machinery around a questionable abstraction.
+- A third same-theme fix round follows the escalation boundary above rather than adding another symptom patch.
 - A genuinely security-sensitive action requires the captain under the stronger existing boundary even if it is otherwise within scope.
 - Complex architecture explicitly requested by the captain stays within scope and does not escalate merely because it is complex.

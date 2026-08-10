@@ -81,12 +81,25 @@ Mark an axis not applicable only after inspecting its integration surface, and u
 For critical safety, routing, startup, and supervision infrastructure, prefer deterministic and idempotent enforcement over relying on agent memory alone.
 Keep instructions as the authority and discovery layer, but make repeated execution converge safely and make invalid or unsafe states fail closed wherever the runtime can enforce them.
 
+## Existing-layer cost
+
+Before extending an existing mechanism, ask whether the layer still earns its cost and record the answer in task or PR evidence rather than assuming it does.
+`AGENTS.md` section 7 forbids new machinery unless the direct path exposes a concrete blocker or repeated need; apply that same test backwards to the layer being extended.
+Treat a change that deletes a moving part as a positive contribution, not a smaller one.
+Apply this question only when a change would grow or extend a mechanism; it does not authorize a standing audit of existing machinery.
+
 ## Documentation change review
 
 For every changed maintained prose surface, identify its inventory audience, authoritative owner, current-behavior relevance, destination for supporting evidence, and any unique safety fact that removal could lose.
 Move or delete evidence only after the current owner and regression pointer are verified.
 After all documentation, review-fix, and lint-fix commits, review the complete branch diff again against those criteria rather than reviewing only the latest commit.
 Run `bin/fm-doc-audience-check.sh`; it enforces classification, README setup routing, local link targets, and owner pointers without keyword-linting legitimate evidence prose.
+
+## Behavioral test observables
+
+Tests must exercise behavior through an executable or public interface and must never assert implementation-source bytes, including through parsers, regexes, snapshots, or indirect wrappers.
+The observable is behavior, never text: a grep-style assertion over a script, skill, or prompt proves only that text is present and counterfeits falsifiability.
+If the assertion would still pass after the surrounding logic were deleted, it is testing text; this is especially tempting, and prohibited, in this Markdown-and-shell-heavy repository.
 
 ## Repo style rules
 
@@ -97,7 +110,6 @@ Run `bin/fm-doc-audience-check.sh`; it enforces classification, README setup rou
 - `bin/*.sh` and `bin/backends/*.sh` must pass `shellcheck`.
 - Run `bin/fm-lint.sh` before treating a script change as done; it is the single owner of the lint definition (file set, config, and pinned shellcheck version) that CI and the no-mistakes pre-push gate both invoke, and it refuses to run under any other shellcheck version.
 - Colocate tests with the existing pattern in `tests/`, name them `<subject>.test.sh`, and extend an existing script rather than inventing a new runner.
-- Tests must exercise behavior through an executable or public interface and must never assert implementation-source bytes, including through parsers, regexes, snapshots, or indirect wrappers.
 - A maintainer-verification record under `docs/verification/` records active empirical facts, not assumptions or task chronology.
 - Include the date, version, exact commands run, and exact output needed to support the current guarantee.
 - Keep incident chronology and delivery evidence in private task reports or PR evidence unless a concise rationale is required to maintain a current safety boundary.
