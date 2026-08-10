@@ -9,6 +9,7 @@
 #                 "MISSING_MANUAL: <tool> (instructions: <url>)", "NEEDS_GH_AUTH",
 #                 "BACKEND_INVALID: <name> (known: <names>)",
 #                 "STARTUP_MEMORY_BUDGET: invalid config/startup-memory-budget - <reason>",
+#                 "STARTUP_MEMORY_BUDGET: over budget - measured <total> estimated tokens exceeds budget <budget> (data/captain.md=<tokens>, data/captain-shared.md=<tokens>, data/learnings.md=<tokens>); prune or rewrite startup memory",
 #                 "CREW_DISPATCH: invalid config/crew-dispatch.json - <reason>",
 #                 "FLEET_SYNC: <repo>: skipped|recovered|STUCK: <detail>",
 #                 "PR_CHECK_MIGRATION: <private remediation>",
@@ -66,6 +67,10 @@
 #          guesses at malformed or unsafe existing files, and secondmate homes
 #          await the primary-authoritative inherited value instead of creating
 #          their own.
+#          The read-only startup-memory check delegates its estimate to
+#          fm-startup-memory-budget.sh report. It reports only an over-budget
+#          result; missing, unreadable, or unexpected report inputs stay silent
+#          and never break bootstrap.
 #          X mode is OPTIONAL and inert unless FM_HOME/.env has a non-empty
 #          FMX_PAIRING_TOKEN. When opted in, bootstrap requires curl+jq, writes
 #          the relay poll shim and 30s cadence config, and prints an FMX line.
@@ -983,6 +988,42 @@ startup_memory_budget_setup() {
   fi
 }
 
+startup_memory_budget_check() {
+  local report line budget='' total='' status='' captain='' shared='' learnings='' measured
+  if ! report=$(FM_HOME="$FM_HOME" FM_CONFIG_OVERRIDE="$CONFIG" FM_DATA_OVERRIDE="$DATA" \
+    "$SCRIPT_DIR/fm-startup-memory-budget.sh" report 2>/dev/null); then
+    return 0
+  fi
+
+  while IFS= read -r line; do
+    case "$line" in
+      effective_budget_tokens=*) budget=${line#*=} ;;
+      total_estimated_tokens=*) total=${line#*=} ;;
+      budget_status=*) status=${line#*=} ;;
+      'file=data/captain.md '*)
+        measured=${line#* estimated_tokens=}
+        captain=${measured%% *}
+        ;;
+      'file=data/captain-shared.md '*)
+        measured=${line#* estimated_tokens=}
+        shared=${measured%% *}
+        ;;
+      'file=data/learnings.md '*)
+        measured=${line#* estimated_tokens=}
+        learnings=${measured%% *}
+        ;;
+    esac
+  done <<EOF
+$report
+EOF
+
+  [ "$status" = over-budget ] || return 0
+  case "$budget:$total:$captain:$shared:$learnings" in
+    *[!0-9:]*|:*|*::*|*:) return 0 ;;
+  esac
+  echo "STARTUP_MEMORY_BUDGET: over budget - measured $total estimated tokens exceeds budget $budget (data/captain.md=$captain, data/captain-shared.md=$shared, data/learnings.md=$learnings); prune or rewrite startup memory"
+}
+
 if [ "${1:-}" = "install" ]; then
   shift
   [ $# -gt 0 ] || { echo "usage: fm-bootstrap.sh install <tool>..." >&2; exit 1; }
@@ -1007,6 +1048,7 @@ if [ "${FM_BOOTSTRAP_DETECT_ONLY:-0}" != 1 ]; then
   "$SCRIPT_DIR/fm-pr-check-migrate.sh" || true
   startup_memory_budget_setup
 fi
+startup_memory_budget_check
 
 if [ "$BACKEND_VALID" -eq 0 ]; then
   echo "BACKEND_INVALID: $BACKEND (known: $FM_BACKEND_KNOWN)"
