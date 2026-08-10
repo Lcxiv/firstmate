@@ -146,6 +146,7 @@ A secondmate does not create an independent default and instead receives the pri
 The file must be one positive base-10 integer followed by exactly one newline in a regular, single-linked file beneath a non-symlinked `config/` directory.
 Malformed, multi-line, symlinked, hardlinked, special, or otherwise unsafe values are rejected rather than treated as a default.
 Use `bin/fm-startup-memory-budget.sh read` to validate and print the effective value, or `bin/fm-startup-memory-budget.sh report` to account for the three files.
+Session-start bootstrap runs the same report read-only and prints one `STARTUP_MEMORY_BUDGET: over budget` diagnostic only when the total exceeds the budget; the [`bootstrap-diagnostics`](../.agents/skills/bootstrap-diagnostics/SKILL.md) skill owns the response procedure.
 The stable local estimate is `ceil(UTF-8 bytes / 3)` per file, a conservative portable approximation rather than a provider-exact tokenizer.
 An inherited `data/captain-shared.md` counts in a secondmate's total but remains primary-owned and read-only there.
 The internal `/stow` skill curates only the editable local files in that case and reports the primary-owned shared file as a concrete exception if it alone exceeds the budget.
