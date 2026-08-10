@@ -196,6 +196,37 @@ test_budget_accounting_reports_all_three_files_and_safe_failure() {
   pass "budget accounting sums the three startup files and reports safe failures"
 }
 
+test_bootstrap_reports_only_actionable_budget_breaches() {
+  local rec root home fakebin out outside expected rc
+  rec=$(new_bootstrap_world bootstrap-alarm)
+  root=${rec%%|*}
+  home=${rec#*|}
+  fakebin=$(make_fake_toolchain "$TMP_ROOT/bootstrap-alarm")
+  printf '5\n' > "$home/config/startup-memory-budget"
+  printf 'abcdef\n' > "$home/data/captain.md"
+  printf 'abc\n' > "$home/data/captain-shared.md"
+  printf 'abcdef\n' > "$home/data/learnings.md"
+
+  out=$(run_bootstrap "$root" "$home" "$fakebin")
+  expected='STARTUP_MEMORY_BUDGET: over budget - measured 8 estimated tokens exceeds budget 5 (data/captain.md=3, data/captain-shared.md=2, data/learnings.md=3); prune or rewrite startup memory'
+  [ "$out" = "$expected" ] \
+    || fail "over-budget bootstrap should print one actionable line, got: $out"
+
+  printf '8\n' > "$home/config/startup-memory-budget"
+  out=$(run_bootstrap "$root" "$home" "$fakebin")
+  [ -z "$out" ] || fail "within-budget bootstrap should stay silent, got: $out"
+
+  outside="$TMP_ROOT/bootstrap-alarm/unsafe-memory"
+  printf 'outside\n' > "$outside"
+  rm -f "$home/data/captain.md"
+  ln -s "$outside" "$home/data/captain.md"
+  out=$(run_bootstrap "$root" "$home" "$fakebin")
+  rc=$?
+  [ -z "$out" ] || fail "unreadable budget input should degrade silently, got: $out"
+  [ "$rc" -eq 0 ] || fail "unreadable budget input should not break bootstrap"
+  pass "bootstrap reports only over-budget startup memory and degrades silently on unreadable inputs"
+}
+
 new_propagation_world() {
   local world=$1 root="$1/root" home="$1/home" sm="$1/sm" head
   mkdir -p "$home/config" "$home/data" "$home/state" "$root/bin"
@@ -312,6 +343,7 @@ test_primary_budget_converges_with_exact_reread_and_safe_failures() {
 test_primary_bootstrap_materializes_visible_default
 test_safe_parser_rejects_ambiguous_and_unsafe_values
 test_budget_accounting_reports_all_three_files_and_safe_failure
+test_bootstrap_reports_only_actionable_budget_breaches
 test_primary_budget_converges_with_exact_reread_and_safe_failures
 
 echo '# all fm-startup-memory-budget tests passed'
