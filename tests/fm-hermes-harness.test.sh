@@ -155,7 +155,7 @@ run_spawn() {
     FM_FAKE_BRIEF_REAL="$(cd "$home/data/$id" && pwd -P)/brief.md" \
     FM_HERMES_READY_POLLS=2 FM_HERMES_DELIVERY_POLLS=2 \
     FM_HERMES_POLL_INTERVAL=0 PATH="$fakebin:$BASE_PATH" \
-    "$SPAWN" "$id" "$project" "$@" 2>&1
+    "$SPAWN" "$id" "$project" --mode no-mistakes --yolo off "$@" 2>&1
 }
 
 test_hermes_launch_then_send_is_verified() {
@@ -172,7 +172,10 @@ test_hermes_launch_then_send_is_verified() {
   assert_contains "$output" "spawned $id harness=hermes" "Hermes spawn did not report success"
 
   launch=$(cat "$CASE_DIR/launch.log")
-  [ "$launch" = "HERMES_HOME='$HOME_DIR/.hermes' '$FAKEBIN_DIR/hermes' --cli -m 'poolside/laguna-s-2.1:free' --yolo --accept-hooks" ] \
+  # Every non-Cursor harness launch is wrapped so an inherited Cursor marker
+  # cannot misidentify the worker; HERMES_HOME stays outside that wrapper so the
+  # value still reaches the process env -u forwards.
+  [ "$launch" = "HERMES_HOME='$HOME_DIR/.hermes' env -u CURSOR_AGENT -u CURSOR_INVOKED_AS '$FAKEBIN_DIR/hermes' --cli -m 'poolside/laguna-s-2.1:free' --yolo --accept-hooks" ] \
     || fail "Hermes launch did not use the verified interactive shape: $launch"
   assert_not_contains "$launch" "--effort" "Hermes launch emitted a nonexistent effort flag"
   brief_real="$(cd "$HOME_DIR/data/$id" && pwd -P)/brief.md"
@@ -318,7 +321,9 @@ test_hermes_busy_composer_detection_and_liveness_are_scoped() {
     fail "Hermes busy signature leaked into another harness"
   fi
   printf '────────────────────\n❯ \n────────────────────\n' > "$capture"
-  output=$(fm_tmux_composer_row_state '❯' 0 0)
+  # The shared composer verdict moved into bin/fm-composer-lib.sh; Hermes draws
+  # its empty composer as the same bare `❯` row claude does.
+  output=$(fm_composer_classify_content 0 '❯')
   [ "$output" = empty ] || fail "Hermes's bare idle composer was classified as '$output'"
   output=$(fm_backend_tmux_agent_state firstmate:fm-task)
   [ "$output" = alive ] || fail "Hermes tmux liveness was '$output'"

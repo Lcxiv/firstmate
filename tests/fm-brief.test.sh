@@ -324,7 +324,7 @@ test_no_mistakes_brief_preflights_the_registered_pr_base() {
   home="$TMP_ROOT/pr-target-home"
   write_registry "$home"
   id="brief-pr-target-a5"
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" no-registry-proj >/dev/null 2>&1
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" no-registry-proj --mode no-mistakes >/dev/null 2>&1
   brief="$home/data/$id/brief.md"
   assert_grep "$ROOT/bin/fm-pr-target-check.sh ." "$brief" \
     "no-mistakes brief did not require the repo-owned PR-base preflight"
@@ -402,7 +402,7 @@ test_firstmate_repo_boundary_is_explicit_and_scoped() {
   home="$TMP_ROOT/firstmate-repo-boundary-home"
   mkdir -p "$home/data"
 
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" firstmate-task firstmate --firstmate-repo >/dev/null 2>&1
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" firstmate-task firstmate --mode no-mistakes --firstmate-repo >/dev/null 2>&1
   firstmate_brief="$home/data/firstmate-task/brief.md"
   assert_grep "# Firstmate-repo boundary" "$firstmate_brief" \
     "firstmate-repo brief omitted its worker boundary"
@@ -419,7 +419,7 @@ test_firstmate_repo_boundary_is_explicit_and_scoped() {
   assert_grep "read \`firstmate-coding-guidelines\` before changing shared tracked material" "$firstmate_brief" \
     "firstmate-repo brief did not load the tracked-change guidelines"
 
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" ordinary-task ordinary-project >/dev/null 2>&1
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" ordinary-task ordinary-project --mode no-mistakes >/dev/null 2>&1
   ordinary_brief="$home/data/ordinary-task/brief.md"
   assert_present "$ordinary_brief" "ordinary project brief was not scaffolded"
   assert_grep "You are a crewmate: an autonomous worker agent managed by firstmate." "$ordinary_brief" \

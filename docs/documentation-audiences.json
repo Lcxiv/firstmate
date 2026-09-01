@@ -201,6 +201,10 @@
       "audience": "agent-runtime"
     },
     {
+      "path": ".agents/skills/harness-adapters/references/harness/hermes.md",
+      "audience": "agent-runtime"
+    },
+    {
       "path": ".agents/skills/harness-adapters/references/harness/kimi.md",
       "audience": "agent-runtime"
     },
@@ -285,16 +289,16 @@
       "audience": "maintainer-architecture"
     },
     {
-      "path": "docs/board.md",
-      "audience": "operator-current"
-    },
-    {
       "path": "docs/calm-mode-feasibility.md",
       "audience": "maintainer-verification"
     },
     {
       "path": "docs/calm.md",
       "audience": "operator-current"
+    },
+    {
+      "path": "docs/captain-hold-lifecycle.md",
+      "audience": "maintainer-architecture"
     },
     {
       "path": "docs/cd-guard.md",
@@ -313,15 +317,7 @@
       "audience": "operator-current"
     },
     {
-      "path": "docs/captain-hold-lifecycle.md",
-      "audience": "maintainer-architecture"
-    },
-    {
       "path": "docs/documentation-audiences.md",
-      "audience": "maintainer-architecture"
-    },
-    {
-      "path": "docs/extension-bindings.md",
       "audience": "maintainer-architecture"
     },
     {
@@ -345,6 +341,10 @@
       "audience": "operator-example"
     },
     {
+      "path": "docs/extension-bindings.md",
+      "audience": "maintainer-architecture"
+    },
+    {
       "path": "docs/fm-test-isolation-proof.md",
       "audience": "maintainer-verification"
     },
@@ -362,6 +362,10 @@
     },
     {
       "path": "docs/orca-backend.md",
+      "audience": "operator-current"
+    },
+    {
+      "path": "docs/phone-glance.md",
       "audience": "operator-current"
     },
     {
