@@ -68,6 +68,8 @@ FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 # shellcheck source=bin/fm-x-lib.sh
 . "$SCRIPT_DIR/fm-x-lib.sh"
+# shellcheck source=bin/fm-wake-lib.sh
+. "$SCRIPT_DIR/fm-wake-lib.sh"
 
 usage() {
   echo "usage: fm-x-followup.sh --check <task-id> | --clear <task-id> | <task-id> [--image <path>] [--final] --text-file <path> | <task-id> [--image <path>] [--final] -" >&2
@@ -155,6 +157,10 @@ case "$ID" in
 esac
 
 META="$STATE/$ID.meta"
+if [ -e "$META" ] || [ -L "$META" ]; then
+  fm_backlog_record_present "$META" "task record" "$STATE" \
+    || { echo "fm-x-followup: unsafe task record in state/$ID.meta" >&2; exit 1; }
+fi
 if [ "$MODE" = clear ]; then
   fmx_meta_link_clear "$META" \
     || { echo "fm-x-followup: could not clear the link in state/$ID.meta" >&2; exit 1; }
