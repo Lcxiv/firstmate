@@ -177,6 +177,17 @@ if [ "$RECOVER_SESSION_LOCK" -eq 1 ]; then
   fm_session_lock_owned_by_self "$STATE" || exit 0
 fi
 
+# --- foreign live owner: nothing more to say for a holder already reported -----
+# This runs BEFORE the generation claim on purpose. Claiming a generation stamps
+# outcome=arming, so a repeat firing that claimed first would overwrite the rewake
+# the episode already recorded for this same holder.
+FOREIGN_MARK="$STATE/.claude-autoarm-foreign-lock"
+FOREIGN_KEY=
+if [ "$FOREIGN_LIVE_LOCK" -eq 1 ]; then
+  FOREIGN_KEY="$LOCK_PID ${FOREIGN_HOLDER_SID:-unknown}"
+  [ "$(cat "$FOREIGN_MARK" 2>/dev/null)" = "$FOREIGN_KEY" ] && exit 0
+fi
+
 # --- single-flight generation claim --------------------------------------------
 # Claude runs one background process per firing with no dedupe. Exactly one
 # generation owner arms and translates per event epoch: every firing defers to
@@ -231,12 +242,6 @@ autoarm_record() {  # <outcome>
 # ownership recovers. The generation claim above makes this one notice per
 # episode; the marker dedupes it per distinct holder across episodes.
 if [ "$FOREIGN_LIVE_LOCK" -eq 1 ]; then
-  FOREIGN_MARK="$STATE/.claude-autoarm-foreign-lock"
-  FOREIGN_KEY="$LOCK_PID ${FOREIGN_HOLDER_SID:-unknown}"
-  if [ "$(cat "$FOREIGN_MARK" 2>/dev/null)" = "$FOREIGN_KEY" ]; then
-    autoarm_record clean
-    exit 0
-  fi
   {
     printf 'firstmate supervision is NOT running from this session: the home lock is held by another live session (pid %s%s).\n' \
       "$LOCK_PID" "${FOREIGN_HOLDER_SID:+, session $FOREIGN_HOLDER_SID}"

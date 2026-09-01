@@ -74,10 +74,13 @@ if [ -f "$LOCK" ] && [ ! -L "$LOCK" ]; then
     echo "lock acquired: harness pid $me"
     exit 0
   fi
-  if fm_harness_pid_alive "$old"; then
-    echo "error: another live firstmate session holds the lock (pid $old); operate read-only until resolved" >&2
-    exit 1
-  fi
+  # A live owner is NOT refused here. Two cases both need the fuller treatment
+  # below, and neither can be decided from liveness alone: a same-session
+  # successor must re-key the pid rather than be turned away, and a genuine
+  # competing session owes the captain the complete diagnosis (which process,
+  # since when, on which terminal, and the fork-lineage hand-over note). The
+  # early exit above is kept only for the already-ours case, which is the one
+  # that genuinely needs no claim lock and no diagnosis.
 fi
 
 if ! fm_lock_try_acquire "$CLAIM_LOCK"; then
