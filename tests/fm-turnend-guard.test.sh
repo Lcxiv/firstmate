@@ -404,7 +404,10 @@ test_hook_x_mode_only_blocks_in_default_mode() {
   : > "$dir/state/x-watch.check.sh"
   out=$(run_hook "$dir" false); status=$?
   expect_code 2 "$status" "default hook mode must block an X-mode-only blind turn"
-  assert_contains "$out" "X-mode relay polling needs supervision" "X-mode-only blind stop must identify its supervision need"
+  # The fork generalised this one message: the same guard now covers Relay and
+  # Discord phone polling, so it names the remote command channel rather than one
+  # of them. The supervision need being identified is what this case asserts.
+  assert_contains "$out" "Remote command polling needs supervision" "X-mode-only blind stop must identify its supervision need"
   pass "fm-turnend-guard: X-mode-only supervision remains guarded in default mode"
 }
 
