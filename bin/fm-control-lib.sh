@@ -108,8 +108,8 @@ fm_control_harness_supports_kind() {  # <harness> <kind>
 }
 
 # The key that cancels a running turn. Escape for every adapter except grok,
-# whose Esc only moves focus to the scrollback, and hermes, whose running
-# turn binds no Esc at all; both cancel on Ctrl+C.
+# whose Esc only moves focus to the scrollback, and hermes, whose adapter
+# reference verifies a single Ctrl+C; both cancel on Ctrl+C.
 fm_control_interrupt_key() {  # <harness>
   case "${1-}" in
     claude|codex|opencode|pi|pi-signed|kimi|cursor|muse) printf 'Escape' ;;
