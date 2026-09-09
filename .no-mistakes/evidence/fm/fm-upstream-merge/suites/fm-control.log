@@ -1,0 +1,35 @@
+ok - fm-control exit: every verified harness gets its own verified exit command
+ok - fm-control interrupt: every verified harness gets its own verified key and repeat count
+ok - fm-control interrupt: opencode needs a double Escape, claude a single one
+ok - fm-control: a harness with no verified control mechanics is refused, not guessed at
+ok - fm-control-lib: a recorded harness resolves to its verified adapter without guessing
+ok - fm-control: prefixed recorded harnesses reach interrupt and exit mechanics
+ok - fm-control-lib: the backend key matrix matches each adapter's real send-key surface
+ok - fm-control-lib: adapter capability is per task kind, not per adapter alone
+ok - fm-control interrupt: a backend that cannot deliver the harness's key refuses instead of sending another
+ok - fm-control: a backend that cannot prove an agent stopped refuses exit and relaunch
+ok - fm-control-lib: stop-proving verbs are gated on the backends that really classify agent state
+ok - fm-control: a legacy window label is refused and the exact task id is named
+ok - fm-control: an explicit backend endpoint is never a control target
+ok - fm-control: an unrecorded task id is refused
+ok - fm-control: a record whose endpoint identity names another task is refused
+ok - fm-control: a remotely placed secondmate is refused by placement, not by a metadata complaint
+ok - fm-control: interrupt and exit lock before task-state resolution
+ok - fm-control: the verb list is closed - no raw keys, arbitrary text, or clear verb
+ok - fm-control: resume is refused with the determinism reason and the alternative
+ok - fm-control: profile and note flags belong to relaunch only
+ok - fm-control exit: an already-stopped agent is idempotent success with no bytes sent
+ok - fm-control exit: a vanished endpoint refuses instead of silently succeeding
+ok - fm-control interrupt: refuses when no agent is running rather than keying a shell
+ok - fm-control exit: an endpoint whose process cannot be attributed refuses
+ok - fm-control exit: a busy agent receives interrupt delivery before the exit command
+ok - fm-control exit: an idle agent goes straight to its exit command
+ok - fm-control interrupt: unconfirmed delivery preserves observed busy state
+ok - fm-control interrupt: muse confirms cancellation from its session log
+ok - fm-control interrupt: postconditions are revalidated after acknowledgement polling
+ok - fm-control exit: an interrupt-stopped agent satisfies the gone-state postcondition
+ok - fm-control exit: a stubborn agent reports delivered input and an unconfirmed exit
+ok - fm-control interrupt: grok reports delivery without claiming cancellation
+ok - fm-control interrupt: grok's idle footer does not confirm cancellation
+ok - fm-control: a lifecycle command to a secondmate is unmarked and opens no reply expectation
+ok - fm-control's arrival leaves fm-send's from-firstmate marking untouched

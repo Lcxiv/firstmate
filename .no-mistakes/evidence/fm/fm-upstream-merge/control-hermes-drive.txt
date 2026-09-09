@@ -1,0 +1,28 @@
+
+$ [current] fm-control.sh t1 interrupt   (task t1 records harness=hermes, pane command=hermes)
+interrupt-delivered t1 harness=hermes backend=tmux verified=agent-alive cancel=unconfirmed
+exit=0
+keys sent to pane: [C-c ] | text typed: []
+
+$ [current] fm-control.sh t1 exit
+stopped t1 harness=hermes backend=tmux endpoint=fmses:fm-t1 worktree=/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/fm-control.gVxdRJ/hermes-exit-current-1401/wt-t1
+exit=0
+keys sent to pane: [] | text typed: [/exit ]
+
+$ [current] fm-control.sh t1 interrupt   (task t1 records harness=agy, unverified)
+error: task t1 records harness 'agy', which has no verified control mechanics; fm-control refuses to guess an interrupt key or exit command
+exit=1
+
+$ [merge-1a5367a-lib] fm-control.sh t1 interrupt   (task t1 records harness=hermes, pane command=hermes)
+error: task t1 records harness 'hermes', which has no verified control mechanics; fm-control refuses to guess an interrupt key or exit command
+exit=1
+keys sent to pane: [] | text typed: []
+
+$ [merge-1a5367a-lib] fm-control.sh t1 exit
+error: task t1 records harness 'hermes', which has no verified control mechanics; fm-control refuses to guess an interrupt key or exit command
+exit=1
+keys sent to pane: [] | text typed: []
+
+$ [merge-1a5367a-lib] fm-control.sh t1 interrupt   (task t1 records harness=agy, unverified)
+error: task t1 records harness 'agy', which has no verified control mechanics; fm-control refuses to guess an interrupt key or exit command
+exit=1

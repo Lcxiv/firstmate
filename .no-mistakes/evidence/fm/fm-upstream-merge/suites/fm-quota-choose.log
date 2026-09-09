@@ -1,0 +1,49 @@
+ok - help renders the complete header only
+ok - first positive candidate wins
+ok - exhausted provider is skipped
+ok - no positive candidate returns none and exit 1
+ok - positional candidates work
+ok - specific model scope bounds generic quota
+ok - default model uses provider-wide quota
+ok - fractional positive quota is eligible
+ok - unknown harness fails closed
+ok - all candidates are validated before selection
+ok - malformed provider data fails closed
+ok - multiple JSON values fail closed
+ok - known-empty quota fails closed
+ok - semantics and availability statuses must agree
+ok - exhausted runway vetoes unknown headroom
+ok - unknown headroom is not positive quota
+ok - partial semantics accept mixed availability
+ok - stdin snapshot is accepted
+ok - empty model candidate fails closed
+ok - bare harness maps to default model
+ok - default TOON snapshot is accepted
+ok - renderer-shaped TOON snapshot is accepted
+ok - malformed nonzero TOON envelopes fail closed
+ok - zero-row TOON has no positive quota
+ok - empty-array TOON has no positive quota
+ok - inline attention TOON has no positive quota
+ok - TOON attention identities fail closed
+ok - truncated zero-row TOON fails closed
+ok - malformed zero-row TOON fails closed
+ok - zero-row TOON rejects leading garbage
+ok - counted TOON rows require every declared field
+ok - TOON conversion preserves unknown-headroom exhaustion
+ok - trailing empty TOON fields fail closed
+ok - quoted TOON scope vetoes dispatch
+ok - provider-level unknown quota is not positive
+ok - Muse candidate is accepted
+ok - Muse uses Meta quota
+ok - unsupported harness is rejected
+ok - duplicate providers fail closed
+ok - empty quota scopes fail closed
+ok - whitespace quota identities fail closed
+ok - out-of-range quota fails closed
+ok - invalid runway status fails closed
+ok - missing applicable quota is not positive
+ok - any exhausted applicable scope vetoes dispatch
+ok - named model quota matches exact identity only
+ok - invalid availability status fails closed
+ok - helper reuses the captured quota snapshot
+# all fm-quota-choose tests passed

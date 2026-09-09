@@ -1,0 +1,51 @@
+ok - context digest distinguishes ABSENT, empty-but-present, and populated files
+ok - a lock refusal prints a loud read-only banner, skips every mutating step, and still completes the digest
+ok - session start stays read-only when lock ownership cannot be published
+ok - locked session start freezes trace context and lock refusal leaves it unchanged
+ok - concurrent session-lock acquisition admits exactly one live harness
+ok - digest sections are ordered safety-preamble first, live fleet state before curated memory
+ok - the read-once contract is stated once, ahead of the sources it governs
+ok - session start: configured and auto-detected Herdr homes never require tmux
+ok - session start: an absent recorded tmux window relaunches its Pi secondmate exactly once, off the blocking path
+ok - session start: a deferred relaunch is always reported, so the digest's stale endpoint record cannot stand
+ok - session start: an unreachable host delays a reported check, not the digest
+ok - session start: a deferred result the digest outran still reaches the agent as a wake
+ok - session start: a read-only session declares its skipped network checks rather than dropping them
+ok - session start: the tasks-axi compatibility verdict is computed once and reused
+ok - session start: an existing ambiguous Pi process prevents duplicate recovery
+ok - session start: transient tmux unreadability never licenses a relaunch
+ok - session start: the proven bare-shell recovery path remains intact
+ok - session start: a confirmed Herdr husk is closed and relaunched
+ok - status tail is bounded to the configured line count, with the full log path always printed
+ok - status tail lines are capped with a truncation marker while the full log stays reachable
+ok - orphan status logs are printed once with bounded tails
+ok - tmux endpoint liveness is reported per task: alive for a live window, dead for a gone one
+ok - herdr endpoint liveness is reported per task: alive for a live pane, dead for a gone one
+ok - fm-session-start.sh composes the real fm-lock.sh, fm-bootstrap.sh, and fm-wake-drain.sh output verbatim
+ok - locked Pi session start replays unread branch outcomes once and sweeps only dead leases
+ok - non-Pi session start neither sweeps nor replays Pi branch state
+ok - compatible tasks-axi backlog rendering drops done rows and keeps every in-flight, held, and blocked row
+ok - the startup backlog bound cuts only dispatchable queued rows and discloses the remainder exactly
+ok - manual backlog rendering drops done rows, keeps every held or blocked title line, and bounds the rest
+ok - unavailable or incompatible tasks-axi falls back to compact manual backlog rendering
+ok - an empty fleet reports (none) for in-flight tasks and an absent AFK flag
+ok - session start emits X-mode cadence guidance in the harness supervision block
+ok - session start emits Discord phone-mode cadence guidance in the harness supervision block
+ok - next step delegates watcher ownership to the AFK daemon
+ok - session start emits exactly one detected harness block and reports Pi extension load state
+ok - session start preserves pi-signed primary identity while applying Pi extension guarantees
+ok - session start rejects stale Pi loaded markers
+ok - session start accepts current Pi markers written before lock acquisition
+ok - session start rejects Pi sessions missing the turn-end guard marker
+ok - session start rejects Pi loaded markers from previous sessions
+ok - the pure-Bash watchdog bounds session start, kills its hung grandchild, and emits the truncation contract
+ok - the portable timeout path force-kills a command that ignores TERM
+ok - a session start inside its budget prints no truncation banner
+ok - the runtime bound leaves enough ancestry headroom for a deeply nested session to take the lock
+ok - --reemit reprints the digest without repeating startup's mutating sweeps and still drains queued wakes
+ok - true-start AGENTS baselines stay immutable while every drifted Pi compact re-emits the current contract
+ok - read-only Pi compact refreshes against the rebuilding session identity without mutation
+ok - Codex reset sources do not claim an unavailable instruction-refresh channel
+ok - instruction baselines require SHA-256 and successful startup completion
+ok - --reemit re-verifies lock ownership and keeps repair ownership with whoever holds it
+# fm-session-start.test.sh: all assertions passed

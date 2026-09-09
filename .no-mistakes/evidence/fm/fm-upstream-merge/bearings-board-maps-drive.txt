@@ -1,0 +1,53 @@
+$ bin/fm-bearings-board.sh build payload.json   # payload carries a two-entry maps array
+board: /var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T//fm-board-drive.moJvxB/board/.lavish/bearings-board.html
+served: /var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T//fm-board-drive.moJvxB/board/.lavish/bearings-board.html
+bound: lavish-0cee840b35a6da41
+armed: lavish-0cee840b35a6da41
+exit=0
+
+$ node tests/assets/board-render-harness.mjs .lavish/bearings-board.html | jq .maps
+{
+  "shown": true,
+  "sub": "2 efforts",
+  "cards": [
+    {
+      "title": "agent factory",
+      "dest": "One agent the captain talks to.",
+      "badges": [
+        {
+          "tone": "online",
+          "text": "3 decided"
+        },
+        {
+          "tone": "warn",
+          "text": "2 open"
+        }
+      ],
+      "notes": [
+        "Fog: headless turn; capability scope",
+        "Out of scope: voice relay"
+      ]
+    },
+    {
+      "title": "sharp effort",
+      "dest": "Nothing unknown left.",
+      "badges": [
+        {
+          "tone": "online",
+          "text": "5 decided"
+        },
+        {
+          "tone": "warn",
+          "text": "0 open"
+        }
+      ],
+      "notes": [
+        "Fog: none - remaining work is sharp"
+      ]
+    }
+  ]
+}
+
+$ bin/fm-bearings-board.sh build payload-with-bad-maps.json   # maps entry missing its destination
+fm-bearings-board: board data does not satisfy fm-bearings-board.v1: /var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T//fm-board-drive.moJvxB/bad.json
+exit=1

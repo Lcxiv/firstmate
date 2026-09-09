@@ -1,0 +1,29 @@
+ok - fm-turnend-guard: Cursor payload is inert without --cursor and blocks with it
+ok - fm-turnend-guard: a non-Cursor payload keeps blocking
+ok - fm-claude-stop-autoarm: inert on a Cursor-delivered payload
+ok - fm-sessionstart-run: inert on a Cursor payload, unchanged otherwise
+ok - fm-arm-pretool-check: Cursor duplicate allows, --cursor denies in Cursor's own shape
+ok - fm-cd-pretool-check: Cursor duplicate allows, --cursor denies in Cursor's own shape
+ok - cursor park: silent no-op when no supervision is needed
+ok - cursor park: an actionable close is delivered as one watcher-kind follow-up
+ok - cursor park: Discord phone polling uses its configured cadence
+ok - cursor park: always exits 0, even when supervision is genuinely down
+ok - cursor park: the repair nag is bounded and then goes quiet
+ok - cursor park: a repair nag is emitted only after its budget persists
+ok - cursor park: a delivered wake resets the bounded repair budget
+ok - cursor park: the loop_count ceiling warns exactly once, then stops the loop
+ok - cursor park: an older park stands down after a newer stop claim
+ok - cursor park: the newest stop exclusively owns a concurrent commit
+ok - cursor park: a superseded park cannot consume repair budget
+ok - cursor park: inert while away mode is active
+ok - cursor park: inert when PI_CODING_AGENT marks a Pi host session
+ok - cursor park: parks when PI_CODING_AGENT leaks alongside Cursor identity
+ok - cursor park: an away-mode transition wins before follow-up commit
+ok - cursor park: inert when this session does not hold the home lock
+ok - cursor park: session takeover stops polling without output or state mutation
+ok - cursor park: inert inside a child crewmate worktree
+ok - cursor park: malformed payloads fail open without arming
+ok - fm-sessionstart-cursor: sessionStart injects context
+ok - fm-sessionstart-cursor: silent inside a child crewmate worktree
+ok - cursor registration: covers every primary event with a bounded stop loop
+ok - cursor bounds nest: firstmate's default ceiling stops the loop before Cursor's loop_limit does

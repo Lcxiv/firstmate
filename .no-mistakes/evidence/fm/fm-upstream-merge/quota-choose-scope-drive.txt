@@ -1,0 +1,42 @@
+$ cat quota.json  # claude all_models=28% through_reset, model:fable exhausted_now
+{
+  "generatedAt": "2030-01-01T00:00:00Z",
+  "schemaVersion": 5,
+  "providers": [
+    {
+      "provider": "claude",
+      "windows": [],
+      "quotaSemantics": {
+        "status": "known",
+        "effectiveAvailability": [
+          { "scope": "all_models", "status": "known", "effectivePercentRemaining": 28, "runway": { "status": "through_reset" } },
+          { "scope": "model:fable", "status": "known", "effectivePercentRemaining": 0, "runway": { "status": "exhausted_now" } }
+        ]
+      }
+    }
+  ]
+}
+
+$ bin/fm-quota-choose.sh --snapshot quota.json --candidate claude:sonnet
+claude sonnet
+exit=0
+
+$ bin/fm-quota-choose.sh --snapshot quota.json --candidate claude:fable
+none
+exit=1
+
+$ bin/fm-quota-choose.sh --snapshot quota.json --candidate claude:fable --candidate claude:sonnet
+claude sonnet
+exit=0
+
+$ bin/fm-quota-choose.sh --snapshot quota.json --candidate claude:claude-fable-5   # recorded residual: exact-name scope match
+claude claude-fable-5
+exit=0
+
+$ bin/fm-quota-choose.sh --snapshot quota.json --candidate hermes:default
+error: unknown harness: hermes
+exit=2
+
+$ bin/fm-quota-choose.sh --snapshot quota.json --candidate hermes:default --candidate claude:sonnet
+error: unknown harness: hermes
+exit=2

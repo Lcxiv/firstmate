@@ -1,0 +1,28 @@
+ok - fm-guard stale banner: first stale call prints the full actionable banner
+ok - fm-guard stale banner: repeated same-episode calls print a concise reminder only
+ok - fm-guard stale banner: Pi and pi-signed primaries route themselves to the extension model
+ok - fm-guard stale banner: extension-owned hand-off with a live session is healthy
+ok - fm-guard stale banner: extension-owned empty lock is genuinely unheld
+ok - fm-guard stale banner: held unhealthy extension locks stay loud
+ok - fm-guard stale banner: extension model without ownership evidence stays loud
+ok - fm-guard stale banner: every extension-ownership signal is load-bearing
+ok - fm-guard stale banner: extension model still alarms on a genuinely stale beacon
+ok - fm-guard stale banner: queued-wake warning survives the extension hand-off tolerance
+ok - fm-guard stale banner: persistent primaries ignore Pi extension evidence
+ok - fm-guard stale banner: extension model stays silent for a live watcher
+ok - fm-guard stale banner: auto-arm fresh beacon without a live watcher is healthy
+ok - fm-guard stale banner: auto-arm stale beacon alarms with the true reason
+ok - fm-guard stale banner: auto-arm stale episode stays one episode across calls
+ok - fm-guard stale banner: persistent no-watcher banner names the true reason
+ok - fm-guard stale banner: a no-watcher episode survives a beacon mtime change
+ok - fm-guard stale banner: a fresh beacon without a live watcher remains unhealthy
+ok - fm-guard stale banner: X-mode polling without a live watcher remains unhealthy
+ok - fm-guard stale banner: Discord phone polling without a live watcher remains unhealthy
+ok - fm-guard stale banner: healthy recovery rearms the next stale episode
+ok - fm-guard stale banner: concurrent same-episode calls claim exactly one full banner
+ok - fm-guard stale banner: deduplication is isolated per FM_HOME
+ok - fm-guard stale banner: queued-wake warning remains independent
+ok - fm-guard stale banner: read-only before writable does not consume full banner
+ok - fm-guard stale banner: read-only during episode observes without mutating marker
+ok - fm-guard stale banner: healthy read-only does not clear marker
+ok - fm-guard stale banner: read-only never mutates stale-banner state files

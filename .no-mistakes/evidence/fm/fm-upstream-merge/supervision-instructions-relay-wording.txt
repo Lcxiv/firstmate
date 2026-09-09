@@ -1,0 +1,6 @@
+### harness=opencode rc=0
+7:- X mode: inactive.
+19:   Each launch sources the generated Relay and Discord phone-mode cadence files when present.
+### harness=pi rc=0
+7:- X mode: inactive.
+23:   Each launch sources the generated Relay and Discord phone-mode cadence files when present.

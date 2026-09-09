@@ -1,0 +1,12 @@
+##### adversarial: same-pid reacquire where state/.lock-session is a SYMLINK to a file holding this session id
+P (pid 57725, sid 11111111-1111-1111-1111-111111111111) rc=0: lock acquired: harness pid 57725 (session 11111111-1111-1111-1111-111111111111)
+sidecar after: regular file containing 11111111-1111-1111-1111-111111111111
+
+##### adversarial: sweep holds the mutex, same pid, this time a trusted session id IS available but no sidecar exists (recorded decision: only the sid-less no-sidecar case skips the mutex)
+sweep stand-in holds the mutex: pid=57848
+R3 (pid 57879, sid 11111111-1111-1111-1111-111111111111, no sidecar) rc=1: error: the prior session's bounded startup sweep is finishing; operate read-only until it releases the fleet lock
+sidecar after: <absent>
+
+##### once the sweep releases the mutex, the same re-emit backfills the sidecar
+R4 (pid 57722, sid 11111111-1111-1111-1111-111111111111, no sidecar, mutex free) rc=0: lock acquired: harness pid 57722 (session 11111111-1111-1111-1111-111111111111)
+sidecar after: 11111111-1111-1111-1111-111111111111

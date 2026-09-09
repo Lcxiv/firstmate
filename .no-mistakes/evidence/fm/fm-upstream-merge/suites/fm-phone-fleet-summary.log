@@ -1,0 +1,8 @@
+ok - fixture snapshot renders the five ordered columns without internal details
+ok - empty fixture says nothing is under way
+ok - oversized fixture stays on one screen and discloses what was omitted
+ok - default renderer path consumes fm-fleet-snapshot JSON
+ok - an unreadable fleet list is reported rather than answered as an empty fleet
+ok - the glance budget follows a lowered FM_PHONE_REPLY_MAX_CHARS
+ok - a budget below the five-column frame degrades to one honest counted line
+ok - a budget just below the frame keeps per-column counts

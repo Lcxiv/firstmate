@@ -1,0 +1,13 @@
+ok - fm_cursor_process_matches: cursor's real shapes identify; real node/agent lookalikes do not
+ok - fm_cursor_process_matches: name and install-tree signals each carry a verdict alone
+ok - fm_cursor_verify_executable: the legacy alias is accepted only with cursor evidence
+ok - fm_cursor_resolve_binary: prints the stable launcher, not the versioned target
+ok - tmux liveness: a cursor pane is agent; an unrelated node/agent is other, never dead
+ok - fm-harness.sh: cursor's marker outranks an inherited CLAUDECODE
+ok - fm-harness.sh: cursor-like node script names do not establish ancestry identity
+ok - cursor transcript fold: role:user opens a turn, turn_ended closes it, aborts included
+ok - cursor transcript fold: malformed closes cannot settle through either parser
+ok - cursor transcript fold: partial appends never make an active turn idle
+ok - cursor transcript fold: an unresolvable binding is unknown, never idle
+ok - cursor transcript binding: exact recorded workspacePath only, never a prefix or rebuilt slug
+ok - cursor transcript fold: a prior conversation is excluded so a relaunch folds its own turn

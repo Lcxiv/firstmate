@@ -1,0 +1,62 @@
+$ grep -rniE "decision[ -]holds?" --exclude-dir=.git . | grep -v "^./docs/changelog"   # retired term anywhere outside changelog
+bin/fm-captain-hold.sh:15:# `<origin>-decision-<key>` identities through bin/fm-decision-hold.sh; those
+bin/fm-captain-hold.sh:115:# identity, so pre-collapse metadata written by fm-decision-hold.sh verifies
+bin/fm-captain-hold.sh:123:# Records written by the retired fm-decision-hold.sh (routed, declined,
+bin/fm-captain-hold.sh:303:# fm-decision-hold.sh. Both carry the same leader-then-captain-decision shape.
+bin/fm-captain-hold.sh:307:    *"Resolution recorded by fm-decision-hold."*"Captain decision:"*) return 0 ;;
+bin/fm-captain-hold.sh:734:        || { case "$body" in *"Resolution recorded by fm-decision-hold."*) true ;; *) false ;; esac \
+bin/fm-decision-hold.sh:2:# fm-decision-hold.sh - transitional compatibility shim over bin/fm-captain-hold.sh.
+bin/fm-decision-hold.sh:45:  printf 'fm-decision-hold: %s\n' "$*" >&2
+bin/fm-decision-hold.sh:132:    *"Resolution recorded by fm-decision-hold."*"Routed identities: "*)
+bin/fm-decision-hold.sh:155:  tmp=$(umask 077; mktemp "${TMPDIR:-/tmp}/fm-decision-hold-resolve.XXXXXX") \
+bin/fm-test-run.sh:1231:    bin/fm-captain-hold.sh|bin/fm-decision-hold.sh|bin/fm-supervision*|bin/fm-transition-lib.sh|\
+tests/fm-captain-hold-lifecycle.test.sh:82:    FM_CONFIG_OVERRIDE="$home/config" "$ROOT/bin/fm-decision-hold.sh" "$@"
+tests/fm-captain-hold-lifecycle.test.sh:872:  printf 'Resolution recorded by fm-decision-hold.\nDecision digest: %s\nRouted identities: sample-old-routed-work\nResolution mode: routed\n\nCaptain decis...
+tests/fm-captain-hold-lifecycle.test.sh:912:  printf 'Resolution recorded by fm-decision-hold.\nDecision digest: %s\nRouted identities: none\nResolution mode: answered\n\nCaptain decision:\n%s\n' \
+tests/fm-cmux-claude-composer-live-e2e.test.sh:23:    FM_HOME="$LAB" "$ROOT/bin/fm-decision-hold.sh" complete "$TASK" --none >/dev/null 2>&1 || true
+tests/fm-bearings-board.test.sh:47:    "$ROOT/bin/fm-decision-hold.sh" "$@"
+.agents/skills/decision-hold-lifecycle/SKILL.md:2:name: decision-hold-lifecycle
+.agents/skills/decision-hold-lifecycle/SKILL.md:11:# decision-hold-lifecycle (renamed)
+.agents/skills/decision-hold-lifecycle/SKILL.md:15:Where an older brief says `bin/fm-decision-hold.sh`, that command still works as a one-release compatibility shim over `bin/fm-captain-hold.sh`.
+docs/documentation-audiences.json:136:      "path": ".agents/skills/decision-hold-lifecycle/SKILL.md",
+docs/captain-hold-lifecycle.md:80:Older installs created derived `<origin>-decision-<key>` identities through the retired `bin/fm-decision-hold.sh`.
+docs/captain-hold-lifecycle.md:84:`bin/fm-decision-hold.sh` itself remains for one release as a thin command-mapping shim over `bin/fm-captain-hold.sh`, so in-flight work briefed before the collapse k...
+docs/scripts.md:32:| `fm-decision-hold.sh`    | One-release compatibility shim mapping the retired decision commands onto fm-captain-hold.sh |
+
+$ ls .agents/skills/decision-hold-lifecycle bin/fm-decision-hold.sh   # upstream compatibility shims kept on purpose
+bin/fm-decision-hold.sh
+
+.agents/skills/decision-hold-lifecycle:
+SKILL.md
+
+$ grep -n "captain holds" AGENTS.md | head -5
+459:Do not expose internal terms such as startup machinery, locks, watchers, polling, crewmates, task ids, briefs, worktrees, checkouts, status or metadata files, teardown, promotion, harness names, runtime backend names, context budgets, delivery-mode names, autonomy flags, wake types, status prefixes, captain holds, pipeline step names, validation-state labels, or compressed safety labels such as fail-closed, fails closed, fail-open, fails open, fail loudly, or close variants.
+
+$ grep -n "fm-pr-target-check" docs/scripts.md
+129:| `fm-pr-target-check.sh`  | Refuse delivery when no-mistakes' registered PR base is not the task worktree's own origin |
+
+$ git show 7e435daf:docs/scripts.md | grep -n "fm-pr-target-check"   # wording on fork main
+92:| `fm-pr-target-check.sh`  | Refuse delivery when no-mistakes' registered PR base is not the task worktree's own origin |
+
+$ sed -n 26p docs/trace-context.md
+The injection sits at the unconditional pre-launch export site, so it covers ship and scout spawns across `claude`, `codex`, `opencode`, `pi`, `pi-signed`, `grok`, `kimi`, `cursor`, `muse`, and `hermes`, plus Secondmate spawns across that same set except the deliberately crewmate-only `muse` adapter.
+
+$ grep -niE "x[ -]mode" docs/supervision-protocols/opencode.md docs/supervision-protocols/pi.md docs/architecture.md docs/configuration.md | head
+docs/configuration.md:509:It writes `state/x-watch.check.sh`, a byte-static identity shim for `bin/fm-x-poll.sh`, and `config/x-mode.env`, which exports `FM_CHECK_INTERVAL=30` for watcher processes in that home.
+docs/configuration.md:511:This section is the single owner of the Relay cadence contract: a Relay instance polls every 30 seconds instead of the default 300, only a Relay instance speeds up because a non-Relay home has no `config/x-mode.env`, and the session-start supervision operating block includes the cadence instruction when that file exists.
+docs/configuration.md:548:Relay auth or config problems are reported once as `x-mode-error ...` until recovery.
+docs/configuration.md:549:A failed durable offer claim is likewise reported once as `x-mode-error cannot record mention offer` and remains deduplicated through quiet no-pending polls until a later offer confirms an existing valid marker or claims a new one.
+
+$ ls bin/fm-auth-preflight.sh bin/fm-board.sh bin/fm-quota-choose.sh bin/fm-vendor-auth-probe.sh bin/fm-bearings-board.sh
+ls: bin/fm-auth-preflight.sh: No such file or directory
+ls: bin/fm-board.sh: No such file or directory
+bin/fm-bearings-board.sh
+bin/fm-quota-choose.sh
+bin/fm-vendor-auth-probe.sh
+
+$ git merge-base 7e435daf 6c1d2db; git log -1 --format=%H 1a5367a^2   # pinned upstream parent of the merge
+96542a421cac5fd2f88eeae1ff9c971e6babf5f8
+6c1d2db194cb20e08232ba2fa2c414592f724b44
+
+$ git diff --stat 7e435daf...6c1d2db | tail -1   # upstream side of the merge from the merge base
+ 426 files changed, 128187 insertions(+), 12140 deletions(-)

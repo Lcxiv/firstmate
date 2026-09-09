@@ -1,0 +1,7 @@
+##### Claude Stop auto-arm (bin/fm-claude-stop-autoarm.sh) in a phone-only home: config/phone-mode.env exports FM_CHECK_INTERVAL=30, state/phone-watch.check.sh present, no task in flight
+[current hook] rc=2 arm ran=yes FM_CHECK_INTERVAL seen by fm-watch-arm=30
+[merge hook] rc=2 arm ran=yes FM_CHECK_INTERVAL seen by fm-watch-arm=missing
+
+##### Cursor park (bin/fm-turnend-guard-cursor.sh) in the same phone-only home shape
+[current park] follow-up kind=watcher FM_CHECK_INTERVAL seen by fm-watch-arm=30
+[merge park] follow-up kind=watcher FM_CHECK_INTERVAL seen by fm-watch-arm=missing

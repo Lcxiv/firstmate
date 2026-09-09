@@ -1,0 +1,13 @@
+ok - session-lock identity: a daemon-owned pooled worker resolves no session and fails closed
+ok - session-lock identity: pooled workers of different sessions share no resolvable identity
+ok - session-lock identity: the daemon is rejected by subcommand, not by one --origin value
+ok - session-lock identity: daemon and pooled-worker locks are reclaimable, not live holders
+ok - session-lock identity: a pool chain below a session still resolves the outermost session pid
+ok - session-lock identity: a versioned-executable session resolves its own pid, not its daemon-owned pty host
+ok - session-lock identity: a prompt that mentions daemon does not make a session infrastructure
+ok - session-lock identity: a claude path component alone does not make a process the harness
+ok - session-lock identity: a spaced executable path does not hide the daemon subcommand
+ok - session-lock identity: an interpreter-hosted daemon is rejected while its session shape still resolves
+ok - session-lock identity: an ordinary session ancestry and live holder are unchanged
+ok - session-lock identity: session ids resolve only from the payload hint or the pid-matched env pair
+ok - session-lock identity: holder relations classify self, same-session, live-other, and stale correctly

@@ -1,0 +1,10 @@
+ok - fm-spawn: Hermes launches interactively, receives its brief, and registers a turn-end token
+ok - fm-spawn: a raw Hermes launch registers its token when the registry does not exist yet
+ok - Hermes hook install is surgical, idempotent, authenticated, and removable
+ok - Hermes hook restores newline boundaries and refuses malformed YAML without writing
+ok - Hermes busy, composer, and tmux liveness signatures are correctly scoped
+ok - fm-watch classifies Hermes as unknown rather than from its rendered row, and Grok's fallback stays isolated
+ok - fm-harness detects Hermes through its verified marker and interpreter ancestry
+lock acquired: harness pid 7967
+ok - fm-lock recognizes Hermes ancestry and live lock holders
+ok - fm-teardown removes the Hermes task pointer and registry token

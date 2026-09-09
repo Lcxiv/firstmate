@@ -1,0 +1,12 @@
+$ FM_HOME=<seeded sm-h1 home> bin/fm-remote-secondmate-control.sh launch sm-h1 hermes - - tmux
+error: a remote secondmate runs only on the herdr backend, not 'tmux'
+exit=1
+
+$ FM_HOME=<seeded sm-h1 home> bin/fm-remote-secondmate-control.sh launch sm-h1 agy - - tmux
+error: unverified remote secondmate harness: agy
+exit=1
+
+$ FM_HOME=<seeded sm-h1 home> bin/fm-remote-secondmate-control.sh launch sm-h1 cursor - - tmux
+error: a remote secondmate runs only on the herdr backend, not 'tmux'
+exit=1
+

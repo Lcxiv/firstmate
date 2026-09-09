@@ -1,0 +1,7 @@
+ok - session-lock: a version-named Claude Code session is identified from its install path and argv[0]
+ok - session-lock: ordinary script paths under a harness directory are not harness processes
+ok - session-lock: ownership stops at the first non-harness gap above the contiguous run
+ok - session-lock: a live version-named session holding the lock is not mistaken for a stale owner
+ok - session-lock e2e: a version-named session claims the home and arms supervision
+ok - session-lock e2e: a session parented by a harness-named daemon claims the home and arms supervision
+ok - session-lock e2e: a version-named session under a harness-named daemon keeps its own lock

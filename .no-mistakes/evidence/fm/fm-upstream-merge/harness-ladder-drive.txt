@@ -1,0 +1,22 @@
+# all runs use env -i so this test session's own Claude Code markers (CLAUDECODE, CLAUDE_PID, ...) do not short-circuit the ladder;
+# the fake parent runs a compound command so bash does not exec-replace itself with the script under test
+$ env -i HERMES_INTERACTIVE=1 bin/fm-harness.sh   # hermes env marker
+hermes
+
+$ env -i CURSOR_AGENT=1 bin/fm-harness.sh   # cursor env marker
+cursor
+
+$ env -i (parent process named hermes) bin/fm-harness.sh   # ancestry walk
+hermes
+
+$ env -i (parent process named muse-bin-0.1.0) bin/fm-harness.sh   # ancestry walk
+muse
+
+$ env -i (parent process named cursor-agent) bin/fm-harness.sh   # ancestry walk
+cursor
+
+$ env -i (parent process named codex) bin/fm-harness.sh   # ancestry walk
+codex
+
+$ env -i bin/fm-harness.sh   # no fake parent: the walk reaches the real Claude Code process hosting this test session
+claude

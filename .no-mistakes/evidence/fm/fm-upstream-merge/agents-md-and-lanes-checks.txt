@@ -1,0 +1,63 @@
+$ grep -nE "^## " AGENTS.md | sed -n "1,20p"
+14:## 1. Identity and prime directives
+47:## 2. Layout and state
+153:## 3. Session start (run once at every session start)
+201:## 4. Harness and runtime dispatch
+227:## 5. Recovery
+242:## 6. Project and knowledge management
+271:## 7. Task lifecycle
+398:## 8. Supervision protocol
+454:## 9. Escalation and captain etiquette
+501:## 10. Backlog contract
+521:## 11. Crewmate briefs
+536:## 12. Self-update
+543:## 13. Agent-only reference skills
+566:## 14. Relay
+581:## 15. Discord phone mode
+591:## Captain instruction precedence
+600:## Maintaining this file
+
+$ grep -nE "notification mirror|fmphone-respond|effort-maps|--firstmate-repo|Discord phone" AGENTS.md | head -12
+66:.env                 optional Relay, Discord phone-command, and phone-notification credentials; LOCAL, gitignored; presence-gates sections 14 and 15 plus sec...
+83:config/phone-mode.env  generated Discord phone-mode watcher cadence; LOCAL, gitignored; source before arming watcher when present
+107:  <id>.check.sh      authenticated slow poll; the watcher dispatches validated PR data and the byte-identified Relay shim through trusted repository scripts...
+118:  phone-watch.check.sh phone-watch.check-trust  generated and identity-bound Discord phone poll; present only when opted in (section 15)
+121:  phone-inbox/       private accepted Discord command objects; fmphone-respond drains it (section 15)
+133:  x-poll.error x-poll.claim-error phone-poll.error  generated Relay, offer-claim, and Discord phone diagnostic dedupe markers
+176:   Home-local stale Herdr projection cleanup and the seven bootstrap MUTATING sweeps - same-home backlog reconciliation, fleet sync, secondmate convergence,...
+192:   The closing reminder points back to the emitted supervision block and preserves only the lock, afk, Relay, Discord phone mode, and read-once reminders.
+403:Relay or Discord phone mode may require that same live cycle with no fleet work.
+421:3. For `check:`, act on the named poll result, including merges, Relay events, Discord phone-mode events, process-to-event source results, and captain inbox...
+528:If a ship or scout task uses a firstmate-repo worktree, scaffold with `--firstmate-repo`; its generated boundary also requires `firstmate-coding-guidelines`...
+560:- `effort-maps` - load before creating, updating, or retiring an effort map under `data/maps/`, and at intake of an effort too large or foggy for one sessio...
+
+$ grep -n "fm_harness_path_name" bin/fm-session-lock-lib.sh bin/backends/tmux.sh | head -4
+bin/fm-session-lock-lib.sh:77:fm_harness_path_name() {  # <path>
+bin/backends/tmux.sh:171:    # COMPONENT, so the fm_harness_path_name fallback below never fires for it.
+bin/backends/tmux.sh:176:      if fm_harness_path_name "$path" >/dev/null || fm_harness_path_name "$argv0" >/dev/null; then
+
+$ grep -n "fm-cursor-lib\|fm_cursor_" bin/fm-session-lock-lib.sh | head -4
+48:# bundled node script. bin/fm-cursor-lib.sh is the fleet's single owner of that
+50:# shellcheck source=bin/fm-cursor-lib.sh
+51:. "$(dirname -- "${BASH_SOURCE[0]}")/fm-cursor-lib.sh"
+246:      if fm_cursor_process_matches "$comm" "$args" "${args%% *}"; then
+
+$ bin/fm-test-run.sh --list-lanes
+portable-parallel-1
+portable-parallel-2
+portable-serial
+portable-serial-1of4
+portable-serial-2of4
+portable-serial-3of4
+portable-serial-4of4
+real-herdr-gated
+$ bin/fm-test-run.sh --list --lane portable-serial-1of4 | wc -l
+36
+$ bin/fm-test-run.sh --list --lane portable-serial-2of4 | wc -l
+37
+$ bin/fm-test-run.sh --list --lane portable-serial-3of4 | wc -l
+36
+$ bin/fm-test-run.sh --list --lane portable-serial-4of4 | wc -l
+36
+$ bin/fm-test-run.sh --list --lane portable-serial | wc -l
+145

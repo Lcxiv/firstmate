@@ -1,0 +1,107 @@
+ok - fm-x-poll is a hard no-op without a token (inert default)
+ok - fm-x-poll treats an explicitly empty env token as configured
+ok - fm-x-poll stays silent on HTTP 204 (the common case)
+ok - fm-x-poll lets an explicitly empty relay env override .env
+ok - fm-x-poll surfaces auth/config errors once and clears on recovery
+ok - fm-x-poll diagnostic markers use private guarded publication
+ok - fm-x-poll stashes the question and prints the compact marker
+ok - fm-x-poll wakes once per durable request offer across inbox cleanup
+ok - fm-x-poll retains offer claim diagnostics until recovery
+ok - fm-x-poll preserves in_reply_to conversation context in the inbox
+ok - fm-x-poll reports inbox commit failures without emitting a mention wake
+ok - fm-x-poll publishes inbox records only through private guarded artifacts
+ok - fm-x-poll requires a non-empty question before waking
+ok - fm-x-poll rejects an unsafe request_id (path-traversal guard)
+ok - fm-x-reply posts a request-bound answer and echoes only the request_id
+ok - fm-x-reply accepts the reply via --text-file and stdin (safe, unexpanded)
+ok - fm-x-reply exits non-zero on a non-2xx relay response
+ok - fm-x-reply cleans up auth header temp files on interrupted posts
+ok - fm-x-reply rejects missing arguments with a usage error
+ok - fm-x-reply --help makes image support discoverable
+ok - fm-x-reply rejects whitespace-only reply text
+ok - fm-x-reply dry-run records the would-be reply and never posts
+ok - fm-x-reply dry-run works without a token
+ok - fm-x-reply honors FMX_DRY_RUN from .env
+ok - fm-x-reply lets an explicitly empty dry-run env override .env
+ok - fm-x-reply dry-run fails when it cannot record the preview
+ok - fm-x-reply dry-run publishes outbox records only through private guarded artifacts
+ok - fmx_split_thread: word-boundary, fence-aware, within-limit, numbered, lossless, capped
+ok - fm-x-reply keeps a concise reply as a single unnumbered tweet
+ok - fm-x-reply auto-splits a long reply into a numbered thread (texts[])
+ok - fm-x-reply uses the Discord inbox platform budget instead of the X tweet budget
+ok - fm-x-reply keeps numeric X requests on the X tweet budget
+ok - fm-x-reply prefers an explicit relay-provided reply limit
+ok - fm-x-reply rejects unsafe inbox context artifacts
+ok - fm-x-reply clamps a below-floor max to 50 characters
+ok - fm-x-reply posts a thread payload (texts[]) to the relay
+ok - fm-x-reply --image posts an image object on answer
+ok - fm-x-reply streams large image payloads outside curl argv
+ok - fm-x-reply dry-run records compact image metadata for threaded replies
+ok - fm-x-reply cleans image and payload temp files
+ok - fm-x-reply --image rejects missing and unsupported image paths clearly
+ok - fm-x-reply --followup posts to /connector/followup with the same request-bound body
+ok - fm-x-reply maps a followup_unavailable follow-up 409 to exit 9
+ok - fm-x-reply maps every follow-up 409 to exit 9 even without the marker
+ok - fm-x-reply treats answer-endpoint 409 as a generic failure
+ok - fm-x-reply --followup --image posts an image object
+ok - fm-x-reply --followup is accepted in any position and leaves the answer path default
+ok - fm-x-reply --followup dry-run marks the endpoint without changing the answer path
+ok - fm-x-reply --followup auto-splits a long follow-up into a marked thread
+ok - fm-x-reply followup dry-run keeps endpoint marker and compact image metadata
+ok - fm-x-poll records the durable per-request reply context from the relay payload
+ok - context registry publishes records only through private guarded artifacts
+ok - context registry reads only private single-link artifacts
+ok - private artifact publisher is compatible with the system bash path
+ok - context registry retention is bounded to the seven-day follow-up window
+ok - context registry rewrites preserve the first-seen timestamp
+ok - context retention starts only when a live initial answer succeeds
+ok - a delayed Discord follow-up stays one message after inbox cleanup via the durable registry
+ok - an X follow-up over 280 still splits correctly after inbox cleanup
+ok - every unresolved follow-up is refused before posting
+ok - a partial registry platform combines with the relay's authoritative budget
+ok - concurrent requests each recover their own platform/budget with no cross-overwrite
+ok - fm-x-dismiss clears the durable per-request context (a dismissed mention gets no follow-up)
+ok - fm-x-dismiss posts a request-bound dismiss and echoes only the request_id
+ok - fm-x-dismiss dry-run records the would-be body and never posts
+ok - fm-x-dismiss dry-run works without a token
+ok - fm-x-dismiss dry-run publishes outbox records only through private guarded artifacts
+ok - fm-x-dismiss exits non-zero on a non-2xx relay response
+ok - fm-x-dismiss exits non-zero on a transport failure
+ok - fm-x-dismiss rejects an unsafe request_id (path-traversal guard)
+ok - fm-x-dismiss rejects missing or extra arguments with a usage error
+ok - fm-x-link records and refreshes the X-request link without disturbing meta
+ok - fm-x-link records Discord platform context so follow-ups keep the Discord budget
+ok - fm-x-link resolves the platform by request_id so a post-cleanup link keeps the Discord budget
+ok - fm-x-link warns loudly and the follow-up is held (not wrongly split) when the platform is unknown
+ok - fm-x-link paired carry flags preserve a prior task's follow-up binding onto a successor
+ok - fm-x-link recovery relink preserves Discord platform context after inbox drain
+ok - fm-x-link rejects malformed or unpaired carry flags
+ok - meta rewrites are independent of TMPDIR
+ok - x-lib meta helpers refuse a symlinked task record and leave its target untouched
+ok - fm-x-link rejects unsafe ids, missing meta, and missing arguments
+ok - fm-x-link keeps the plain missing-task error when no second mate is registered
+ok - fm-x-link refuses a second-mate-routed task and points at the promised-final path
+ok - fm-x-link points an unlocatable task at the promised-final path when second mates exist
+ok - fm-x-followup --check reports postable / not-linked correctly
+ok - fm-x-followup --check prunes a link past the 7-day window
+ok - fm-x-followup --check prunes a link that already reached the follow-up cap
+ok - fm-x-followup posts a follow-up, increments the counter, and keeps the link under the cap
+ok - fm-x-followup --final clears the link after one post regardless of the remaining count
+ok - fm-x-followup clears the link once the third follow-up reaches the cap
+ok - fm-x-followup --image forwards the attachment through fm-x-reply --followup
+ok - fm-x-followup keeps the link and counter when the post fails
+ok - fm-x-followup tombstones the link when a post-success counter write fails
+ok - fm-x-followup treats a relay cap/window rejection as an already-exhausted link, not a retry
+ok - fm-x-followup skips silently and clears the link past the 7-day window
+ok - fm-x-followup is a no-op for a task with no X link
+ok - fm-x-followup dry-run records the follow-up and increments the counter, keeping the link
+ok - fm-x-followup dry-run --final clears the link just as a live post would
+ok - fm-x-followup rejects malformed invocations
+ok - bootstrap activates X mode from an .env token, idempotently
+ok - bootstrap ignores CDPATH when writing absolute FM_HOME into the durable X-mode poll shim
+ok - bootstrap reports missing X-mode dependencies before arming
+ok - bootstrap does not report X mode on when activation artifacts cannot be written
+ok - bootstrap rejects linked X artifacts without touching their targets
+ok - bootstrap is inert without a non-empty .env token (non-X users unaffected)
+ok - bootstrap cleans up X artifacts on opt-out and is silent once off
+ok - bootstrap reports failed X artifact cleanup on opt-out

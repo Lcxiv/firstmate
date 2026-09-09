@@ -1,0 +1,33 @@
+ok - Discord phone mode is completely inert without opt-in keys
+ok - non-captain, wrong-channel, and bot-authored messages are dropped without a reply
+ok - two-part-authenticated Discord commands are durable before the receipt and wake
+ok - monotonic cursor plus create-once inbox gives idempotent at-least-once polling
+ok - one bounded Discord page stashes every command and emits one drain wake
+ok - the common poll path is one short bounded request with no config leakage
+ok - opt-in baselines at the channel head instead of replaying history or trusting the local clock
+ok - baselining an empty channel never swallows the first real command
+ok - a missing Discord message-content intent reports a generic local error
+ok - the generated watcher shim authenticates only from the arming home .env
+ok - phone replies keep Discord-influenced text out of shell interpolation
+ok - the receipt is a reaction placed after durable storage, and its failure is silent
+ok - receipts remain opt-out through the existing setting
+ok - one summary is created once and then edited in place, never reposted
+ok - the summary is found again after a restart from its durable record
+ok - a lost record recovers the existing summary instead of adding another
+ok - a summary that has scrolled past recent history is still found, not duplicated
+ok - a pinned list that cannot be read is named plainly and never mistaken for an empty channel
+ok - a history read that fails is not mistaken for a channel with no summary
+ok - --repin is honoured on the recovery path, not only on the recorded one
+ok - a message this home did not author is never overwritten
+ok - a refused pin degrades to an edited message and names the permission needed
+ok - pinning is retried only when deliberately asked for
+ok - the summary reads stdin exactly as the reply client does
+ok - a summary that cannot be identified again fails loudly instead of silently reposting
+ok - the summary is inert without opt-in and never echoes a configured value
+ok - the summary stays literal text and can never interrupt the captain
+ok - phone-mode errors are local, generic, and secret-free
+ok - bootstrap repairs nonprivate state and poll-time drift is locally attributed without config leakage
+ok - an unpreparable private state directory refuses to arm and matches the poll-time gate
+ok - bootstrap generates an identity-bound shim idempotently and removes every generated artifact on opt-out
+ok - partial Discord configuration stays off and reports no configured value
+ok - the remote authority boundary keeps its exact honored and helm-only classes

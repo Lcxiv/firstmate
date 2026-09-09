@@ -1,0 +1,22 @@
+fm-claude-stop-autoarm rc=0 secs=33
+fm-session-lock-identity rc=0 secs=3
+fm-session-lock-ancestry rc=0 secs=3
+fm-cursor-primary rc=0 secs=60
+fm-guard-stale-banner rc=0 secs=6
+fm-turnend-guard rc=0 secs=43
+fm-control rc=0 secs=22
+fm-hermes-harness rc=0 secs=14
+fm-cursor-harness rc=0 secs=0
+fm-quota-choose rc=0 secs=2
+fm-bearings-board-render rc=0 secs=4
+fm-composer-lib rc=0 secs=3
+fm-phone-mode rc=0 secs=30
+fm-phone-fleet-summary rc=0 secs=1
+fm-notify rc=0 secs=25
+fm-brief rc=0 secs=1
+fm-documentation-audiences rc=0 secs=1
+fm-x-mode rc=0 secs=53
+fm-bootstrap rc=0 secs=133
+fm-session-start rc=0 secs=192
+BATCH-DONE
+fm-send-remote-delivery rc=0 secs=21

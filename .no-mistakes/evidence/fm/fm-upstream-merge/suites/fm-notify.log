@@ -1,0 +1,60 @@
+ok - no configuration: silent successful no-op
+ok - a .env without a target stays inert
+ok - delivery never writes into the fleet's state
+ok - message text is accepted on argv and on stdin
+ok - an empty message is refused before any delivery
+ok - a missing message on an interactive terminal is a usage error, not a hang
+ok - an unknown event class is a usage error, never an invented mapping
+ok - malformed calls are refused without delivery
+ok - an explicit environment value wins over the .env file
+ok - both the bare webhook URL and the channel-prefixed form resolve
+ok - a target naming no implemented channel is a reported misconfiguration
+ok - FM_NOTIFY_EVENTS selects classes, including 'all' and 'none'
+ok - the default event set is every class except dispatched
+ok - every state carries an emoji, a word, and a colour - colour never alone
+ok - the caller's title and link reach the embed
+ok - an over-long title is truncated within the title cap
+ok - an oversized body splits into cap-compliant, numbered messages
+ok - the part count is capped and the truncated tail is marked
+ok - a full PR URL survives splitting unbroken
+ok - a message that fits in one part carries no part marker
+ok - a rate limit is retried once, honouring retry_after
+ok - an absurd retry_after is clamped, so delivery cannot hang a turn
+ok - a persistent rate limit gives up after one retry instead of looping
+ok - 403 and 404 are tolerated quietly: one line, no retry, no stack trace
+ok - delivery failures exit non-zero with one short diagnostic
+ok - a failed delivery is bounded and leaves the fleet's state untouched
+ok - the wire request carries the JSON content type, User-Agent, and a timeout
+ok - the webhook address is handed to curl by file, never through argv
+ok - delivery leaves no staged target or response file behind
+ok - every event class reaches the channel its class names
+ok - exactly the four interrupt classes mention the captain, and no other does
+ok - each class carries its own stripe colour: red, blue, green, or grey
+ok - @everyone, @here, and role text inside a message can never ping
+ok - a split decision interrupts the captain once, not once per part
+ok - with no broadcast address configured, every class uses the existing one
+ok - deleting the broadcast channel degrades to single-address delivery
+ok - a broadcast address naming no supported channel is reported, not guessed
+ok - a misconfigured broadcast address never silences the classes that mention
+ok - an unconfigured mention degrades to a delivered message, never a lost one
+ok - a home that already knows the captain's id does not configure it twice
+ok - no configured address or captain id appears in anything this prints
+ok - a hermes target routes to the sender with an explicit target and --quiet
+ok - the message body goes to the sender by file, never through argv
+ok - the hermes wire text is the documented header, body, and link
+ok - --url reaches the delivered text on a plain-text channel
+ok - actionable classes name the reply route; informational ones stay clean
+ok - an oversized hermes body splits within the platform cap, header included
+ok - a missing sender is a bounded, reported misconfiguration, not a crash
+ok - FM_NOTIFY_HERMES_BIN resolves a sender that is not on the caller's PATH
+ok - the sender's 0/1/2 and anything else map to distinct firstmate codes
+ok - a hanging sender is cut off by a hard bound instead of stalling the caller
+ok - a sender killed by a signal is a delivery failure, never a claimed delivery
+ok - a host that cannot bound the sender refuses instead of reporting a hang
+ok - the sender's output and chat id never reach firstmate's own output
+ok - a bare platform target warns; the recommended explicit target is silent
+ok - an empty or malformed hermes target is refused before any delivery
+ok - the hermes channel keeps the inertness and usage contracts unchanged
+ok - FM_NOTIFY_EVENTS filters the hermes channel exactly as it filters Discord
+ok - hermes delivery leaves no payload or captured-output file behind
+ok - --help and --list-events work with no configuration
