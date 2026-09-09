@@ -368,14 +368,14 @@ The [phone notification configuration reference](configuration.md#phone-notifica
 ## Optional Discord phone mode
 
 Discord phone mode is the separately opted-in inbound counterpart to those outbound notifications, and Discord is its only provider.
-A user enables it by putting all three of `FM_PHONE_DISCORD_TOKEN`, `FM_PHONE_CAPTAIN_ID`, and `FM_PHONE_CHANNEL_ID` in the firstmate home's gitignored `.env`; anything less stays inert, and the locked session-start bootstrap step creates its generated poll, trust, and cadence artifacts on opt-in and removes them on opt-out, on the same schedule as X mode's.
+A user enables it by putting all three of `FM_PHONE_DISCORD_TOKEN`, `FM_PHONE_CAPTAIN_ID`, and `FM_PHONE_CHANNEL_ID` in the firstmate home's gitignored `.env`; anything less stays inert, and the locked session-start bootstrap step creates its generated poll, trust, and cadence artifacts on opt-in and removes them on opt-out, on the same schedule as Relay's.
 
 The mechanism boundary is deliberately narrow, and the feature adds no LLM, no gateway daemon, and no pane injection.
 The existing watcher is the only process: it dispatches the generated shim through the same hash-validated custom-check path, and `bin/fm-phone-poll.sh` makes one bounded Discord history request per due sweep.
 A message becomes a command only when its author id and channel id both match the configured values and its author is not a bot, so the bridge cannot consume firstmate's own replies or its live summary.
 Transport is at-least-once and command processing is exactly-once: a monotonic `state/phone-cursor` plus create-once `state/phone-inbox/<message_id>.json` objects survive retries, and one wake can represent several accepted commands.
 A home with no cursor baselines at the channel's newest existing message from Discord's own response, so opting in never replays history - including an old merge approval - as live direction.
-Because a phone-only home has no fleet work, the shared supervision predicate treats the generated poll itself as supervision need, exactly as it does an X-mode relay poll ([turnend-guard.md](turnend-guard.md)).
+Because a phone-only home has no fleet work, the shared supervision predicate treats the generated poll itself as supervision need, exactly as it does a Relay poll ([turnend-guard.md](turnend-guard.md)).
 
 The outbound side of the same channel adds no second transport: the delivery receipt is a reaction on the captain's own message, and the one live fleet summary is a message `bin/fm-phone-summary.sh` edits in place, both over the plain bounded requests the poll already uses.
 That summary is restart-proof for the same reason the cursor is: its identity is a private `state/phone-summary-id` artifact, with a bounded read of recent channel history plus the channel's pinned messages as the recovery path, because reposting a "live" summary is the one outcome that cannot be reconciled afterwards.

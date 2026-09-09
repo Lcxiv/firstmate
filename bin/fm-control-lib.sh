@@ -63,7 +63,7 @@ fm_control_verb_allowed() {  # <verb>
 # than guessed at, exactly as a spawn on it would be.
 fm_control_harness_supported() {  # <harness>
   case "${1-}" in
-    claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|muse) return 0 ;;
+    claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|muse|hermes) return 0 ;;
   esac
   return 1
 }
@@ -87,6 +87,7 @@ fm_control_harness_family() {  # <recorded-harness>
     kimi*) printf 'kimi' ;;
     cursor*) printf 'cursor' ;;
     muse*) printf 'muse' ;;
+    hermes*) printf 'hermes' ;;
     *) return 1 ;;
   esac
 }
@@ -107,11 +108,12 @@ fm_control_harness_supports_kind() {  # <harness> <kind>
 }
 
 # The key that cancels a running turn. Escape for every adapter except grok,
-# whose Esc only moves focus to the scrollback; grok cancels on Ctrl+C.
+# whose Esc only moves focus to the scrollback, and hermes, whose running
+# turn binds no Esc at all; both cancel on Ctrl+C.
 fm_control_interrupt_key() {  # <harness>
   case "${1-}" in
     claude|codex|opencode|pi|pi-signed|kimi|cursor|muse) printf 'Escape' ;;
-    grok) printf 'C-c' ;;
+    grok|hermes) printf 'C-c' ;;
     *) return 1 ;;
   esac
 }
@@ -121,7 +123,7 @@ fm_control_interrupt_key() {  # <harness>
 fm_control_interrupt_repeat() {  # <harness>
   case "${1-}" in
     opencode) printf '2' ;;
-    claude|codex|pi|pi-signed|grok|kimi|cursor|muse) printf '1' ;;
+    claude|codex|pi|pi-signed|grok|kimi|cursor|muse|hermes) printf '1' ;;
     *) return 1 ;;
   esac
 }
@@ -139,7 +141,7 @@ fm_control_interrupt_repeat() {  # <harness>
 fm_control_interrupt_clear_key() {  # <harness>
   case "${1-}" in
     muse) printf 'C-u' ;;
-    claude|codex|opencode|pi|pi-signed|grok|kimi|cursor) ;;
+    claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|hermes) ;;
     *) return 1 ;;
   esac
 }
@@ -151,7 +153,7 @@ fm_control_interrupt_ack_source() {  # <harness>
     # after an interrupt was measured as variable - sometimes seconds, sometimes
     # not within 20 - so a cancellation claim built on it would be unreliable.
     # Normal turn completion is prompt, which is what the busy fold depends on.
-    claude|codex|opencode|pi|pi-signed|grok|kimi|cursor) printf 'none' ;;
+    claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|hermes) printf 'none' ;;
     *) return 1 ;;
   esac
 }
@@ -159,7 +161,7 @@ fm_control_interrupt_ack_source() {  # <harness>
 # The command that exits the agent from its own composer.
 fm_control_exit_command() {  # <harness>
   case "${1-}" in
-    claude|opencode|grok|kimi|cursor|muse) printf '/exit' ;;
+    claude|opencode|grok|kimi|cursor|muse|hermes) printf '/exit' ;;
     codex|pi|pi-signed) printf '/quit' ;;
     *) return 1 ;;
   esac
@@ -215,6 +217,10 @@ fm_control_harness_wiring_paths() {  # <harness> <worktree> <state-dir> <id>
       printf '%s\n' "$wt/.fm-kimi-turnend"
       printf '%s\n' "$state/$id.kimi-turnend-token"
       ;;
+    hermes)
+      printf '%s\n' "$wt/.fm-hermes-turnend"
+      printf '%s\n' "$state/$id.hermes-turnend-token"
+      ;;
     muse)
       # muse installs no hook: its busy source is its own session event log,
       # bound to the pane by these two firstmate-owned sidecars. A relaunch
@@ -228,8 +234,8 @@ fm_control_harness_wiring_paths() {  # <harness> <worktree> <state-dir> <id>
 }
 
 # The firstmate-owned global turn-end registry entry a harness mints per task.
-# grok and kimi are the two adapters whose turn-end hook is global and gated by
-# a private token file; every other adapter's wiring is fully covered by
+# grok, kimi, and hermes are the adapters whose turn-end hook is global and
+# gated by a private token file; every other adapter's wiring is fully covered by
 # fm_control_harness_wiring_paths. Prints the registry path or nothing.
 fm_control_harness_turnend_token_path() {  # <harness> <state-dir> <id>
   local harness=${1-} state=${2-} id=${3-}
