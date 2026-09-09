@@ -71,8 +71,11 @@ trap 'exit 1' HUP INT TERM
 if [ -f "$LOCK" ] && [ ! -L "$LOCK" ]; then
   old=$(cat "$LOCK" 2>/dev/null || true)
   if [ "$old" = "$me" ]; then
-    echo "lock acquired: harness pid $me"
-    exit 0
+    if [ -n "$MY_SID" ] && [ -f "$SIDECAR" ] && [ ! -L "$SIDECAR" ] \
+      && [ "$(cat "$SIDECAR" 2>/dev/null)" = "$MY_SID" ]; then
+      echo "lock acquired: harness pid $me (session $MY_SID)"
+      exit 0
+    fi
   fi
   # A live owner is NOT refused here. Two cases both need the fuller treatment
   # below, and neither can be decided from liveness alone: a same-session

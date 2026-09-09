@@ -253,10 +253,12 @@ if [ "$FOREIGN_LIVE_LOCK" -eq 1 ]; then
   exit 0
 fi
 
-# X mode cadence: source the generated config so an X instance polls at its
-# 30s cadence (fm-bootstrap.sh x_mode_setup contract).
+# Remote-command cadence: source generated configs so Relay or Discord phone
+# mode polls at its configured cadence.
 # shellcheck source=/dev/null
 [ -f "$CONFIG/x-mode.env" ] && . "$CONFIG/x-mode.env"
+# shellcheck source=/dev/null
+[ -f "$CONFIG/phone-mode.env" ] && . "$CONFIG/phone-mode.env"
 
 # --- foreground the real arm wrapper ------------------------------------------
 # NO shell &: this hook process tree is the harness-owned lifecycle. The arm

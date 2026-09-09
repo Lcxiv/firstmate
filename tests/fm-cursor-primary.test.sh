@@ -107,6 +107,16 @@ printf 'stale: fixture-win needs a look\n'
 exit 0
 SH
       ;;
+    cadence-actionable)
+      cat > "$dir/bin/fm-watch-arm.sh" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$$" >> "$FM_HOME/state/arm-ran"
+printf '%s\n' "${FM_CHECK_INTERVAL:-missing}" > "$FM_HOME/state/arm-cadence"
+printf 'watcher: started pid=%s (beacon fresh)\n' "$$"
+printf 'stale: fixture-win needs a look\n'
+exit 0
+SH
+      ;;
     failed)
       cat > "$dir/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
@@ -289,6 +299,21 @@ test_park_delivers_actionable_wake_as_followup() {
   case "$body" in *'stale: fixture-win needs a look'*) ;; *) fail "the wake reason was not carried into the follow-up: $body" ;; esac
   case "$body" in *'fm-wake-drain.sh'*) ;; *) fail "the follow-up must tell the session to drain first: $body" ;; esac
   pass "cursor park: an actionable close is delivered as one watcher-kind follow-up"
+}
+
+test_park_sources_phone_mode_cadence() {
+  local dir out
+  dir=$(make_primary_dir "$TMP_ROOT/park-phone-cadence")
+  mkdir -p "$dir/config"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$dir/state/phone-watch.check.sh"
+  printf 'export FM_CHECK_INTERVAL=30\n' > "$dir/config/phone-mode.env"
+  write_arm_fixture "$dir" cadence-actionable
+  out=$(run_park "$dir")
+  [ "$(kind_of_followup "$out")" = watcher ] \
+    || fail "a phone-mode poll must arrive as a watcher-kind follow-up, got: $out"
+  [ "$(cat "$dir/state/arm-cadence")" = 30 ] \
+    || fail "Cursor park did not pass the Discord phone cadence to the arm"
+  pass "cursor park: Discord phone polling uses its configured cadence"
 }
 
 test_park_never_exits_two() {
@@ -686,6 +711,7 @@ test_pretool_guards_deduplicate_and_render_cursor_deny
 test_cd_guard_renders_cursor_deny
 test_park_silent_when_nothing_in_flight
 test_park_delivers_actionable_wake_as_followup
+test_park_sources_phone_mode_cadence
 test_park_never_exits_two
 test_park_repair_nag_is_bounded
 test_park_repair_nag_requires_a_persisted_budget

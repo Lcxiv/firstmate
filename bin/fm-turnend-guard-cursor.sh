@@ -282,9 +282,12 @@ if ! fm_supervision_needed "$STATE" "$GRACE"; then
   exit 0
 fi
 
-# X mode cadence: an opted-in home polls Relay at its generated cadence.
+# Remote-command cadence: an opted-in home polls Relay or Discord phone mode
+# at its generated cadence.
 # shellcheck source=/dev/null
 [ -f "$CONFIG/x-mode.env" ] && . "$CONFIG/x-mode.env"
+# shellcheck source=/dev/null
+[ -f "$CONFIG/phone-mode.env" ] && . "$CONFIG/phone-mode.env"
 
 # --- the park ----------------------------------------------------------------
 # The arm runs as a tracked child of THIS hook process, which stays alive and

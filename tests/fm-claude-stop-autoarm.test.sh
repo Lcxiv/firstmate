@@ -92,6 +92,16 @@ printf 'stale: fixture-win actionable\n'
 exit 0
 SH
       ;;
+    cadence-actionable)
+      cat > "$dir/bin/fm-watch-arm.sh" <<'SH'
+#!/usr/bin/env bash
+echo "$$" >> "$FM_HOME/state/arm-ran"
+printf '%s\n' "${FM_CHECK_INTERVAL:-missing}" > "$FM_HOME/state/arm-cadence"
+printf 'watcher: started pid=%s (beacon fresh)\n' "$$"
+printf 'stale: fixture-win actionable\n'
+exit 0
+SH
+      ;;
     failed)
       cat > "$dir/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
@@ -785,12 +795,15 @@ test_arms_for_x_mode_poll_need_without_inflight() {
 test_arms_for_phone_mode_poll_need_without_inflight() {
   local dir out status
   dir=$(make_primary_dir "$TMP_ROOT/phone-need")
+  mkdir -p "$dir/config"
+  printf 'export FM_CHECK_INTERVAL=30\n' > "$dir/config/phone-mode.env"
   printf '#!/usr/bin/env bash\nexit 0\n' > "$dir/state/phone-watch.check.sh"
-  write_arm_fixture "$dir" actionable
+  write_arm_fixture "$dir" cadence-actionable
   out=$(run_autoarm "$dir" 2>/dev/null); status=$?
   expect_code 2 "$status" "a Discord phone poll need must keep the auto-arm active with zero tasks in flight"
   [ -e "$dir/state/arm-ran" ] || fail "hook did not arm for the Discord phone poll need"
-  pass "auto-arm: Discord phone poll need arms the cycle even with no tasks in flight"
+  [ "$(cat "$dir/state/arm-cadence")" = 30 ] || fail "hook did not pass the Discord phone cadence to the arm"
+  pass "auto-arm: Discord phone poll need arms at its configured cadence with no tasks in flight"
 }
 
 test_single_flight_admits_exactly_one_owner() {
@@ -1365,6 +1378,26 @@ test_fm_lock_records_and_clears_session_identity() {
   pass "fm-lock: the session-id sidecar is recorded from the trusted env pair and cleared on sid-less acquisition"
 }
 
+test_fm_lock_reconciles_same_pid_session_identity() {
+  local dir sid foreign out status
+  sid='45454545-4545-4545-4545-454545454545'
+  foreign='46464646-4646-4646-4646-464646464646'
+  dir="$TMP_ROOT/lock-same-pid-sidecar"
+  mkdir -p "$dir/state"
+  out=$(FM_HOME="$dir" FM_TEST_SID="$sid" FM_TEST_FOREIGN_SID="$foreign" "$FAKE_CLAUDE" -c '
+      printf "%s\n" "$$" > "$FM_HOME/state/.lock"
+      rm -f "$FM_HOME/state/.lock-session"
+      FM_CLAUDE_SESSION_ID_HINT="$FM_TEST_SID" bash "$1/bin/fm-lock.sh" || exit 70
+      cat "$FM_HOME/state/.lock-session" > "$FM_HOME/state/backfilled" || exit 71
+      printf "%s\n" "$FM_TEST_FOREIGN_SID" > "$FM_HOME/state/.lock-session"
+      FM_CLAUDE_SESSION_ID_HINT="$FM_TEST_SID" bash "$1/bin/fm-lock.sh" || exit 72
+    ' _ "$ROOT" 2>&1); status=$?
+  expect_code 0 "$status" "same-pid reacquisition must reconcile its session sidecar: $out"
+  [ "$(cat "$dir/state/backfilled")" = "$sid" ] || fail "same-pid reacquisition did not backfill a missing sidecar"
+  [ "$(cat "$dir/state/.lock-session")" = "$sid" ] || fail "same-pid reacquisition preserved a foreign sidecar"
+  pass "fm-lock: same-pid reacquisition backfills or replaces its session identity"
+}
+
 test_fm_lock_same_session_rekey_and_foreign_refusal() {
   local dir sid other out status
   sid='55555555-5555-5555-5555-555555555555'
@@ -1464,5 +1497,6 @@ test_active_in_marked_secondmate_home
 test_fm_lock_status_still_works_with_shared_lib
 test_fm_lock_reclaims_a_live_shared_daemon_owner
 test_fm_lock_records_and_clears_session_identity
+test_fm_lock_reconciles_same_pid_session_identity
 test_fm_lock_same_session_rekey_and_foreign_refusal
 test_fm_lock_foreign_refusal_names_fork_lineage
