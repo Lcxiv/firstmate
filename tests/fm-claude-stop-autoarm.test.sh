@@ -1398,6 +1398,53 @@ test_fm_lock_reconciles_same_pid_session_identity() {
   pass "fm-lock: same-pid reacquisition backfills or replaces its session identity"
 }
 
+test_fm_lock_same_pid_sidless_reacquire_skips_claim_lock() {
+  local dir foreign holder out status i
+  foreign='47474747-4747-4747-4747-474747474747'
+  dir="$TMP_ROOT/lock-same-pid-sweep"
+  mkdir -p "$dir/state"
+  # The bounded startup sweep holds the acquisition mutex for its whole run and
+  # records its pid, so anything that needs the mutex meanwhile is refused as
+  # read-only. A same-pid re-emit with no session id and no sidecar has nothing
+  # to reconcile and must succeed without ever asking for the mutex; the same
+  # re-emit with a foreign sidecar still needs it and is refused instead of
+  # being waved through with a borrowed identity.
+  FM_HOME="$dir" FM_STATE_OVERRIDE="$dir/state" bash -c '
+    . "$1/bin/fm-wake-lib.sh"
+    fm_lock_acquire_wait "$FM_STATE_OVERRIDE/.lock.acquire"
+    printf "pid=%s\n" "$$" > "$FM_STATE_OVERRIDE/.startup-network.status"
+    i=0
+    while [ ! -e "$FM_STATE_OVERRIDE/sweep-done" ] && [ "$i" -lt 600 ]; do sleep 0.05; i=$((i + 1)); done
+    fm_lock_release "$FM_STATE_OVERRIDE/.lock.acquire"
+  ' _ "$ROOT" &
+  holder=$!
+  i=0
+  while [ "$i" -lt 100 ] && [ ! -s "$dir/state/.startup-network.status" ]; do sleep 0.05; i=$((i + 1)); done
+  [ -s "$dir/state/.startup-network.status" ] || fail "the sweep stand-in never took the acquisition mutex"
+  out=$(FM_HOME="$dir" FM_TEST_FOREIGN_SID="$foreign" "$FAKE_CLAUDE" -c '
+      printf "%s\n" "$$" > "$FM_HOME/state/.lock"
+      rm -f "$FM_HOME/state/.lock-session"
+      bash "$1/bin/fm-lock.sh" || exit 70
+      [ ! -e "$FM_HOME/state/.lock-session" ] || exit 71
+      [ "$(cat "$FM_HOME/state/.lock")" = "$$" ] || exit 72
+      printf "%s\n" "$FM_TEST_FOREIGN_SID" > "$FM_HOME/state/.lock-session"
+      if bash "$1/bin/fm-lock.sh"; then exit 73; fi
+      [ "$(cat "$FM_HOME/state/.lock-session")" = "$FM_TEST_FOREIGN_SID" ] || exit 74
+    ' _ "$ROOT" 2>&1); status=$?
+  : > "$dir/state/sweep-done"
+  wait "$holder" 2>/dev/null || true
+  expect_code 0 "$status" "a same-pid reacquisition with nothing to reconcile must succeed while the sweep holds the mutex: $out"
+  assert_contains "$out" "lock acquired" "the sid-less same-pid reacquisition must report acquisition"
+  assert_contains "$out" "bounded startup sweep is finishing" "a foreign sidecar must still route through the mutex"
+  out=$(FM_HOME="$dir" "$FAKE_CLAUDE" -c '
+      printf "%s\n" "$$" > "$FM_HOME/state/.lock"
+      bash "$1/bin/fm-lock.sh"
+    ' _ "$ROOT" 2>&1); status=$?
+  expect_code 0 "$status" "once the sweep releases, the foreign sidecar must reconcile: $out"
+  [ ! -e "$dir/state/.lock-session" ] || fail "a sid-less same-pid reacquisition kept a foreign sidecar"
+  pass "fm-lock: a same-pid reacquisition skips the mutex only when it has nothing to reconcile"
+}
+
 test_fm_lock_same_session_rekey_and_foreign_refusal() {
   local dir sid other out status
   sid='55555555-5555-5555-5555-555555555555'
@@ -1498,5 +1545,6 @@ test_fm_lock_status_still_works_with_shared_lib
 test_fm_lock_reclaims_a_live_shared_daemon_owner
 test_fm_lock_records_and_clears_session_identity
 test_fm_lock_reconciles_same_pid_session_identity
+test_fm_lock_same_pid_sidless_reacquire_skips_claim_lock
 test_fm_lock_same_session_rekey_and_foreign_refusal
 test_fm_lock_foreign_refusal_names_fork_lineage

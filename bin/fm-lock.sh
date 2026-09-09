@@ -76,6 +76,10 @@ if [ -f "$LOCK" ] && [ ! -L "$LOCK" ]; then
       echo "lock acquired: harness pid $me (session $MY_SID)"
       exit 0
     fi
+    if [ -z "$MY_SID" ] && [ ! -e "$SIDECAR" ] && [ ! -L "$SIDECAR" ]; then
+      echo "lock acquired: harness pid $me"
+      exit 0
+    fi
   fi
   # A live owner is NOT refused here. Two cases both need the fuller treatment
   # below, and neither can be decided from liveness alone: a same-session
