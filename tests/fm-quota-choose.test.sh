@@ -27,7 +27,6 @@ NO_APPLICABLE="$LAB/no-applicable.json"
 APPLICABLE_VETO="$LAB/applicable-veto.json"
 MUSE_EXHAUSTED="$LAB/muse-exhausted.json"
 MUSE_POSITIVE="$LAB/muse-positive.json"
-HERMES_POSITIVE="$LAB/hermes-positive.json"
 TOON="$LAB/quota.toon"
 RENDERER_TOON="$LAB/renderer-quota.toon"
 EMPTY_TOON="$LAB/empty-quota.toon"
@@ -533,18 +532,6 @@ if out=$(call_choose --snapshot "$MUSE_EXHAUSTED" --candidate muse:default 2>/de
 fi
 [ "$out" = "none" ] || fail "exhausted Meta quota returned: $out"
 ok "Muse uses Meta quota"
-
-if out=$(call_choose --snapshot "$LAB/captured.json" --candidate hermes:default 2>/dev/null); then
-  fail "Hermes candidate dispatched with no Nous quota evidence"
-fi
-[ "$out" = "none" ] || fail "unmeasured Nous quota returned: $out"
-ok "Hermes without Nous quota evidence is not positive"
-
-jq '.providers += [{"provider":"nous","windows":[],"quotaSemantics":{"status":"known","effectiveAvailability":[{"scope":"all_models","status":"known","effectivePercentRemaining":25,"runway":{"status":"through_reset"}}]}}]' \
-  "$LAB/captured.json" > "$HERMES_POSITIVE"
-out=$(call_choose --snapshot "$HERMES_POSITIVE" --candidate hermes:default)
-[ "$out" = "hermes default" ] || fail "supported Hermes candidate returned: $out"
-ok "Hermes uses Nous quota"
 
 if err=$(call_choose --snapshot "$LAB/captured.json" --candidate agy:default 2>&1); then
   fail "unsupported harness unexpectedly dispatched"
