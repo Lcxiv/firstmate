@@ -161,7 +161,7 @@ watcher_healthy=$FM_WATCHER_VERDICT_OK
 watcher_down_reason=$FM_WATCHER_VERDICT_REASON
 if [ "$needed" = false ]; then
   # Leave the unhealthy state (nothing riding on the watcher): clear so a later
-# work or remote-command need + stale combination is a fresh episode even if the
+  # work or remote-command need + stale combination is a fresh episode even if the
   # beacon is still absent with the same key string.
   [ "$READ_ONLY" -eq 1 ] || fm_guard_clear_stale_banner
   exit 0
