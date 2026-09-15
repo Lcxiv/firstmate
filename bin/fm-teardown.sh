@@ -19,6 +19,23 @@
 # home with a backlog but no compatible tasks-axi refuses before cleanup.
 # None of this loosens the landed-work gates below: the transition runs only on
 # the paths that already proceed to remove the record.
+# The recorded close names the exact incarnation it closed, so a replay that finds
+# a RELAUNCHED record reads its own close as stale and leaves that fresh record
+# alone. Exactly one spawn_gen= is required for that and never relaxes. Records
+# written before spawn_gen existed carry none, so this script migrates them once
+# rather than refusing work that has already landed: the incarnation is taken from
+# the busy-state generation the same spawn minted for the same purpose
+# (bin/fm-busy-lib.sh), read from the record's busy_gen= or, when a recovery pass
+# dropped that field, from the armed state/<id>.busy-gen sidecar. Spawn
+# generations are s<epoch>.<pid>.<random> and busy generations g<epoch>.<pid>.<random>,
+# so a migrated value can never equal a real one and the staleness comparison stays
+# sound. The value is written into the record just before the close is staged, so
+# replay reads it through the unchanged exact-one-field path instead of depending on
+# a busy-state artifact this same teardown retires. Migration refuses - leaving the
+# record byte-identical - when the record names two or more generations, when no
+# generation identifies it, when its generation is not the one armed for it, or when
+# another record in this home names the same worktree or endpoint. Every landed-work
+# gate below applies to a migrated record unchanged.
 # REFUSES if the worktree holds work that has not LANDED, because cleanup
 # hard-resets/removes the worktree and kills its processes. Work has landed when it is
 # reachable from any remote-tracking branch (a fork counts as a remote, so
@@ -207,6 +224,12 @@ fm_backlog_directory_present "$STATE" "state directory" || {
 # leases).
 # shellcheck source=bin/fm-lease-lib.sh
 . "$SCRIPT_DIR/fm-lease-lib.sh"
+# Read-only access to the semantic busy-state contract's armed incarnation gen,
+# used by the legacy spawn-generation migration below. bin/fm-busy-lib.sh owns
+# the sidecar format and token charset; this script never writes that contract
+# directly (bin/fm-busy-event.sh is its only writer).
+# shellcheck source=bin/fm-busy-lib.sh
+. "$SCRIPT_DIR/fm-busy-lib.sh"
 # Role partition: forced teardown discards work, and the supervision branch
 # never discards anything - only an ordinary landed-work teardown is branch
 # territory (contract: bin/fm-lease-lib.sh).
@@ -297,12 +320,141 @@ if [ "$TEARDOWN_CLEANUP_RECOVERY" != orca ]; then
     TEARDOWN_BACKLOG_SKIP_REASON=$FM_BACKLOG_TRANSITION_SKIP
   fi
 fi
+# Legacy spawn-generation migration; the script header owns the contract.
+# Deliberately NOT derived from tasktmp, window or worktree: those repeat across
+# incarnations (tasktmp is /tmp/fm-<id> for every relaunch of one task), so a token
+# built from them would compare EQUAL to a replacement and let a replay remove a
+# live record. bin/fm-inactive-reconcile.sh's `legacy-` hash deduplicates outcome
+# notices and is not an identity source for this path.
+
+# Resolve a pre-spawn_gen record's incarnation from the busy-state contract.
+# Sets TEARDOWN_LEGACY_INCARNATION on success; returns 1 with
+# TEARDOWN_LEGACY_INCARNATION_ERROR set when identity is absent or ambiguous.
+TEARDOWN_LEGACY_INCARNATION=
+TEARDOWN_LEGACY_INCARNATION_ERROR=
+teardown_legacy_incarnation() {  # <meta> <state-dir> <id>
+  local meta=$1 state_dir=$2 id=$3 count recorded armed resolved
+  TEARDOWN_LEGACY_INCARNATION=
+  TEARDOWN_LEGACY_INCARNATION_ERROR=
+  count=$(LC_ALL=C awk -F= '$1 == "busy_gen" { count++ } END { print count + 0 }' "$meta" 2>/dev/null) || {
+    TEARDOWN_LEGACY_INCARNATION_ERROR="the record's busy-state generation is unreadable"
+    return 1
+  }
+  if [ "$count" -gt 1 ]; then
+    TEARDOWN_LEGACY_INCARNATION_ERROR="the record names $count busy-state generations, so its incarnation is ambiguous"
+    return 1
+  fi
+  recorded=
+  if [ "$count" -eq 1 ]; then
+    recorded=$(LC_ALL=C awk -F= '$1 == "busy_gen" { sub(/^[^=]*=/, ""); print }' "$meta" 2>/dev/null) || {
+      TEARDOWN_LEGACY_INCARNATION_ERROR="the record's busy-state generation is unreadable"
+      return 1
+    }
+  fi
+  # The armed sidecar is the incarnation the busy-state contract is bound to right
+  # now. A recovery pass can rewrite a record and drop busy_gen while leaving the
+  # sidecar intact, so the sidecar alone is still a complete answer.
+  armed=$(fm_busy_current_gen "$state_dir" "$id" 2>/dev/null) || armed=
+  if [ -n "$recorded" ] && [ -n "$armed" ] && [ "$recorded" != "$armed" ]; then
+    TEARDOWN_LEGACY_INCARNATION_ERROR="the record's busy-state generation is not the one armed for this task, so its incarnation is ambiguous"
+    return 1
+  fi
+  resolved=${recorded:-$armed}
+  if [ -z "$resolved" ]; then
+    TEARDOWN_LEGACY_INCARNATION_ERROR="no busy-state generation identifies this record's incarnation"
+    return 1
+  fi
+  # Same charset the close-marker validator enforces, so a migrated value can
+  # never produce a marker that replay would reject.
+  case "$resolved" in
+    .*|*[!A-Za-z0-9._-]*)
+      TEARDOWN_LEGACY_INCARNATION_ERROR="the record's busy-state generation is not a valid incarnation token"
+      return 1
+      ;;
+  esac
+  TEARDOWN_LEGACY_INCARNATION=$resolved
+}
+
+# Write the migrated generation into the record, atomically, under the meta lock
+# this script already holds. Appending one field never rewrites or reorders the
+# record's existing content, and the result is verified through the same
+# exact-one-field reader teardown and replay both use.
+teardown_persist_migrated_spawn_gen() {  # <meta> <state-dir> <gen>
+  local meta=$1 state_dir=$2 gen=$3 tmp
+  tmp=$(mktemp "$state_dir/.fm-teardown-meta.XXXXXX") || return 1
+  if ! { cat "$meta" && printf 'spawn_gen=%s\n' "$gen"; } > "$tmp"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  chmod 0600 "$tmp" 2>/dev/null || true
+  if ! fm_backlog_meta_spawn_gen "$tmp" "$state_dir" \
+     || [ "$FM_BACKLOG_META_SPAWN_GEN" != "$gen" ]; then
+    rm -f "$tmp"
+    return 1
+  fi
+  mv -f -- "$tmp" "$meta" || { rm -f "$tmp"; return 1; }
+  fm_backlog_meta_spawn_gen "$meta" "$state_dir" || return 1
+  [ "$FM_BACKLOG_META_SPAWN_GEN" = "$gen" ]
+}
+
+# A legacy record's pooled isolated copy and endpoint may since have been handed to
+# a LATER task, so a record with unambiguous identity of its own can still name a
+# resource cleanup would take from a live worker. The exact-one-generation refusal
+# blocked those records incidentally; the migration answers the resource question
+# explicitly rather than inheriting that accident. Scoped to the migration, which
+# is the new authority here.
+TEARDOWN_LEGACY_SHARED_RESOURCE=
+teardown_legacy_resources_exclusive() {  # <meta> <state-dir> <id>
+  local meta=$1 state_dir=$2 id=$3 sibling sibling_id wt window sib_wt sib_window
+  TEARDOWN_LEGACY_SHARED_RESOURCE=
+  wt=$(fm_meta_get "$meta" worktree)
+  window=$(fm_meta_get "$meta" window)
+  for sibling in "$state_dir"/*.meta; do
+    [ -e "$sibling" ] || continue
+    sibling_id=${sibling##*/}
+    sibling_id=${sibling_id%.meta}
+    [ "$sibling_id" != "$id" ] || continue
+    if [ ! -f "$sibling" ] || [ -L "$sibling" ]; then
+      TEARDOWN_LEGACY_SHARED_RESOURCE="task $sibling_id's record is unsafe to read, so it cannot be ruled out as sharing this record's resources"
+      return 1
+    fi
+    sib_wt=$(fm_meta_get "$sibling" worktree)
+    if [ -n "$wt" ] && [ "$sib_wt" = "$wt" ]; then
+      TEARDOWN_LEGACY_SHARED_RESOURCE="task $sibling_id's record names the same isolated copy $wt, which cleanup would return"
+      return 1
+    fi
+    sib_window=$(fm_meta_get "$sibling" window)
+    if [ -n "$window" ] && [ "$sib_window" = "$window" ]; then
+      TEARDOWN_LEGACY_SHARED_RESOURCE="task $sibling_id's record names the same endpoint $window, which cleanup would close"
+      return 1
+    fi
+  done
+  return 0
+}
+
+TEARDOWN_SPAWN_GEN_MIGRATED=0
 if [ "$TEARDOWN_BACKLOG_APPLIES" = 1 ]; then
-  if ! fm_backlog_meta_spawn_gen "$META" "$STATE"; then
+  if fm_backlog_meta_spawn_gen "$META" "$STATE"; then
+    TEARDOWN_META_SPAWN_GEN=$FM_BACKLOG_META_SPAWN_GEN
+  elif [ "$FM_BACKLOG_META_SPAWN_GEN_RESULT" = absent ] \
+       && teardown_legacy_incarnation "$META" "$STATE" "$ID" \
+       && teardown_legacy_resources_exclusive "$META" "$STATE" "$ID"; then
+    # Resolved, not yet persisted: a teardown that refuses further down must leave
+    # the record exactly as it found it. The write happens immediately before the
+    # close marker is staged.
+    TEARDOWN_META_SPAWN_GEN=$TEARDOWN_LEGACY_INCARNATION
+    TEARDOWN_SPAWN_GEN_MIGRATED=1
+  elif [ "$FM_BACKLOG_META_SPAWN_GEN_RESULT" = absent ] \
+       && [ -n "$TEARDOWN_LEGACY_SHARED_RESOURCE" ]; then
+    echo "error: task $ID's record predates spawn_gen and its resources are not exclusively its own ($TEARDOWN_LEGACY_SHARED_RESOURCE); refusing automatic teardown - resolve which task owns that resource before retrying" >&2
+    exit 1
+  elif [ "$FM_BACKLOG_META_SPAWN_GEN_RESULT" = absent ]; then
+    echo "error: task $ID's record has no spawn_gen that identifies one exact incarnation and none can be migrated from its busy-state generation ($TEARDOWN_LEGACY_INCARNATION_ERROR); refusing automatic teardown - establish the record's exact incarnation before retrying" >&2
+    exit 1
+  else
     echo "error: task $ID's record has no spawn_gen that identifies one exact incarnation ($FM_BACKLOG_TRANSITION_ERROR); refusing automatic teardown - relaunch the task to publish an unambiguous incarnation, then retry teardown" >&2
     exit 1
   fi
-  TEARDOWN_META_SPAWN_GEN=$FM_BACKLOG_META_SPAWN_GEN
 fi
 
 REMOTE_HANDOFF_DIR_PRESENT=0
@@ -2718,6 +2870,13 @@ if [ "$TEARDOWN_BACKLOG_APPLIES" = 1 ]; then
   }
   BACKLOG_CLOSED=1
   META_SPAWN_GEN=$TEARDOWN_META_SPAWN_GEN
+  # Every refusal above has passed, so the one-time migration can now be made
+  # durable: replay must find this exact generation in the record itself.
+  if [ "$TEARDOWN_SPAWN_GEN_MIGRATED" = 1 ]; then
+    teardown_persist_migrated_spawn_gen "$META" "$STATE" "$META_SPAWN_GEN" \
+      || { echo "error: task $ID's migrated incarnation could not be recorded; retaining every durable task record" >&2; exit 1; }
+    echo "migrated: task $ID's record had no spawn_gen; its incarnation was taken from the busy-state generation $META_SPAWN_GEN"
+  fi
   fm_backlog_close_marker_write "$STATE" "$ID" "$DATA" "$META_SPAWN_GEN" \
     "${BACKLOG_DONE_ARGS[@]+"${BACKLOG_DONE_ARGS[@]}"}" \
     || { echo "error: the pending backlog close for $ID could not be recorded ($FM_BACKLOG_TRANSITION_ERROR); retaining every durable task record" >&2; exit 1; }
