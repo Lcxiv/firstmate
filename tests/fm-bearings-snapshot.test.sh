@@ -12,6 +12,11 @@ set -u
 
 BEARINGS="$ROOT/bin/fm-bearings-snapshot.sh"
 TMP_ROOT=$(fm_test_tmproot fm-bearings)
+# Keep disposable homes outside the snapshot's fixture repo boundary even when
+# TMPDIR is inside an isolated source worktree.
+FM_ROOT_OVERRIDE="$TMP_ROOT/fixture-root"
+mkdir -p "$FM_ROOT_OVERRIDE"
+export FM_ROOT_OVERRIDE
 
 command -v jq >/dev/null 2>&1 || { echo "skip: jq not found"; exit 0; }
 
@@ -487,6 +492,8 @@ test_bad_secondmate_homes_never_revive_parent_work() {
       and (.secondmates | any(.[]; .id == "unreadable" and (.reason | test("invalid home|unreadable"))))
       and (.secondmates | any(.[]; .id == "malformed" and (.reason | contains("unstructured current backlog row"))))
       and (.secondmates | any(.[]; .id == "timedout" and (.reason | contains("timed out"))))
+      and ([.secondmate_reconcile[].id] == ["malformed"])
+      and (.secondmate_reconcile[0].kind == "unstructured_current")
   ' >/dev/null || fail "bad home outcomes revived stale work or lacked provenance: $json"
   pass "missing, invalid, unreadable, malformed, and timed-out homes stay explicit unknowns"
 }
@@ -730,10 +737,14 @@ EOF
     "$ROOT/bin/fm-fleet-snapshot.sh" --json)
   printf '%s' "$canonical" | jq -e '
     .secondmate_current.records[] | select(.id == "states")
-    | .current.state == "unknown"
+    | .current.state == "captain_decision"
       and (.current.reason | contains("live child state has no in-flight backlog item"))
       and (.current.reason | contains("parked=parked"))
-  ' >/dev/null || fail "unowned held child was silently dropped: $canonical"
+      and .provenance.selected == "structured-home"
+      and .provenance.trust == "partial-structured"
+      and .invalidity == {kind:"unowned_current",ids:["parked"]}
+      and [.decisions_open[].key] == ["parked"]
+  ' >/dev/null || fail "unowned held child lost its classification or decisions: $canonical"
   cat > "$mate/data/backlog.md" <<'EOF'
 ## In flight
 - [ ] done - Done child still in flight (repo: sample) (kind: ship) (since 2026-07-11)
@@ -758,11 +769,14 @@ EOF
     "$ROOT/bin/fm-fleet-snapshot.sh" --json)
   printf '%s' "$canonical" | jq -e '
     .secondmate_current.records[] | select(.id == "states")
-    | .current.state == "unknown"
+    | .current.state == "no_active_work"
       and (.current.reason | contains("terminal child state"))
       and (.current.reason | contains("done=done"))
       and (.current.reason | contains("failed=failed"))
-  ' >/dev/null || fail "terminal in-flight child states were silently dropped: $canonical"
+      and .provenance.selected == "structured-home"
+      and .provenance.trust == "partial-structured"
+      and .invalidity == {kind:"terminal_in_flight",ids:["done","failed"]}
+  ' >/dev/null || fail "terminal in-flight rows discarded the readable home: $canonical"
   pass "nonprogressing child states are explicit and inconsistent terminal rows invalidate"
 }
 
@@ -963,6 +977,52 @@ test_superseded_queued_item_dropped_by_default() {
   printf '%s' "$json" | jq -e '.gates | any(.[]; .id == "dead-gate")' >/dev/null \
     || fail "--all-queued must restore the superseded item"
   pass "superseded queued items are dropped by default and restored with --all-queued"
+}
+
+# The collapsed captain-call contract: any due, unblocked captain-held task is
+# Captain's Call whatever its kind; a date-deferred hold is a dated gate until
+# due; a prose-deferred hold leaves the default views with a disclosure; and
+# Recently Landed excludes only what closed while still held for the captain.
+test_collapsed_captain_call_deferral_and_landed() {
+  local home fakebin json
+  home=$(make_home collapsed-call)
+  mkdir -p "$home/data"
+  cat > "$home/data/backlog.md" <<'EOF'
+## In flight
+
+## Queued
+- [ ] work-gate - Captain-gated ship work (repo: firstmate) (kind: ship) (hold: captain go needed) (hold-kind: captain)
+- [ ] later-call - Deferred captain call (repo: firstmate) (kind: captain) (hold: revisit with the captain) (hold-kind: captain) (hold-until: 2026-08-01)
+- [ ] due-call - Due captain call (repo: firstmate) (kind: captain) (hold: overdue captain choice) (hold-kind: captain) (hold-until: 2026-07-11)
+- [ ] parked-call - Prose-parked captain call (repo: firstmate) (kind: ship) (hold: DEFERRED by captain revisit later) (hold-kind: captain)
+- [ ] external-gate - Externally held work (repo: firstmate) (kind: ship) (hold: upstream release pending) (hold-kind: external)
+
+## Done
+- [x] answered-call - Answered captain question (repo: firstmate) (kind: captain) (done 2026-07-10) (hold: captain choice pending) (hold-kind: captain)
+- [x] shipped-work - Ordinary landed work (repo: firstmate) (kind: ship) (merged 2026-07-10)
+EOF
+  fakebin=$(make_fakebin "$home")
+  json=$(run "$home" "$fakebin" --json)
+  printf '%s' "$json" | jq -e '
+    (.decisions_open | any(.[]; .id == "work-gate"))
+      and (.decisions_open | any(.[]; .id == "due-call"))
+      and (.decisions_open | any(.[]; .id == "later-call") | not)
+      and (.decisions_open | any(.[]; .id == "parked-call") | not)
+      and (.decisions_open | any(.[]; .id == "external-gate") | not)
+      and (.gates | any(.[]; .id == "later-call" and (.reason | startswith("until 2026-08-01"))))
+      and (.gates | any(.[]; .id == "work-gate") | not)
+      and (.gates | any(.[]; .id == "parked-call") | not)
+      and (.gates | any(.[]; .id == "external-gate"))
+      and (.landed | any(.[]; .id == "shipped-work"))
+      and (.landed | any(.[]; .id == "answered-call") | not)
+      and (.omitted | any(.[]; .surface | startswith("captain holds marked deferred")))
+  ' >/dev/null || fail "the collapsed captain-call projection is wrong: $json"
+  json=$(run "$home" "$fakebin" --json --all-decisions --all-queued)
+  printf '%s' "$json" | jq -e '
+    (.decisions_open | any(.[]; .id == "parked-call"))
+      and (.gates | any(.[]; .id == "parked-call") | not)
+  ' >/dev/null || fail "--all-decisions must reveal the prose-deferred call: $json"
+  pass "captain-held tasks of any kind reach Captain's Call, deferral is honored, and landed excludes answered calls"
 }
 
 test_include_prs_is_the_only_fetch_path() {
@@ -1700,15 +1760,15 @@ EOF
     .secondmate_current.records[] | select(.id == "sshhip")
     | .current.state == "unknown"
       and (.current.reason | contains("in-flight backlog item has no child metadata: ordinary-orphan"))
-      and .provenance.selected != "structured-home"
-      and .invalidity == null
-      and .active_children == []
-      and .decisions_open == []
-      and .holds == []
-      and .queued == []
-      and .landed == []
-      and .endpoints == []
-  ' >/dev/null || fail "an unknown child masked a simultaneous ordinary orphan: $canonical"
+      and .provenance.selected == "structured-home"
+      and .provenance.trust == "partial-structured"
+      and .invalidity == {kind:"orphan_in_flight",ids:["ordinary-orphan"]}
+      and [.decisions_open[].id] == ["reviewer-decision"]
+      and [.holds[].id] == ["reviewer-decision"]
+      and [.queued[].id] == ["reviewer-decision"]
+      and [.landed[].id] == ["prior-release"]
+      and [.endpoints[].id] == ["unreadable-child"]
+  ' >/dev/null || fail "an ordinary orphan discarded a readable home alongside an unknown child: $canonical"
   sed '/ordinary-orphan/d' "$sshhip/data/backlog.md" > "$sshhip/data/backlog.next"
   mv "$sshhip/data/backlog.next" "$sshhip/data/backlog.md"
 
@@ -1720,15 +1780,14 @@ EOF
     .secondmate_current.records[] | select(.id == "sshhip")
     | .current.state == "unknown"
       and (.current.reason | contains("live child state has no in-flight backlog item: unreadable-child=unknown"))
-      and .provenance.selected != "structured-home"
-      and .invalidity == null
-      and .active_children == []
-      and .decisions_open == []
-      and .holds == []
-      and .queued == []
-      and .landed == []
-      and .endpoints == []
-  ' >/dev/null || fail "an unowned unknown child received partial structured projection: $canonical"
+      and .provenance.selected == "structured-home"
+      and .provenance.trust == "partial-structured"
+      and .invalidity == {kind:"unowned_current",ids:["unreadable-child"]}
+      and [.decisions_open[].id] == ["reviewer-decision"]
+      and [.holds[].id] == ["reviewer-decision"]
+      and [.queued[].id] == ["reviewer-decision"]
+      and [.landed[].id] == ["prior-release"]
+  ' >/dev/null || fail "an unowned unknown child discarded the readable home: $canonical"
   sed '/## In flight/a\
 - [ ] unreadable-child - Submit App Store build (repo: sshhip) (kind: ship)' \
     "$sshhip/data/backlog.md" > "$sshhip/data/backlog.next"
@@ -1806,16 +1865,14 @@ EOF
     "$ROOT/bin/fm-fleet-snapshot.sh" --json)
   printf '%s' "$canonical" | jq -e '
     .secondmate_current.records[] | select(.id == "hibit")
-    | .current.state == "unknown"
+    | .current.state == "active_child_work"
       and (.current.reason | contains("in-flight backlog item has no child metadata: dogfood-program"))
-      and .provenance.selected != "structured-home"
-      and .active_children == []
-      and .decisions_open == []
-      and .holds == []
-      and .queued == []
-      and .landed == []
-      and .endpoints == []
-  ' >/dev/null || fail "an unrecognized worker kind no longer stayed strict: $canonical"
+      and .provenance.selected == "structured-home"
+      and .provenance.trust == "partial-structured"
+      and .invalidity == {kind:"orphan_in_flight",ids:["dogfood-program"]}
+      and [.active_children[].id] == ["hibit-worker"]
+      and [.endpoints[].id] == ["hibit-worker"]
+  ' >/dev/null || fail "an unrecognized worker kind hid the home's live work: $canonical"
   pass "mixed secondmate roles, partial state, and captain readiness project independently"
 }
 
@@ -1927,6 +1984,7 @@ test_include_prs_is_the_only_fetch_path
 test_partial_github_failure_degrades
 test_perl_fallback_bounds_github_call
 test_section_caps_and_expansion_flags
+test_collapsed_captain_call_deferral_and_landed
 test_pr_repository_cap_and_expansion
 test_per_repository_pr_cap_is_disclosed
 test_projection_and_toon_fail_closed

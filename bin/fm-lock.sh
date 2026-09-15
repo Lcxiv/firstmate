@@ -67,7 +67,37 @@ release_claim_lock() {
 }
 trap release_claim_lock EXIT
 trap 'exit 1' HUP INT TERM
-fm_lock_acquire_wait "$CLAIM_LOCK"
+
+if [ -f "$LOCK" ] && [ ! -L "$LOCK" ]; then
+  old=$(cat "$LOCK" 2>/dev/null || true)
+  if [ "$old" = "$me" ]; then
+    if [ -n "$MY_SID" ] && [ -f "$SIDECAR" ] && [ ! -L "$SIDECAR" ] \
+      && [ "$(cat "$SIDECAR" 2>/dev/null)" = "$MY_SID" ]; then
+      echo "lock acquired: harness pid $me (session $MY_SID)"
+      exit 0
+    fi
+    if [ -z "$MY_SID" ] && [ ! -e "$SIDECAR" ] && [ ! -L "$SIDECAR" ]; then
+      echo "lock acquired: harness pid $me"
+      exit 0
+    fi
+  fi
+  # A live owner is NOT refused here. Two cases both need the fuller treatment
+  # below, and neither can be decided from liveness alone: a same-session
+  # successor must re-key the pid rather than be turned away, and a genuine
+  # competing session owes the captain the complete diagnosis (which process,
+  # since when, on which terminal, and the fork-lineage hand-over note). The
+  # early exit above is kept only for the already-ours case, which is the one
+  # that genuinely needs no claim lock and no diagnosis.
+fi
+
+if ! fm_lock_try_acquire "$CLAIM_LOCK"; then
+  sweep_pid=$(sed -n 's/^pid=//p' "$STATE/.startup-network.status" 2>/dev/null | tail -1)
+  if [ -n "${FM_LOCK_HELD_PID:-}" ] && [ "$FM_LOCK_HELD_PID" = "$sweep_pid" ]; then
+    echo "error: the prior session's bounded startup sweep is finishing; operate read-only until it releases the fleet lock" >&2
+    exit 1
+  fi
+  fm_lock_acquire_wait "$CLAIM_LOCK"
+fi
 CLAIM_LOCK_HELD=1
 
 if [ -e "$LOCK" ] || [ -L "$LOCK" ]; then

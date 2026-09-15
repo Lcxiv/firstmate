@@ -30,7 +30,8 @@
     "docs/herdr-backend.md",
     "docs/zellij-backend.md",
     "docs/orca-backend.md",
-    "docs/cmux-backend.md"
+    "docs/cmux-backend.md",
+    "docs/remote-secondmates.md"
   ],
   "requiredOwnerPointers": [
     {
@@ -100,6 +101,10 @@
     {
       "source": "docs/codex-app-backend.md",
       "target": "docs/verification/runtime-backends.md"
+    },
+    {
+      "source": "docs/trace-context.md",
+      "target": "docs/verification/trace-context.md"
     }
   ],
   "surfaces": [
@@ -121,6 +126,10 @@
     },
     {
       "path": ".agents/skills/bootstrap-diagnostics/SKILL.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": ".agents/skills/captain-hold-lifecycle/SKILL.md",
       "audience": "agent-runtime"
     },
     {
@@ -160,6 +169,62 @@
       "audience": "agent-runtime"
     },
     {
+      "path": ".agents/skills/harness-adapters/references/common/control-and-recovery.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": ".agents/skills/harness-adapters/references/common/dispatch.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": ".agents/skills/harness-adapters/references/common/model-and-effort.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": ".agents/skills/harness-adapters/references/common/primary-hooks.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": ".agents/skills/harness-adapters/references/harness/claude.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": ".agents/skills/harness-adapters/references/harness/codex.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": ".agents/skills/harness-adapters/references/harness/cursor.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": ".agents/skills/harness-adapters/references/harness/grok.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": ".agents/skills/harness-adapters/references/harness/hermes.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": ".agents/skills/harness-adapters/references/harness/kimi.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": ".agents/skills/harness-adapters/references/harness/muse.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": ".agents/skills/harness-adapters/references/harness/opencode.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": ".agents/skills/harness-adapters/references/harness/pi.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": ".agents/skills/process-event-sources/SKILL.md",
+      "audience": "agent-runtime"
+    },
+    {
       "path": ".agents/skills/project-management/SKILL.md",
       "audience": "agent-runtime"
     },
@@ -184,6 +249,10 @@
       "audience": "agent-runtime"
     },
     {
+      "path": ".greptile/rules.md",
+      "audience": "maintainer-architecture"
+    },
+    {
       "path": "AGENTS.md",
       "audience": "agent-runtime"
     },
@@ -196,8 +265,20 @@
       "audience": "maintainer-architecture"
     },
     {
+      "path": "GROK_BOT.md",
+      "audience": "public-product"
+    },
+    {
       "path": "README.md",
       "audience": "public-product"
+    },
+    {
+      "path": "VISION.md",
+      "audience": "public-product"
+    },
+    {
+      "path": "docs/agent-control.md",
+      "audience": "maintainer-architecture"
     },
     {
       "path": "docs/architecture.md",
@@ -208,16 +289,16 @@
       "audience": "maintainer-architecture"
     },
     {
-      "path": "docs/board.md",
-      "audience": "operator-current"
-    },
-    {
       "path": "docs/calm-mode-feasibility.md",
       "audience": "maintainer-verification"
     },
     {
       "path": "docs/calm.md",
       "audience": "operator-current"
+    },
+    {
+      "path": "docs/captain-hold-lifecycle.md",
+      "audience": "maintainer-architecture"
     },
     {
       "path": "docs/cd-guard.md",
@@ -236,10 +317,6 @@
       "audience": "operator-current"
     },
     {
-      "path": "docs/decision-hold-lifecycle.md",
-      "audience": "maintainer-architecture"
-    },
-    {
       "path": "docs/documentation-audiences.md",
       "audience": "maintainer-architecture"
     },
@@ -248,8 +325,24 @@
       "audience": "operator-example"
     },
     {
+      "path": "docs/examples/process-event-extension/file-signal.mjs",
+      "audience": "operator-example"
+    },
+    {
+      "path": "docs/examples/process-event-extension/firstmate-extension.json",
+      "audience": "operator-example"
+    },
+    {
+      "path": "docs/examples/watched-tools.json",
+      "audience": "operator-example"
+    },
+    {
       "path": "docs/examples/wedge-alarm",
       "audience": "operator-example"
+    },
+    {
+      "path": "docs/extension-bindings.md",
+      "audience": "maintainer-architecture"
     },
     {
       "path": "docs/fm-test-isolation-proof.md",
@@ -269,6 +362,18 @@
     },
     {
       "path": "docs/orca-backend.md",
+      "audience": "operator-current"
+    },
+    {
+      "path": "docs/phone-glance.md",
+      "audience": "operator-current"
+    },
+    {
+      "path": "docs/pi-supervision-branch.md",
+      "audience": "maintainer-architecture"
+    },
+    {
+      "path": "docs/remote-secondmates.md",
       "audience": "operator-current"
     },
     {
@@ -292,6 +397,10 @@
       "audience": "agent-runtime"
     },
     {
+      "path": "docs/supervision-protocols/cursor.md",
+      "audience": "agent-runtime"
+    },
+    {
       "path": "docs/supervision-protocols/grok.md",
       "audience": "agent-runtime"
     },
@@ -312,11 +421,23 @@
       "audience": "operator-current"
     },
     {
+      "path": "docs/trace-context.md",
+      "audience": "maintainer-architecture"
+    },
+    {
       "path": "docs/turnend-guard.md",
       "audience": "operator-current"
     },
     {
       "path": "docs/verification/dispatch-auth.md",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "docs/verification/muse.md",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "docs/verification/process-event-sources.md",
       "audience": "maintainer-verification"
     },
     {
@@ -334,6 +455,14 @@
     {
       "path": "docs/verification/supervision.md",
       "audience": "maintainer-verification"
+    },
+    {
+      "path": "docs/verification/trace-context.md",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "docs/voice-relay.md",
+      "audience": "operator-current"
     },
     {
       "path": "docs/watcher-continuity.md",

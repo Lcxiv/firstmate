@@ -138,8 +138,7 @@ test_send_text_submit_verifies_empty_composer_after_enter() {
   orca_case send-submit
   printf '{"ok":true,"result":{"send":{"handle":"term-123","accepted":true}}}\n' > "$RESP/1.out"
   printf '{"ok":true,"result":{"send":{"handle":"term-123","accepted":true}}}\n' > "$RESP/2.out"
-  printf '{"ok":true,"result":{"terminal":{"tail":["╭──╮","│ > │","╰──╯"],"limited":true,"oldestCursor":"cursor-old"},"limited":true,"oldestCursor":"cursor-old"}}\n' > "$RESP/3.out"
-  printf '{"ok":true,"result":{"terminal":{"tail":["╭──╮","│ > │","╰──╯"],"latestCursor":"cursor-new"}}}\n' > "$RESP/4.out"
+  printf '{"ok":true,"result":{"terminal":{"tail":["╭───╮","│ > │","╰───╯"]}}}\n' > "$RESP/3.out"
   out=$( PATH="$FB:$PATH" FM_ORCA_LOG="$LOG" FM_ORCA_RESPONSES="$RESP" \
     bash -c '. "$0/bin/backends/orca.sh"; fm_backend_orca_send_text_submit term-123 "hello captain" 3 0.01 0.01' "$ROOT" )
   [ "$out" = empty ] || fail "send_text_submit should report empty on successful Orca send, got '$out'"
@@ -147,27 +146,46 @@ test_send_text_submit_verifies_empty_composer_after_enter() {
     "send_text_submit did not type the text literally before Enter"
   assert_contains "$(cat "$LOG")" $'orca\x1f''terminal'$'\x1f''send'$'\x1f''--terminal'$'\x1f''term-123'$'\x1f''--text'$'\x1f\x1f''--enter'$'\x1f''--json' \
     "send_text_submit did not send Enter after typing"
-  assert_contains "$(cat "$LOG")" $'orca\x1f''terminal'$'\x1f''read'$'\x1f''--terminal'$'\x1f''term-123'$'\x1f''--cursor'$'\x1f''cursor-old'$'\x1f''--limit' \
-    "send_text_submit did not follow cursor-backed reads when Orca reports a limited page"
-  pass "fm_backend_orca_send_text_submit: verifies empty composer after Enter"
+  # The composer read is ONE bounded tail read: the old backward paging
+  # (--cursor follow-ups on a limited page) is deleted, because paging into
+  # scrollback is what let a stale startup banner compete with the live
+  # composer (audit fm-composer-consolidation-audit-s1, section 3.3).
+  assert_not_contains "$(cat "$LOG")" $'\x1f''--cursor'$'\x1f' \
+    "the composer read must never page backward into scrollback"
+  pass "fm_backend_orca_send_text_submit: verifies empty composer after Enter with one bounded read"
 }
 
-test_send_text_submit_keeps_current_tail_when_limited() {
-  local out log_text enter_count
-  orca_case send-submit-limited-current-pending
+test_send_text_submit_borderless_claude_confirms() {
+  # The #2029 analogue this adapter never received: a borderless claude
+  # composer (bare `❯` row between horizontal rules) must confirm a submit.
+  # Before consolidation orca knew only the bordered shape, so every steer to
+  # a borderless harness exited unconfirmed and --resolve-key never closed.
+  local out
+  orca_case send-submit-borderless
   printf '{"ok":true,"result":{"send":{"handle":"term-123","accepted":true}}}\n' > "$RESP/1.out"
   printf '{"ok":true,"result":{"send":{"handle":"term-123","accepted":true}}}\n' > "$RESP/2.out"
-  printf '{"ok":true,"result":{"terminal":{"tail":["noise","│ > hello captain │"],"limited":true,"oldestCursor":"cursor-old"},"limited":true,"oldestCursor":"cursor-old"}}\n' > "$RESP/3.out"
-  printf '{"ok":true,"result":{"terminal":{"tail":["╭──╮","│ > │","╰──╯"],"latestCursor":"cursor-new"}}}\n' > "$RESP/4.out"
-  printf '{"ok":true,"result":{"send":{"handle":"term-123","accepted":true}}}\n' > "$RESP/5.out"
-  printf '{"ok":true,"result":{"terminal":{"tail":["│ > │"]}}}\n' > "$RESP/6.out"
+  printf '{"ok":true,"result":{"terminal":{"tail":["────────────────","❯","────────────────"]}}}\n' > "$RESP/3.out"
   out=$( PATH="$FB:$PATH" FM_ORCA_LOG="$LOG" FM_ORCA_RESPONSES="$RESP" \
     bash -c '. "$0/bin/backends/orca.sh"; fm_backend_orca_send_text_submit term-123 "hello captain" 3 0.01 0.01' "$ROOT" )
-  [ "$out" = empty ] || fail "send_text_submit should keep the limited current tail and retry, got '$out'"
-  log_text=$(cat "$LOG")
-  enter_count=$(printf '%s\n' "$log_text" | grep -c $'orca\x1fterminal\x1fsend\x1f--terminal\x1fterm-123\x1f--text\x1f\x1f--enter\x1f--json')
-  [ "$enter_count" -eq 2 ] || fail "send_text_submit should see pending text in the current tail before older cursor text, got $enter_count Enter(s)"
-  pass "fm_backend_orca_send_text_submit: preserves current tail when limited reads fetch older cursor text"
+  [ "$out" = empty ] || fail "a borderless claude composer should confirm the submit, got '$out'"
+  pass "fm_backend_orca_send_text_submit: a borderless claude composer confirms delivery (the missing #2029 shape)"
+}
+
+test_composer_state_stale_banner_never_wins() {
+  # The audit's confidently-wrong case (section 3.3): codex's startup banner
+  # (`│ permissions: YOLO mode │` inside a rounded box) classified as the
+  # composer, reading `pending` for a row that is not a composer at all. With
+  # the full shape catalogue the live bare row below the banner wins; with a
+  # plain capture its trailing hint text is unreadable, so the verdict is
+  # `unknown` (defer) - never the banner's false `pending`.
+  local out
+  orca_case composer-stale-banner
+  printf '{"ok":true,"result":{"terminal":{"tail":["╭────────────────────────╮","│ permissions: YOLO mode │","╰────────────────────────╯","› Use /skills to list available skills"]}}}\n' > "$RESP/1.out"
+  out=$( PATH="$FB:$PATH" FM_ORCA_LOG="$LOG" FM_ORCA_RESPONSES="$RESP" \
+    bash -c '. "$0/bin/backends/orca.sh"; fm_backend_orca_composer_state term-123' "$ROOT" )
+  [ "$out" != pending ] || fail "a stale startup banner must never classify as pending composer text"
+  [ "$out" = unknown ] || fail "the plain-capture codex hint should defer as unknown, got '$out'"
+  pass "fm_backend_orca_composer_state: a stale startup banner cannot outrank the live composer row"
 }
 
 test_send_text_submit_retries_when_composer_stays_pending() {
@@ -175,9 +193,9 @@ test_send_text_submit_retries_when_composer_stays_pending() {
   orca_case send-submit-pending
   printf '{"ok":true,"result":{"send":{"handle":"term-123","accepted":true}}}\n' > "$RESP/1.out"
   printf '{"ok":true,"result":{"send":{"handle":"term-123","accepted":true}}}\n' > "$RESP/2.out"
-  printf '{"ok":true,"result":{"terminal":{"tail":["│ > hello captain │"]}}}\n' > "$RESP/3.out"
+  printf '{"ok":true,"result":{"terminal":{"tail":["╭─────────────────╮","│ > hello captain │","╰─────────────────╯"]}}}\n' > "$RESP/3.out"
   printf '{"ok":true,"result":{"send":{"handle":"term-123","accepted":true}}}\n' > "$RESP/4.out"
-  printf '{"ok":true,"result":{"terminal":{"tail":["│ > │"]}}}\n' > "$RESP/5.out"
+  printf '{"ok":true,"result":{"terminal":{"tail":["╭─────────────────╮","│ >               │","╰─────────────────╯"]}}}\n' > "$RESP/5.out"
   out=$( PATH="$FB:$PATH" FM_ORCA_LOG="$LOG" FM_ORCA_RESPONSES="$RESP" \
     bash -c '. "$0/bin/backends/orca.sh"; fm_backend_orca_send_text_submit term-123 "hello captain" 3 0.01 0.01' "$ROOT" )
   [ "$out" = empty ] || fail "send_text_submit should retry Enter until the composer clears, got '$out'"
@@ -190,7 +208,7 @@ test_send_text_submit_retries_when_composer_stays_pending() {
 test_composer_state_popup_placeholder_fill_is_pending() {
   local out
   orca_case composer-popup-placeholder
-  printf '{"ok":true,"result":{"terminal":{"tail":["  ╭──────────────────────────────────────╮","  │ ❯ /compact compaction instructions    │","  ╰──────────────── Composer ─────────────╯","","  Enter:send"]}}}\n' > "$RESP/1.out"
+  printf '{"ok":true,"result":{"terminal":{"tail":["  ╭──────────────────────────────────────╮","  │ ❯ /compact compaction instructions   │","  ╰──────────────── Composer ────────────╯","","  Enter:send"]}}}\n' > "$RESP/1.out"
   out=$( PATH="$FB:$PATH" FM_ORCA_LOG="$LOG" FM_ORCA_RESPONSES="$RESP" \
     bash -c '. "$0/bin/backends/orca.sh"; fm_backend_orca_composer_state term-123' "$ROOT" )
   [ "$out" = pending ] || fail "a popup-close-with-placeholder-fill must still read as pending (not yet submitted), got '$out'"
@@ -219,11 +237,11 @@ test_send_text_submit_popup_autocomplete_requires_second_enter() {
   # 3: read - composer still holds real pending text
   printf '{"ok":true,"result":{"send":{"handle":"term-123","accepted":true}}}\n' > "$RESP/1.out"
   printf '{"ok":true,"result":{"send":{"handle":"term-123","accepted":true}}}\n' > "$RESP/2.out"
-  printf '{"ok":true,"result":{"terminal":{"tail":["  ╭──────────────────────────────────────╮","  │ ❯ /compact compaction instructions    │","  ╰──────────────── Composer ─────────────╯","","  Enter:send"]}}}\n' > "$RESP/3.out"
+  printf '{"ok":true,"result":{"terminal":{"tail":["  ╭──────────────────────────────────────╮","  │ ❯ /compact compaction instructions   │","  ╰──────────────── Composer ────────────╯","","  Enter:send"]}}}\n' > "$RESP/3.out"
   # 4: Enter #2 actually submits
   # 5: read - composer is empty
   printf '{"ok":true,"result":{"send":{"handle":"term-123","accepted":true}}}\n' > "$RESP/4.out"
-  printf '{"ok":true,"result":{"terminal":{"tail":["  ╭────────────────────────╮","  │ ❯                      │","  ╰──────── Composer ─────╯","","  Shift+Tab:mode"]}}}\n' > "$RESP/5.out"
+  printf '{"ok":true,"result":{"terminal":{"tail":["  ╭────────────────────────╮","  │ ❯                      │","  ╰──────── Composer ──────╯","","  Shift+Tab:mode"]}}}\n' > "$RESP/5.out"
   out=$( PATH="$FB:$PATH" FM_ORCA_LOG="$LOG" FM_ORCA_RESPONSES="$RESP" \
     bash -c '. "$0/bin/backends/orca.sh"; fm_backend_orca_send_text_submit term-123 "/compact" 3 0.01 1.2' "$ROOT" )
   [ "$out" = empty ] || fail "send_text_submit should eventually report empty once the SECOND Enter actually clears the composer, got '$out'"
@@ -454,7 +472,7 @@ test_spawn_preserves_orca_metadata_when_pathless_worktree_cleanup_fails() {
   out=$( PATH="$FB:$PATH" FM_ORCA_LOG="$LOG" FM_ORCA_RESPONSES="$RESP" \
     FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$config" \
     FM_PROJECTS_OVERRIDE="$TMP_ROOT/unused-projects" FM_SPAWN_NO_GUARD=1 \
-    "$ROOT/bin/fm-spawn.sh" "$id" "$proj" claude --backend orca 2>&1 )
+    "$ROOT/bin/fm-spawn.sh" "$id" "$proj" claude --mode no-mistakes --yolo off --backend orca 2>&1 )
   status=$?
   [ "$status" -ne 0 ] || fail "Orca spawn should fail when path parsing and cleanup fail"
   assert_contains "$out" "orca worktree create did not return a path" \
@@ -489,7 +507,7 @@ test_spawn_writes_orca_metadata_and_launches_harness() {
   out=$( PATH="$FB:$PATH" FM_ORCA_LOG="$LOG" FM_ORCA_RESPONSES="$RESP" \
     FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$config" \
     FM_PROJECTS_OVERRIDE="$TMP_ROOT/unused-projects" FM_SPAWN_NO_GUARD=1 \
-    "$ROOT/bin/fm-spawn.sh" "$id" "$proj" claude --backend orca 2>&1 )
+    "$ROOT/bin/fm-spawn.sh" "$id" "$proj" claude --mode no-mistakes --yolo off --backend orca 2>&1 )
   expect_code 0 $? "fm-spawn.sh --backend orca should succeed with fake Orca"$'\n'"$out"
   assert_contains "$out" "spawned $id harness=claude kind=ship mode=no-mistakes yolo=off window=fm-$id worktree=$wt" \
     "spawn output missing Orca window/worktree summary"
@@ -551,7 +569,7 @@ test_spawn_refuses_orca_when_runtime_not_ready() {
   out=$( PATH="$FB:$PATH" FM_ORCA_LOG="$LOG" FM_ORCA_RESPONSES="$RESP" FM_ORCA_STATUS_RESPONSE=sequence \
     FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$config" \
     FM_PROJECTS_OVERRIDE="$TMP_ROOT/unused-projects" FM_SPAWN_NO_GUARD=1 \
-    "$ROOT/bin/fm-spawn.sh" "$id" "$proj" claude --backend orca 2>&1 )
+    "$ROOT/bin/fm-spawn.sh" "$id" "$proj" claude --mode no-mistakes --yolo off --backend orca 2>&1 )
   status=$?
   [ "$status" -ne 0 ] || fail "fm-spawn.sh --backend orca should refuse when Orca runtime is not ready"
   assert_contains "$out" "requires a ready Orca runtime" \
@@ -582,7 +600,7 @@ test_spawn_refuses_orca_nonisolated_worktree() {
   out=$( PATH="$FB:$PATH" FM_ORCA_LOG="$LOG" FM_ORCA_RESPONSES="$RESP" \
     FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$config" \
     FM_PROJECTS_OVERRIDE="$TMP_ROOT/unused-projects" FM_SPAWN_NO_GUARD=1 \
-    "$ROOT/bin/fm-spawn.sh" "$id" "$proj" claude --backend orca 2>&1 )
+    "$ROOT/bin/fm-spawn.sh" "$id" "$proj" claude --mode no-mistakes --yolo off --backend orca 2>&1 )
   status=$?
   expect_code 1 "$status" "fm-spawn.sh --backend orca should refuse a primary checkout worktree"
   assert_contains "$out" "orca worktree create did not yield an isolated worktree" \
@@ -617,7 +635,7 @@ test_spawn_removes_orca_worktree_when_terminal_create_fails() {
   out=$( PATH="$FB:$PATH" FM_ORCA_LOG="$LOG" FM_ORCA_RESPONSES="$RESP" \
     FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$config" \
     FM_PROJECTS_OVERRIDE="$TMP_ROOT/unused-projects" FM_SPAWN_NO_GUARD=1 \
-    "$ROOT/bin/fm-spawn.sh" "$id" "$proj" claude --backend orca 2>&1 )
+    "$ROOT/bin/fm-spawn.sh" "$id" "$proj" claude --mode no-mistakes --yolo off --backend orca 2>&1 )
   status=$?
   [ "$status" -ne 0 ] || fail "Orca spawn should fail when terminal creation fails"
   assert_absent "$state/$id.meta" "terminal-create abort should not record metadata after successful cleanup"
@@ -651,7 +669,7 @@ test_spawn_preserves_orca_metadata_when_abort_cleanup_fails() {
   out=$( PATH="$FB:$PATH" FM_ORCA_LOG="$LOG" FM_ORCA_RESPONSES="$RESP" \
     FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$config" \
     FM_PROJECTS_OVERRIDE="$TMP_ROOT/unused-projects" FM_SPAWN_NO_GUARD=1 \
-    "$ROOT/bin/fm-spawn.sh" "$id" "$proj" claude --backend orca 2>&1 )
+    "$ROOT/bin/fm-spawn.sh" "$id" "$proj" claude --mode no-mistakes --yolo off --backend orca 2>&1 )
   status=$?
   [ "$status" -ne 0 ] || fail "Orca spawn should fail when terminal creation and abort cleanup fail"
   assert_contains "$(cat "$LOG")" $'orca\x1f''worktree'$'\x1f''rm'$'\x1f''--worktree'$'\x1f''id:wt-cleanup-fail'$'\x1f''--force'$'\x1f''--json' \
@@ -683,10 +701,11 @@ test_spawn_releases_orca_resources_when_metadata_write_fails() {
   out=$( PATH="$FB:$PATH" FM_ORCA_LOG="$LOG" FM_ORCA_RESPONSES="$RESP" \
     FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$config" \
     FM_PROJECTS_OVERRIDE="$TMP_ROOT/unused-projects" FM_SPAWN_NO_GUARD=1 \
-    "$ROOT/bin/fm-spawn.sh" "$id" "$proj" claude --backend orca 2>&1 )
+    "$ROOT/bin/fm-spawn.sh" "$id" "$proj" claude --mode no-mistakes --yolo off --backend orca 2>&1 )
   status=$?
   [ "$status" -ne 0 ] || fail "Orca spawn should fail when metadata cannot be written"
-  assert_contains "$out" "Is a directory" "spawn should fail at metadata publication"
+  assert_contains "$out" "task record for $id could not be published" \
+    "spawn should report metadata publication failure without relying on platform-specific mv output"
   assert_contains "$(cat "$LOG")" $'orca\x1f''terminal'$'\x1f''close'$'\x1f''--terminal'$'\x1f''term-meta-fail'$'\x1f''--json' \
     "Orca spawn should close the recorded terminal when a later abort occurs"
   assert_contains "$(cat "$LOG")" $'orca\x1f''worktree'$'\x1f''rm'$'\x1f''--worktree'$'\x1f''id:wt-meta-fail'$'\x1f''--force'$'\x1f''--json' \
@@ -696,7 +715,7 @@ test_spawn_releases_orca_resources_when_metadata_write_fails() {
 }
 
 test_peek_send_and_crew_state_route_through_orca_meta() {
-  local wt state id out neutral
+  local wt state id out neutral record body
   id="orcaiopathz2"
   wt="$TMP_ROOT/io-wt"
   fm_git_init_commit "$wt"
@@ -725,11 +744,17 @@ test_peek_send_and_crew_state_route_through_orca_meta() {
     "peek/crew-state did not read the recorded Orca terminal"
   assert_not_contains "$(cat "$LOG")" $'orca\x1f''terminal'$'\x1f''read'$'\x1f''--terminal'$'\x1f'"fm-$id" \
     "crew-state should not read the stable Orca alias as a terminal handle"
-  assert_contains "$(cat "$LOG")" $'orca\x1f''terminal'$'\x1f''send'$'\x1f''--terminal'$'\x1f''term-io'$'\x1f''--text'$'\x1f''hello orca'$'\x1f''--json' \
-    "send did not type through the recorded Orca terminal"
+  record="$state/$id.inbox/001.msg"
+  [ -f "$record" ] || fail "send did not enqueue through the task inbox"
+  body=$(bash -c '. "$1"; fm_task_inbox_body "$2"' _ "$ROOT/bin/fm-task-inbox-lib.sh" "$record")
+  [ "$body" = "hello orca" ] || fail "Orca task inbox did not preserve the send body, got '$body'"
+  assert_not_contains "$(cat "$LOG")" $'--text\x1fhello orca\x1f' \
+    "send typed the payload instead of recording it"
+  assert_contains "$(cat "$LOG")" $'orca\x1f''terminal'$'\x1f''send'$'\x1f''--terminal'$'\x1f''term-io'$'\x1f''--text'$'\x1f''Firstmate instruction waiting:' \
+    "send did not ring the inbox doorbell through the recorded Orca terminal"
   assert_contains "$(cat "$LOG")" $'orca\x1f''terminal'$'\x1f''send'$'\x1f''--terminal'$'\x1f''term-io'$'\x1f''--text'$'\x1f\x1f''--enter'$'\x1f''--json' \
-    "send did not submit Enter through the recorded Orca terminal"
-  pass "fm-peek/fm-send/fm-crew-state route through backend=orca metadata"
+    "send did not submit the doorbell through the recorded Orca terminal"
+  pass "fm-peek/fm-send/fm-crew-state route through backend=orca metadata and its durable inbox"
 }
 
 test_peek_and_crew_state_fail_closed_on_orca_error_json() {
@@ -1168,6 +1193,9 @@ test_secondmate_force_teardown_removes_orca_child_via_orca() {
     "backend=orca" "orca_worktree_id=wt-child-cleanup"
   orca_case secondmate-child-cleanup
   printf '{"ok":true,"result":{"worktree":{"id":"wt-child-cleanup","path":"%s"}}}\n' "$childwt" > "$RESP/1.out"
+  printf '{"ok":true,"result":{"worktree":{"id":"wt-child-cleanup","path":"%s"}}}\n' "$childwt" > "$RESP/2.out"
+  printf '{"ok":true,"result":{}}\n' > "$RESP/3.out"
+  printf '{"ok":true,"result":{}}\n' > "$RESP/4.out"
   add_tmux_fake "$FB"
   neutral=$(neutral_fm_root "$CASE_DIR/neutral")
   set +e
@@ -1282,7 +1310,8 @@ test_capture_fails_on_orca_error_json
 test_runtime_check_accepts_ready_orca_status
 test_runtime_check_refuses_unready_orca_status
 test_send_text_submit_verifies_empty_composer_after_enter
-test_send_text_submit_keeps_current_tail_when_limited
+test_send_text_submit_borderless_claude_confirms
+test_composer_state_stale_banner_never_wins
 test_send_text_submit_retries_when_composer_stays_pending
 test_composer_state_popup_placeholder_fill_is_pending
 test_composer_state_bare_shell_prompt_is_unknown

@@ -12,7 +12,7 @@ metadata:
 # effort-maps
 
 Keep one map per large fuzzy effort, so any future session - or the captain, cold - orients in one read.
-A map is an orientation index, never a tracker: the backlog remains the only work queue, and `decision-hold-lifecycle` remains the only owner of captain-decision mechanics.
+A map is an orientation index, never a tracker: the backlog remains the only work queue, and `captain-hold-lifecycle` remains the only owner of captain-hold mechanics.
 This convention is markdown plus this skill text only; there is no script, hook, or automation behind it.
 
 This skill is adapted from the MIT-licensed `wayfinder` skill in [mattpocock/skills](https://github.com/mattpocock/skills), Copyright (c) 2026 Matt Pocock; the text here is Firstmate's own.
@@ -77,7 +77,7 @@ Out-of-scope work never graduates: it returns only if the Destination itself is 
 ## Lifecycle
 
 - Create a map at intake of an effort too large or foggy for one session, naming the Destination first.
-- Append one index line to Decisions so far whenever a captain decision for the effort is durably resolved; `decision-hold-lifecycle` owns the decision mechanics and record, and the map only points at them.
+- Append one index line to Decisions so far whenever a captain decision for the effort is durably resolved; `captain-hold-lifecycle` owns the decision mechanics and record, and the map only points at them.
 - Graduate fog into concrete backlog items only when a resolution makes a question precisely statable, removing the graduated patch from Not yet specified so it lives only as its backlog item.
 - Read each active map during orientation - session-start recovery and bearings - while its effort has live or queued work.
 - Refer by name in captain-facing text: decisions and work items go by their names, and ids ride inside links, never in place of the name.
@@ -86,10 +86,10 @@ Out-of-scope work never graduates: it returns only if the Destination itself is 
 
 Retire a map when its Destination is reached or the captain explicitly ends the effort.
 Append a one-line outcome under Destination, then move the file to `data/maps/done/<effort-slug>.md` so orientation reads skip it.
-Never retire a map while the effort still has unresolved captain decisions; those close through `decision-hold-lifecycle` first.
+Never retire a map while the effort still has unresolved captain decisions; those close through `captain-hold-lifecycle` first.
 
 ## Boundaries
 
 - The backlog is the only work queue: the map lists no open work items and never becomes a second tracker.
-- `decision-hold-lifecycle` is the only owner of captain-decision mechanics: the map indexes its resolved records and never becomes a second decision store.
+- `captain-hold-lifecycle` is the only owner of captain-hold mechanics: the map indexes its resolved records and never becomes a second decision store.
 - No bin script, hook, or automation: the convention stays markdown plus this skill text.

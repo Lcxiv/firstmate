@@ -884,22 +884,32 @@ test_nonprivate_state_is_repaired_before_arm_and_rejected_during_poll() {
 # Bootstrap must never arm on a state directory the poller would then reject, so
 # the arm-time and poll-time gates have to be the same predicate. A state path
 # that cannot become an ordinary mode-700 directory - because it is a file, or
-# because its parent is a symlink - must refuse by naming the directory and the
-# required mode, and must leave nothing armed behind.
+# because its parent is a symlink - must refuse and leave nothing armed behind.
+#
+# The two shapes now refuse through different guards, and the assertion below
+# follows whichever one actually governs. A state path that is not a directory at
+# all is refused earlier and more broadly by the task-state gate, which stops the
+# whole bootstrap before any subsystem arms; a symlinked home reaches phone mode's
+# own gate, which names the directory and the required mode. What both must
+# guarantee is identical and is what the rest of this case asserts: nothing armed,
+# no cadence, no leaked configuration, and the operator's own path untouched.
 test_unpreparable_private_state_refuses_to_arm() {
-  local home fakebin out calls link
+  local home fakebin out calls link err
   home="$TMP_ROOT/unpreparable-state"
   write_phone_env "$home"
   : > "$home/state"
 
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null)
-  assert_contains "$out" "PHONE: Discord phone mode off - local private state directory requires mode 700: $home/state" \
-    "a state path that cannot become a private directory must refuse to arm"
+  err="$TMP_ROOT/unpreparable-state.err"
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-bootstrap.sh" 2>"$err") && \
+    fail "a state path that is not a directory must refuse rather than continue"
+  assert_contains "$(cat "$err")" "state directory is not a real directory at $home/state" \
+    "a state path that cannot become a private directory must refuse to arm, naming the path"
   assert_not_contains "$out" "PHONE: Discord phone mode on" \
     "an unpreparable private state directory must never report a successful arm"
-  assert_not_contains "$out" "$PHONE_TOKEN" "the state refusal leaked the bot token"
-  assert_not_contains "$out" "$CHANNEL_ID" "the state refusal leaked the channel id"
-  assert_not_contains "$out" "$CAPTAIN_ID" "the state refusal leaked the captain id"
+  assert_not_contains "$out$(cat "$err")" "$PHONE_TOKEN" "the state refusal leaked the bot token"
+  assert_not_contains "$out$(cat "$err")" "$CHANNEL_ID" "the state refusal leaked the channel id"
+  assert_not_contains "$out$(cat "$err")" "$CAPTAIN_ID" "the state refusal leaked the captain id"
+  assert_absent "$home/state/phone-watch.check.sh" "a refused state path must not publish a poll shim"
   assert_absent "$home/config/phone-mode.env" "an unpreparable state directory must not enable fast cadence"
   [ ! -d "$home/state" ] || fail "the refusal replaced the operator's own state path"
 

@@ -15,8 +15,8 @@
 # abort - all hermetic over temp git repos and fakebins.
 set -u
 
-# shellcheck source=tests/lib.sh
-. "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=tests/fixtures.sh
+. "$(dirname "${BASH_SOURCE[0]}")/fixtures.sh"
 
 # shellcheck source=/dev/null
 . "$ROOT/bin/fm-tangle-lib.sh"
@@ -24,11 +24,12 @@ set -u
 TMP_ROOT=$(fm_test_tmproot fm-tangle-guard)
 fm_git_identity fmtest fmtest@example.invalid
 
-# A fresh git repo on `main` with one commit. Echoes its path.
+# A fresh git repo on `main` with one commit and a local origin. Echoes its path.
 make_repo() {
   local dir=$1
   git init -q -b main "$dir"
   git -C "$dir" commit -q --allow-empty -m init
+  fm_git_add_origin "$dir" "$dir.origin.git"
   printf '%s\n' "$dir"
 }
 
@@ -127,7 +128,7 @@ test_brief_assertion_precedes_branch() {
   local home brief iso br
   home="$TMP_ROOT/brief-home"
   mkdir -p "$home/data"
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" tangle-brief-cc3 alpha >/dev/null 2>&1
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" tangle-brief-cc3 alpha --mode no-mistakes >/dev/null 2>&1
   brief="$home/data/tangle-brief-cc3/brief.md"
   assert_present "$brief" "brief was not scaffolded"
   assert_grep "blocked: launched in primary checkout, not an isolated worktree" "$brief" \
@@ -149,40 +150,12 @@ test_brief_assertion_precedes_branch() {
 
 # --- GUARD 1b: fm-spawn isolation abort -------------------------------------
 
-# A fake tmux that reports FM_FAKE_PANE_PATH as the post-`treehouse get` pane cwd
-# (so the spawn's worktree-resolution loop resolves to a path we control), names
-# the session on '#S', and swallows window ops. Echoes the fakebin dir.
-make_spawn_fakebin() {
-  local dir=$1 fakebin
-  fakebin=$(fm_fakebin "$dir")
-  cat > "$fakebin/tmux" <<'SH'
-#!/usr/bin/env bash
-set -u
-case "$*" in
-  *"#{pane_current_path}"*) printf '%s\n' "${FM_FAKE_PANE_PATH:-}"; exit 0 ;;
-esac
-case "${1:-}" in
-  display-message) printf 'firstmate\n'; exit 0 ;;
-  list-windows) exit 0 ;;
-  has-session|new-session|new-window|send-keys) exit 0 ;;
-esac
-exit 0
-SH
-  chmod +x "$fakebin/tmux"
-  fm_fake_exit0 "$fakebin" treehouse
-  printf '%s\n' "$fakebin"
-}
-
+# Spawn isolation uses the shared spawn fakebin (pane path + window ops).
 run_spawn() {
   local home=$1 id=$2 proj=$3 pane=$4 fakebin=$5
-  mkdir -p "$home/data/$id"
-  printf 'brief\n' > "$home/data/$id/brief.md"
-  FM_ROOT_OVERRIDE='' FM_HOME="$home" \
-    FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
-    FM_PROJECTS_OVERRIDE="$home/projects" FM_CONFIG_OVERRIDE="$home/config" \
-    FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$pane" TMUX="fake,1,0" \
-    PATH="$fakebin:$PATH" \
-    "$ROOT/bin/fm-spawn.sh" "$id" "$proj" codex 2>&1
+  fm_test_spawn_brief "$home" "$id" brief
+  fm_test_run_spawn "$home" "$pane" "$fakebin" \
+    "$id" "$proj" codex --mode no-mistakes --yolo off
 }
 
 test_spawn_isolation_abort() {
@@ -254,15 +227,10 @@ SH
 
 run_spawn_record() {
   local home=$1 id=$2 proj=$3 pane=$4 fakebin=$5 rec=$6
-  mkdir -p "$home/data/$id"
-  printf 'brief\n' > "$home/data/$id/brief.md"
-  FM_ROOT_OVERRIDE='' FM_HOME="$home" \
-    FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
-    FM_PROJECTS_OVERRIDE="$home/projects" FM_CONFIG_OVERRIDE="$home/config" \
-    FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$pane" TMUX="fake,1,0" \
-    FM_TMUX_REC="$rec" \
-    PATH="$fakebin:$PATH" \
-    "$ROOT/bin/fm-spawn.sh" "$id" "$proj" codex 2>&1
+  fm_test_spawn_brief "$home" "$id" brief
+  FM_TMUX_REC="$rec" \
+    fm_test_run_spawn "$home" "$pane" "$fakebin" \
+    "$id" "$proj" codex --mode no-mistakes --yolo off
 }
 
 test_spawn_tmux_window_construction() {

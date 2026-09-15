@@ -721,7 +721,17 @@ test_bootstrap_reports_missing_x_dependency() {
   local home fakebin out tool tool_path
   home="$TMP_ROOT/boot-missing-x"; mkdir -p "$home"
   fakebin=$(fm_fakebin "$home")
-  fm_fake_exit0 "$fakebin" tmux node no-mistakes gh-axi chrome-devtools-axi lavish-axi curl
+  fm_fake_exit0 "$fakebin" tmux node no-mistakes chrome-devtools-axi curl
+  fm_fake_version_tool "$fakebin" lavish-axi FM_FAKE_LAVISH_AXI_VERSION 0.1.46
+  cat > "$fakebin/gh-axi" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = --version ]; then
+  printf '%s\n' '0.1.29'
+  exit 0
+fi
+exit 0
+SH
+  chmod +x "$fakebin/gh-axi"
   for tool in dirname grep tail; do
     tool_path=$(command -v "$tool") || fail "test host must provide $tool"
     ln -s "$tool_path" "$fakebin/$tool"
@@ -770,7 +780,7 @@ test_bootstrap_does_not_announce_when_arm_fails() {
 test_bootstrap_does_not_follow_x_artifact_symlinks() {
   local home shim_target cadence_target out
   home="$TMP_ROOT/boot-linked-artifacts"
-  mkdir -p "$home/state" "$home/config" "$home/external-quarantine"
+  mkdir -p "$home/state" "$home/config"
   printf 'FMX_PAIRING_TOKEN=tok-linked\n' > "$home/.env"
   shim_target="$home/external-shim"
   cadence_target="$home/external-cadence"
@@ -779,7 +789,6 @@ test_bootstrap_does_not_follow_x_artifact_symlinks() {
   chmod 0640 "$shim_target" "$cadence_target"
   ln -s "$shim_target" "$home/state/x-watch.check.sh"
   ln -s "$cadence_target" "$home/config/x-mode.env"
-  ln -s "$home/external-quarantine" "$home/state/.pr-check-quarantine"
 
   out=$(FM_HOME="$home" "$ROOT/bin/fm-bootstrap.sh" 2>"$home/bootstrap.err")
 
@@ -888,7 +897,8 @@ test_bootstrap_opt_out_cleanup() {
   printf 'FMX_PAIRING_TOKEN=\n' > "$home/.env"
   out=$(CLAUDECODE=1 FM_HOME="$home" "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null)
   assert_contains "$out" "FMX: X mode off" "opt-out must announce X mode off when it removed artifacts"
-  assert_contains "$out" "Claude Code background task" "opt-out remediation must use the harness-aware repair renderer"
+  assert_contains "$out" "watcher supervision needs Stop-owned automatic recovery" "opt-out remediation must use neutral automatic-recovery guidance"
+  assert_not_contains "$out" "is broken" "opt-out remediation claimed an unverified mechanism failure"
   assert_not_contains "$out" "bin/fm-watch-arm.sh --restart" "opt-out remediation must not hardcode a background-arm restart"
   assert_absent "$home/state/x-watch.check.sh" "opt-out must remove the shim"
   assert_absent "$home/config/x-mode.env" "opt-out must remove the cadence config"
@@ -2457,6 +2467,77 @@ test_meta_rewrites_do_not_depend_on_tmpdir() {
   pass "meta rewrites are independent of TMPDIR"
 }
 
+# The shared publisher must refuse a symlink at state/<id>.meta so Relay field
+# rewrites cannot follow it and overwrite the target. Each helper is a real
+# rewrite path: link, follow-up counter, and clear.
+test_meta_helpers_refuse_a_symlinked_task_record() {
+  local home meta target original rc leftover fakebin
+
+  assert_symlink_untouched() {
+    local why=$1
+    [ -L "$meta" ] || fail "$why replaced or removed the symlink record"
+    cmp -s "$target" "$original" \
+      || fail "$why rewrote the symlink target in place"
+    leftover=$(find "$home/state" -maxdepth 1 -name '.*.fm-x.*' -print 2>/dev/null || true)
+    [ -z "$leftover" ] || fail "$why left a staging file after a refused publish: $leftover"
+  }
+
+  home="$TMP_ROOT/meta-symlink"
+  mkdir -p "$home/state"
+  meta="$home/state/sym-task.meta"
+  target="$TMP_ROOT/meta-symlink-foreign.meta"
+  original="$TMP_ROOT/meta-symlink-foreign.expected"
+
+  printf '%s\n' 'window=w' 'kind=ship' 'mode=no-mistakes' 'yolo=off' > "$target"
+  cp "$target" "$original"
+  ln -s "$target" "$meta"
+  FM_HOME="$home" FMX_NOW_OVERRIDE=1700000000 \
+    "$ROOT/bin/fm-x-link.sh" sym-task req-sym >/dev/null 2>&1; rc=$?
+  [ "$rc" -ne 0 ] || fail "link through a symlink record should refuse"
+  assert_no_grep "x_request=" "$target" "link wrote an X request through the symlink"
+  assert_symlink_untouched "link"
+
+  printf '%s\n' 'window=w' 'kind=ship' 'mode=no-mistakes' 'yolo=off' \
+    'x_request=req-sym' 'x_request_ts=1700000000' 'x_followups=0' \
+    'x_platform=x' 'x_reply_max_chars=280' > "$target"
+  cp "$target" "$original"
+  rm -f "$meta"
+  ln -s "$target" "$meta"
+
+  FM_HOME="$home" "$ROOT/bin/fm-x-followup.sh" --clear sym-task >/dev/null 2>&1; rc=$?
+  [ "$rc" -ne 0 ] || fail "clear through a symlink record should refuse"
+  assert_grep "x_request=req-sym" "$target" "clear removed the X request through the symlink"
+  assert_symlink_untouched "clear"
+
+  rm -f "$meta" "$target"
+  ln -s "$target" "$meta"
+  FM_HOME="$home" STATE="$home/state" ROOT="$ROOT" META="$meta" bash -c '
+    . "$ROOT/bin/fm-x-lib.sh"
+    . "$ROOT/bin/fm-wake-lib.sh"
+    fmx_meta_link_clear "$META"
+  ' >/dev/null 2>&1; rc=$?
+  [ "$rc" -ne 0 ] || fail "the clear helper should refuse a dangling symlink record"
+  [ -L "$meta" ] || fail "the clear helper replaced or removed the dangling symlink record"
+  [ ! -e "$target" ] || fail "the clear helper created the dangling symlink target"
+  leftover=$(find "$home/state" -maxdepth 1 -name '.*.fm-x.*' -print 2>/dev/null || true)
+  [ -z "$leftover" ] || fail "the clear helper left a staging file after refusing a dangling symlink: $leftover"
+
+  printf '%s\n' 'window=w' 'kind=ship' 'mode=no-mistakes' 'yolo=off' \
+    'x_request=req-sym' 'x_request_ts=1700000000' 'x_followups=0' \
+    'x_platform=x' 'x_reply_max_chars=280' > "$target"
+  cp "$target" "$original"
+  fakebin=$(make_fake_curl "$home")
+  printf 'FMX_PAIRING_TOKEN=tok-sym\n' > "$home/.env"
+  FM_HOME="$home" FMX_DRY_RUN=1 FMX_NOW_OVERRIDE=1700003600 PATH="$fakebin:$BASE_PATH" \
+    "$ROOT/bin/fm-x-followup.sh" sym-task - <<<"milestone update" >/dev/null 2>&1; rc=$?
+  [ "$rc" -ne 0 ] || fail "a follow-up through a symlink record should refuse"
+  assert_absent "$home/state/x-outbox/req-sym.json" \
+    "a refused symlink record still published a follow-up"
+  assert_grep "x_followups=0" "$target" "a refused follow-up incremented the counter through the symlink"
+  assert_symlink_untouched "follow-up"
+  pass "x-lib meta helpers refuse a symlinked task record and leave its target untouched"
+}
+
 test_link_rejects_unsafe_and_missing() {
   local home rc
   home="$TMP_ROOT/link-bad"; mkdir -p "$home/state"
@@ -2474,6 +2555,75 @@ test_link_rejects_unsafe_and_missing() {
   PATH="$BASE_PATH" FM_HOME="$home" "$ROOT/bin/fm-x-link.sh" ok >/dev/null 2>&1; rc=$?
   expect_code 2 "$rc" "link missing arg exit"
   pass "fm-x-link rejects unsafe ids, missing meta, and missing arguments"
+}
+
+# A home with no secondmates at all learns nothing from the registry, so its
+# missing-task error must stay the plain one instead of routing every typo at a
+# mechanism that does not apply.
+test_link_missing_task_without_secondmates_stays_plain() {
+  local home err rc
+  home="$TMP_ROOT/link-no-secondmates"; mkdir -p "$home/state" "$home/data"
+  err="$TMP_ROOT/link-no-secondmates.err"
+  PATH="$BASE_PATH" FM_HOME="$home" "$ROOT/bin/fm-x-link.sh" no-such req-1 >/dev/null 2>"$err"; rc=$?
+  expect_code 1 "$rc" "plain missing-task exit"
+  assert_grep "no such task: state/no-such.meta" "$err" "the plain missing-task error must still be reported"
+  assert_no_grep "fm-public-followup.sh register" "$err" \
+    "a home with no second mates must not be pointed at the promised-final path"
+  pass "fm-x-link keeps the plain missing-task error when no second mate is registered"
+}
+
+# The link writes into THIS home's own state/<id>.meta, so it can never bind work
+# that lives in a secondmate home. Refusing with a bare "no such task" left the
+# public promise silently orphaned; the refusal must name the secondmate holding
+# the task and the promised-final path that can actually bind it.
+test_link_refuses_secondmate_routed_task_with_promised_final_pointer() {
+  local main sub err out rc
+  main="$TMP_ROOT/link-secondmate-main"; mkdir -p "$main/state" "$main/data"
+  sub="$TMP_ROOT/link-secondmate-sub"; mkdir -p "$sub/state"
+  printf 'sm-axi\n' > "$sub/.fm-secondmate-home"
+  printf 'window=w\nworktree=/wt\nkind=ship\n' > "$sub/state/routed-k1.meta"
+  printf '# Second mates\n\n- sm-axi - owns the axi domain (home: %s; scope: axi tooling; projects: axi; added 2026-01-01)\n' \
+    "$sub" > "$main/data/secondmates.md"
+  err="$TMP_ROOT/link-secondmate.err"
+  out=$(PATH="$BASE_PATH" FM_HOME="$main" "$ROOT/bin/fm-x-link.sh" routed-k1 req-routed 2>"$err"); rc=$?
+  expect_code 1 "$rc" "secondmate-routed link exit"
+  [ -z "$out" ] || fail "a refused link must print no success line (got: $out)"
+  assert_grep "sm-axi" "$err" "the refusal must name the second mate holding the task"
+  assert_grep "--work-home secondmate:sm-axi" "$err" \
+    "the refusal must name the exact promised-final binding for that second mate"
+  assert_grep "fm-public-followup.sh register" "$err" \
+    "the refusal must point at the promised-final registration command"
+  assert_absent "$main/state/routed-k1.meta" "a refused link must not create a local record"
+  assert_no_grep "x_request=" "$sub/state/routed-k1.meta" \
+    "a refused link must not write into the second mate's task record"
+  # The guardrail is scoped to the missing-record case: a task this home does own
+  # still links normally with second mates registered.
+  printf 'window=w\nworktree=/wt\nkind=ship\n' > "$main/state/local-k1.meta"
+  out=$(PATH="$BASE_PATH" FM_HOME="$main" FMX_NOW_OVERRIDE=1700000000 \
+    "$ROOT/bin/fm-x-link.sh" local-k1 req-local 2>/dev/null); rc=$?
+  expect_code 0 "$rc" "local link exit with second mates registered"
+  assert_grep "x_request=req-local" "$main/state/local-k1.meta" \
+    "a local task must still link while second mates are registered"
+  pass "fm-x-link refuses a second-mate-routed task and points at the promised-final path"
+}
+
+# A remote secondmate's home cannot be inspected from here, and neither can a
+# task the parent never recorded, so the refusal degrades to naming the routing
+# possibility and the mechanism rather than silently reporting a missing file.
+test_link_missing_task_with_secondmates_points_at_promised_final() {
+  local home err rc
+  home="$TMP_ROOT/link-remote-secondmate"; mkdir -p "$home/state" "$home/data"
+  printf '# Second mates\n\n- sm-far - owns the far domain (host: box; root: /srv/fm; home: /srv/fm/home; scope: far things; projects: far; added 2026-01-01)\n' \
+    > "$home/data/secondmates.md"
+  err="$TMP_ROOT/link-remote-secondmate.err"
+  PATH="$BASE_PATH" FM_HOME="$home" "$ROOT/bin/fm-x-link.sh" unknown-k1 req-unknown >/dev/null 2>"$err"; rc=$?
+  expect_code 1 "$rc" "unknown-task link exit with second mates registered"
+  assert_grep "no such task: state/unknown-k1.meta" "$err" "the concrete missing record must still be reported"
+  assert_grep "fm-public-followup.sh register" "$err" \
+    "an unlocatable task in a home with second mates must be pointed at the promised-final path"
+  assert_grep "--work-home secondmate:<id>" "$err" \
+    "an unlocatable task must leave the second mate id for the caller to fill in"
+  pass "fm-x-link points an unlocatable task at the promised-final path when second mates exist"
 }
 
 # --- fm-x-followup: detect, post up to 3 follow-ups, manage the link --------
@@ -2862,7 +3012,11 @@ test_link_carry_count_and_ts_preserve_followup_binding
 test_link_recovery_relink_carries_discord_context_after_inbox_drain
 test_link_carry_count_validation
 test_meta_rewrites_do_not_depend_on_tmpdir
+test_meta_helpers_refuse_a_symlinked_task_record
 test_link_rejects_unsafe_and_missing
+test_link_missing_task_without_secondmates_stays_plain
+test_link_refuses_secondmate_routed_task_with_promised_final_pointer
+test_link_missing_task_with_secondmates_points_at_promised_final
 test_followup_check_states
 test_followup_check_expired_prunes_link
 test_followup_check_cap_reached_prunes_link

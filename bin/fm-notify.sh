@@ -452,7 +452,7 @@ fm_notify_split_body() {
 # fm_notify_run_timed <seconds> <command...>: run a command under a hard time
 # bound, returning 124 when the bound was hit and 125 when this host offers no
 # bounding mechanism at all, in which case nothing was ever launched. This
-# mirrors the selection in bin/fm-auth-preflight.sh and bin/fm-fleet-snapshot.sh:
+# mirrors the selection in bin/fm-fleet-snapshot.sh:
 # macOS ships no GNU `timeout`, so the perl arm is the one that actually runs on
 # the captain's host, and a host with none of the three refuses rather than
 # running unbounded.
