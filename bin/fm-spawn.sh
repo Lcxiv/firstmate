@@ -141,6 +141,10 @@
 #   A project with no remote configured at all is a supported local-only shape,
 #   not an unreachable origin: it skips the fetch and resets to its own local
 #   default branch instead, because that branch is the only authority there is.
+#   That local branch is the shared default_branch resolution, so a remoteless
+#   project whose trunk is neither main nor master is refused with an unknown-base
+#   diagnostic rather than launched from a guess; every other refusal, including
+#   the dirty-worktree and post-reset verification ones, is identical in both modes.
 #   A slot whose only deviation is a stale submodule gitlink is refused by that
 #   same clean check, but is reported as a stale checkout naming each submodule
 #   and both pins; nothing is converged or removed, and no remedy is suggested.
