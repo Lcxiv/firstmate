@@ -6,6 +6,10 @@
 # These tests drive the real spawn path with a fake terminal, then prove it
 # starts the worker from the fetched origin/main tip or stops when origin is
 # unreachable.
+# A project with no remote at all is a third case, not a variant of the second:
+# it must launch from its own local default branch, while a project that HAS a
+# remote must keep refusing when that remote cannot be reached.
+# The two must not collapse into each other, so the cases are asserted together.
 set -u
 
 # shellcheck source=tests/fixtures.sh
@@ -200,6 +204,159 @@ test_unresolved_remote_default_refuses_pool() {
     printf '# observed unresolved-default refusal: %s\n' "$(printf '%s\n' "$out" | tail -n 1)"
   fi
   pass "an unresolved remote default branch refuses the pooled worktree"
+}
+
+# A `local-only` project (AGENTS.md section 7) can have no remote for its whole
+# life: its work lands through bin/fm-merge-local.sh, straight onto the local
+# default branch. This fixture builds exactly that - no origin, no bare clone,
+# no push - and advances local main after the pool slot was allocated, so the
+# slot is genuinely stale against the only authority that exists.
+make_local_only_case() {  # <name> <id> [default-branch]
+  local name=$1 id=$2 default=${3:-main} case_dir home project pool fakebin initial advanced
+  case_dir="$TMP_ROOT/$name"
+  home="$case_dir/home"
+  project="$case_dir/project"
+  pool="$case_dir/pool"
+  fakebin=$(make_spawn_fakebin "$case_dir/fake")
+
+  mkdir -p "$home/data/$id" "$home/projects" "$home/state" "$home/config"
+  printf 'codex\n' > "$home/config/crew-harness"
+  printf 'brief for %s\n' "$id" > "$home/data/$id/brief.md"
+  touch "$home/state/.last-watcher-beat"
+
+  git init --quiet -b "$default" "$project"
+  printf 'base\n' > "$project/README.md"
+  git -C "$project" add README.md
+  git -C "$project" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' commit -qm initial
+  initial=$(git -C "$project" rev-parse HEAD)
+  git -C "$project" worktree add --quiet --detach "$pool" "$initial"
+
+  # Land locally, the way an approved local-only merge does, after the slot exists.
+  printf 'must survive a newly spawned branch\n' > "$project/advanced-main.txt"
+  git -C "$project" add advanced-main.txt
+  git -C "$project" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' commit -qm advance-local
+  advanced=$(git -C "$project" rev-parse HEAD)
+
+  [ -z "$(git -C "$project" remote)" ] || fail "local-only fixture configured a remote"
+  [ -z "$(git -C "$pool" remote)" ] || fail "local-only pool slot configured a remote"
+
+  printf '%s\n' "$case_dir|$home|$project|$pool|$fakebin|$initial|$default|$advanced"
+}
+
+read_local_only_case() {
+  IFS='|' read -r CASE_DIR HOME_DIR PROJECT_DIR POOL_DIR FAKEBIN_DIR INITIAL_SHA DEFAULT_BRANCH ADVANCED_SHA <<EOF
+$1
+EOF
+}
+
+test_remoteless_project_launches_from_local_default_branch() {
+  local rec id out status branch_head
+  id='pool-local-only-r12'
+  rec=$(make_local_only_case local-only "$id")
+  read_local_only_case "$rec"
+
+  out=$(run_spawn "$id" --mode no-mistakes --yolo off)
+  status=$?
+  expect_code 0 "$status" "spawn should launch a project that has no remote configured"
+  assert_contains "$out" "spawned $id" "spawn did not report success for a remoteless project"
+  assert_not_contains "$out" "could not fetch origin" \
+    "a remoteless project was refused as an unreachable origin"
+  branch_head=$(git -C "$POOL_DIR" rev-parse HEAD)
+  [ "$branch_head" = "$ADVANCED_SHA" ] \
+    || fail "spawn did not start a remoteless project at its current local default branch"
+  [ "$ADVANCED_SHA" != "$INITIAL_SHA" ] \
+    || fail "fixture did not prove local main advanced past the pool base"
+  assert_grep 'must survive a newly spawned branch' "$POOL_DIR/advanced-main.txt" \
+    "the remoteless spawn launched from a base missing the last local landing"
+  [ -z "$(git -C "$POOL_DIR" remote)" ] \
+    || fail "spawn created a remote for a project that deliberately has none"
+  if [ "${FM_TEST_EVIDENCE:-0}" = 1 ]; then
+    printf '# observed remoteless spawn: %s\n' "$(printf '%s\n' "$out" | tail -n 1)"
+    printf '# observed base: HEAD=%s local-%s=%s\n' \
+      "$branch_head" "$DEFAULT_BRANCH" "$ADVANCED_SHA"
+  fi
+  pass "a project with no remote launches from its current local default branch"
+}
+
+test_remoteless_project_refreshes_a_non_main_default_branch() {
+  local rec id out status
+  id='pool-local-only-master-r12'
+  rec=$(make_local_only_case local-only-master "$id" master)
+  read_local_only_case "$rec"
+
+  out=$(run_spawn "$id" --mode no-mistakes --yolo off)
+  status=$?
+  expect_code 0 "$status" "spawn should launch a remoteless project on master"
+  [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$ADVANCED_SHA" ] \
+    || fail "spawn did not refresh a remoteless project to current local master"
+  pass "a remoteless project on master refreshes to its current local default branch"
+}
+
+# The point of detecting "no remote" from configuration rather than from a failed
+# fetch: this project HAS a local main that a naive fallback could reset onto, so
+# a spawn that succeeds here proves the guard was silently disabled for a
+# networked project, not that it handled a local-only one.
+test_unreachable_origin_is_not_treated_as_a_local_only_project() {
+  local rec id out status before local_main
+  id='pool-unreachable-not-local-r13'
+  rec=$(make_case unreachable-not-local "$id")
+  read_case_record "$rec"
+  git -C "$POOL_DIR" remote set-url origin "file://$CASE_DIR/missing-origin.git"
+  before=$(git -C "$POOL_DIR" rev-parse HEAD)
+  local_main=$(git -C "$POOL_DIR" rev-parse "refs/heads/$DEFAULT_BRANCH")
+  [ -n "$local_main" ] || fail "fixture lacks the local default branch a wrong fallback would use"
+
+  out=$(run_spawn "$id" --mode no-mistakes --yolo off)
+  status=$?
+  [ "$status" -ne 0 ] \
+    || fail "an unreachable origin was silently downgraded to a local-only launch"
+  assert_contains "$out" "could not fetch origin" \
+    "an unreachable origin lost its diagnostic once remoteless projects were supported"
+  assert_not_contains "$out" "has no remote configured" \
+    "a configured-but-unreachable remote was misreported as no remote at all"
+  [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$before" ] \
+    || fail "spawn moved the pooled worktree while refusing an unreachable origin"
+  pass "a configured but unreachable remote still refuses, and never falls back to the local branch"
+}
+
+test_remoteless_project_still_refuses_a_dirty_pool() {
+  local rec id out status before
+  id='pool-local-only-dirty-r14'
+  rec=$(make_local_only_case local-only-dirty "$id")
+  read_local_only_case "$rec"
+  before=$(git -C "$POOL_DIR" rev-parse HEAD)
+  printf 'keep this local work\n' > "$POOL_DIR/uncommitted.txt"
+
+  out=$(run_spawn "$id" --mode no-mistakes --yolo off)
+  status=$?
+  [ "$status" -ne 0 ] || fail "a remoteless project launched from a dirty pooled worktree"
+  assert_contains "$out" "is not clean" \
+    "a remoteless project skipped the uncommitted-work refusal"
+  [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$before" ] \
+    || fail "spawn moved HEAD while refusing a dirty remoteless pool"
+  assert_grep 'keep this local work' "$POOL_DIR/uncommitted.txt" \
+    "spawn discarded uncommitted work in a remoteless project"
+  pass "a remoteless project still refuses a dirty pooled worktree without discarding its work"
+}
+
+# The local fallback resolves the default branch the same way every other local
+# path in this repo does, so a remoteless repo whose trunk is neither main nor
+# master is refused with a clear reason rather than launched from a guess.
+test_remoteless_project_without_a_recognisable_default_is_refused() {
+  local rec id out status before
+  id='pool-local-only-trunk-r15'
+  rec=$(make_local_only_case local-only-trunk "$id" trunk)
+  read_local_only_case "$rec"
+  before=$(git -C "$POOL_DIR" rev-parse HEAD)
+
+  out=$(run_spawn "$id" --mode no-mistakes --yolo off)
+  status=$?
+  [ "$status" -ne 0 ] || fail "spawn launched a remoteless project from an unresolved default branch"
+  assert_contains "$out" "has no remote configured and no local default branch" \
+    "the remoteless refusal did not say why the base could not be resolved"
+  [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$before" ] \
+    || fail "spawn moved HEAD after failing to resolve a remoteless default branch"
+  pass "a remoteless project with no main or master branch is refused, not launched from a guess"
 }
 
 # A slot left on a stale submodule pin is the field failure this diagnosis exists
@@ -431,6 +588,11 @@ test_direct_pr_and_scout_refresh_before_launch
 test_dirty_pool_refuses_without_discarding_work
 test_unresolved_remote_default_refuses_pool
 test_unreachable_origin_refuses_stale_pool_base
+test_remoteless_project_launches_from_local_default_branch
+test_remoteless_project_refreshes_a_non_main_default_branch
+test_unreachable_origin_is_not_treated_as_a_local_only_project
+test_remoteless_project_still_refuses_a_dirty_pool
+test_remoteless_project_without_a_recognisable_default_is_refused
 test_stale_submodule_pin_explains_itself
 test_unpushed_submodule_commit_is_still_uncommitted_work
 test_work_inside_submodule_is_still_uncommitted_work
