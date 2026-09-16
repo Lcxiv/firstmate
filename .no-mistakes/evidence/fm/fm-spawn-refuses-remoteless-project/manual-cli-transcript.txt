@@ -1,0 +1,54 @@
+=== SCENARIO A: remoteless local-only project, dispatch ===
+$ git -C project remote        # (no output: project has no remote)
+$ git -C project log --oneline -1 main
+f62ff60 land-local
+$ git -C pool log --oneline -1 HEAD    # pooled slot before spawn (stale)
+08329a8 initial
+$ fm-spawn.sh task-A <project> --mode no-mistakes --yolo off
+warning: /tmp/manual-remoteless.CSjCmp/a/home/data/task-A/brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+spawned task-A harness=codex kind=ship mode=no-mistakes yolo=off window=firstmate:fm-task-A worktree=/tmp/manual-remoteless.CSjCmp/a/pool
+exit=0
+$ git -C pool log --oneline -1 HEAD    # slot after spawn
+f62ff60 land-local
+$ cat pool/landed.txt
+landed locally after the slot was allocated
+$ git -C pool remote           # (no output: spawn created no remote)
+
+=== SCENARIO B: same project, but with a configured unreachable origin ===
+error: remote origin already exists.
+$ git -C pool remote -v
+origin	file:///tmp/manual-remoteless.CSjCmp/b/does-not-exist.git (fetch)
+origin	file:///tmp/manual-remoteless.CSjCmp/b/does-not-exist.git (push)
+$ fm-spawn.sh task-B <project> --mode no-mistakes --yolo off
+warning: /tmp/manual-remoteless.CSjCmp/b/home/data/task-B/brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+fatal: '/tmp/manual-remoteless.CSjCmp/b/does-not-exist.git' does not appear to be a git repository
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.
+error: could not fetch origin for pooled worktree '/tmp/manual-remoteless.CSjCmp/b/pool'; refusing to launch from a potentially stale base
+exit=1
+pool HEAD before=8050cc87eecd1a0f156765105d056acb04b91141 after=8050cc87eecd1a0f156765105d056acb04b91141 (unchanged: yes)
+BASE_DIR=/tmp/manual-remoteless.CSjCmp
+=== pre-fix script (7857519) against the same remoteless project ===
+/tmp/oldbin/fm-spawn-old.sh: line 239: /tmp/oldbin/fm-tasks-axi-lib.sh: No such file or directory
+exit=1
+=== pre-fix script (7857519) against the same remoteless project ===
+warning: /tmp/manual-old.Zgf9rc/home/data/task-A/brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+fatal: 'origin' does not appear to be a git repository
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.
+error: could not fetch origin for pooled worktree '/tmp/manual-old.Zgf9rc/pool'; refusing to launch from a potentially stale base
+exit=1
+=== ADVERSARIAL: a remote IS configured (named 'upstream') and unreachable ===
+$ git -C project remote
+upstream
+fatal: 'origin' does not appear to be a git repository
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.
+error: could not fetch origin for pooled worktree '/tmp/manual-adv.VfLem4/pool'; refusing to launch from a potentially stale base
+pool HEAD unchanged: yes
