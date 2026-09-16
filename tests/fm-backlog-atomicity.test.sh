@@ -1833,6 +1833,57 @@ test_recovery_drops_a_close_for_a_newer_meta_incarnation() {
   pass "session start drops a close recorded for an older meta incarnation"
 }
 
+# The legacy spawn-generation migration (bin/fm-teardown.sh) writes a busy-state
+# generation into a pre-spawn_gen record as its incarnation. These two cases pin
+# the property that makes that safe: the `g...` namespace can never collide with a
+# real `s...` spawn generation, so a relaunch is still read as a NEWER incarnation
+# and its fresh record survives, while an uninterrupted migrated close still
+# replays against its own record.
+test_recovery_replays_a_close_recorded_for_a_migrated_incarnation() {
+  local case_dir id out
+  id=atomic-heal-migrated-close-b14
+  case_dir=$(make_home heal-migrated-close)
+  add_item "$case_dir" "$id"
+  start_item "$case_dir" "$id"
+  write_task_meta "$case_dir" "$id" ship no-mistakes \
+    "busy_gen=g1789000000.11.22" "spawn_gen=g1789000000.11.22"
+  printf 'id=%s\ndata=%s\nspawn_gen=g1789000000.11.22\narg=--note\narg=local%%20main\n' \
+    "$id" "$(home_of "$case_dir")/data" \
+    > "$(home_of "$case_dir")/state/$id.backlog-close"
+
+  out=$(run_bootstrap "$case_dir")
+  [ "$(row_state "$case_dir" "$id")" = "done" ] \
+    || fail "session start did not replay a close recorded for a migrated incarnation: $out"
+  assert_absent "$(home_of "$case_dir")/state/$id.meta" \
+    "a replayed migrated close left its task record behind"
+  assert_absent "$(home_of "$case_dir")/state/$id.backlog-close" \
+    "a replayed migrated close left its pending-close record behind"
+  pass "session start replays a close recorded for a migrated legacy incarnation"
+}
+
+test_recovery_drops_a_migrated_close_after_a_relaunch() {
+  local case_dir id out
+  id=atomic-heal-migrated-relaunch-b14
+  case_dir=$(make_home heal-migrated-relaunch)
+  add_item "$case_dir" "$id"
+  start_item "$case_dir" "$id"
+  # The relaunch published a real spawn generation; the interrupted teardown's
+  # marker still names the migrated busy generation of the incarnation it closed.
+  write_task_meta "$case_dir" "$id" ship no-mistakes "spawn_gen=s1789000500.33.44"
+  printf 'id=%s\ndata=%s\nspawn_gen=g1789000000.11.22\narg=--note\narg=local%%20main\n' \
+    "$id" "$(home_of "$case_dir")/data" \
+    > "$(home_of "$case_dir")/state/$id.backlog-close"
+
+  out=$(run_bootstrap "$case_dir")
+  [ "$(row_state "$case_dir" "$id")" = in_flight ] \
+    || fail "a migrated close closed the relaunched incarnation: $out"
+  assert_present "$(home_of "$case_dir")/state/$id.meta" \
+    "a migrated close removed the relaunched incarnation's task record"
+  assert_absent "$(home_of "$case_dir")/state/$id.backlog-close" \
+    "a stale migrated close was left to fire on a later restart"
+  pass "a migrated legacy close never closes or erases a relaunched incarnation"
+}
+
 test_recovery_rejects_a_legacy_close_without_an_incarnation() {
   local case_dir id out
   id=atomic-heal-legacy-close-b13
@@ -2285,6 +2336,8 @@ test_failed_close_replay_is_not_started_as_live_work
 test_recovery_rejects_invalid_close_arguments
 test_recovery_rejects_a_symlinked_close_marker
 test_recovery_drops_a_close_for_a_newer_meta_incarnation
+test_recovery_replays_a_close_recorded_for_a_migrated_incarnation
+test_recovery_drops_a_migrated_close_after_a_relaunch
 test_recovery_rejects_a_legacy_close_without_an_incarnation
 test_bootstrap_rechecks_worker_record_boundary_after_locking
 test_lifecycle_refuses_ancestor_symlinks_outside_home_roots

@@ -2605,7 +2605,279 @@ EOF
   pass "the run abort and the leaked-process reap both complete before the destructive worktree return"
 }
 
+# --- Legacy pre-46bbcf49 task records (no spawn_gen) ---------------------------
+#
+# 46bbcf49 introduced BOTH the spawn_gen field (bin/fm-spawn.sh) and teardown's
+# requirement for exactly one of them. Records written by the earlier spawn carry
+# zero, so teardown refused them outright and recommended relaunching a finished
+# task just to manufacture metadata. These cases pin the migration: the busy-state
+# incarnation generation already recorded for the same spawn supplies the missing
+# identity, in its own disjoint `g...` namespace, so a relaunch's real `s...`
+# spawn_gen can never compare equal to a migrated one.
+
+# Write a pre-46bbcf49 meta: exactly the fields the older fm-spawn.sh recorded,
+# with no spawn_gen line at all. Args: case_dir mode kind
+write_legacy_meta() {
+  local case_dir=$1 mode=$2 kind=$3
+  fm_write_meta "$case_dir/state/task-x1.meta" \
+    "window=firstmate:fm-task-x1" \
+    "endpoint_task_id=task-x1" \
+    "worktree=$case_dir/wt" \
+    "project=$case_dir/project" \
+    "harness=claude" \
+    "kind=$kind" \
+    "mode=$mode" \
+    "yolo=off" \
+    "tasktmp=/tmp/fm-task-x1" \
+    "model=claude-opus-5" \
+    "effort=high"
+}
+
+# Arm the busy-state contract for the case's task and echo the minted gen, the
+# way the pre-46bbcf49 spawn did. Args: case_dir
+arm_legacy_busy_gen() {
+  local case_dir=$1
+  "$ROOT/bin/fm-busy-event.sh" arm "$case_dir/state" task-x1
+}
+
+test_legacy_record_without_spawn_gen_is_migrated_and_torn_down() {
+  local case_dir gen out
+  case_dir=$(make_case legacy-meta-gen)
+  write_legacy_meta "$case_dir" no-mistakes ship
+  gen=$(arm_legacy_busy_gen "$case_dir")
+  printf 'busy_gen=%s\n' "$gen" >> "$case_dir/state/task-x1.meta"
+  printf '%s\n' 'pr=https://github.com/example/repo/pull/7' >> "$case_dir/state/task-x1.meta"
+  seed_backlog_in_flight "$case_dir"
+
+  out=$(run_teardown "$case_dir" 2> "$case_dir/stderr") \
+    || fail "legacy-meta-gen: teardown refused a landed pre-46bbcf49 record: $(cat "$case_dir/stderr")"
+
+  grep -q 'relaunch the task' "$case_dir/stderr" \
+    && fail "legacy-meta-gen: teardown still told the operator to relaunch a finished task"
+  [ "$(backlog_row_state "$case_dir")" = "done" ] \
+    || fail "legacy-meta-gen: backlog row was left open: $(backlog_row_state "$case_dir")"
+  assert_absent "$case_dir/state/task-x1.meta" \
+    "legacy-meta-gen: the leaked task record survived teardown"
+  assert_absent "$case_dir/state/task-x1.backlog-close" \
+    "legacy-meta-gen: a landed close left its pending-close record behind"
+  printf '%s\n' "$out" | grep -F 'migrated' >/dev/null \
+    || fail "legacy-meta-gen: teardown did not report the one-time identity migration: $out"
+  pass "a landed pre-46bbcf49 record is migrated from its busy-state generation and torn down"
+}
+
+test_legacy_record_migrates_from_the_busy_gen_sidecar() {
+  local case_dir gen
+  case_dir=$(make_case legacy-sidecar-gen)
+  write_legacy_meta "$case_dir" no-mistakes ship
+  # fm-upstream-merge's real shape: a recovery pass rewrote the meta and dropped
+  # busy_gen, but the armed sidecar still holds that spawn's incarnation.
+  gen=$(arm_legacy_busy_gen "$case_dir")
+  printf '%s\n' 'pr=https://github.com/example/repo/pull/7' >> "$case_dir/state/task-x1.meta"
+  grep -q '^busy_gen=' "$case_dir/state/task-x1.meta" \
+    && fail "legacy-sidecar-gen: fixture was supposed to have no busy_gen in the record"
+  [ "$(cat "$case_dir/state/task-x1.busy-gen")" = "$gen" ] \
+    || fail "legacy-sidecar-gen: fixture did not arm the sidecar"
+  seed_backlog_in_flight "$case_dir"
+
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" \
+    || fail "legacy-sidecar-gen: teardown refused a record whose only identity is the sidecar: $(cat "$case_dir/stderr")"
+
+  [ "$(backlog_row_state "$case_dir")" = "done" ] \
+    || fail "legacy-sidecar-gen: backlog row was left open"
+  assert_absent "$case_dir/state/task-x1.meta" \
+    "legacy-sidecar-gen: the leaked task record survived teardown"
+  pass "a legacy record whose incarnation survives only in the busy-gen sidecar is migrated"
+}
+
+test_legacy_record_with_no_derivable_incarnation_refuses() {
+  local case_dir rc
+  case_dir=$(make_case legacy-no-identity)
+  write_legacy_meta "$case_dir" no-mistakes ship
+  printf '%s\n' 'pr=https://github.com/example/repo/pull/7' >> "$case_dir/state/task-x1.meta"
+  # Neither a meta busy_gen nor an armed sidecar: nothing trustworthy to derive.
+  rm -f "$case_dir/state/task-x1.busy-gen"
+  seed_backlog_in_flight "$case_dir"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "legacy-no-identity: teardown must refuse when no incarnation is derivable"
+  assert_grep 'no spawn_gen' "$case_dir/stderr" \
+    "legacy-no-identity: refusal did not name the missing incarnation identity"
+  assert_present "$case_dir/state/task-x1.meta" \
+    "legacy-no-identity: a refused teardown removed the task record anyway"
+  [ "$(backlog_row_state "$case_dir")" = in_flight ] \
+    || fail "legacy-no-identity: a refused teardown closed the backlog row"
+  pass "a legacy record with no derivable incarnation still fails closed with an actionable diagnostic"
+}
+
+test_legacy_record_with_conflicting_incarnations_refuses() {
+  local case_dir rc
+  case_dir=$(make_case legacy-conflicting-gen)
+  write_legacy_meta "$case_dir" no-mistakes ship
+  printf '%s\n' 'pr=https://github.com/example/repo/pull/7' >> "$case_dir/state/task-x1.meta"
+  # The record names one incarnation while the armed sidecar names another: the
+  # record does not identify the live incarnation, so identity is ambiguous.
+  arm_legacy_busy_gen "$case_dir" >/dev/null
+  printf 'busy_gen=%s\n' 'g1700000000.111.222' >> "$case_dir/state/task-x1.meta"
+  seed_backlog_in_flight "$case_dir"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "legacy-conflicting-gen: teardown must refuse two disagreeing incarnations"
+  assert_present "$case_dir/state/task-x1.meta" \
+    "legacy-conflicting-gen: a refused teardown removed the task record anyway"
+  pass "a legacy record disagreeing with its armed incarnation fails closed"
+}
+
+test_legacy_record_sharing_a_pooled_slot_refuses() {
+  local case_dir gen rc
+  case_dir=$(make_case legacy-shared-slot)
+  write_legacy_meta "$case_dir" no-mistakes ship
+  gen=$(arm_legacy_busy_gen "$case_dir")
+  printf 'busy_gen=%s\n' "$gen" >> "$case_dir/state/task-x1.meta"
+  printf '%s\n' 'pr=https://github.com/example/repo/pull/7' >> "$case_dir/state/task-x1.meta"
+  # The real fleet's shape: a later task was handed the same pooled isolated copy
+  # this stale record still names. Cleanup would return it out from under that task.
+  fm_write_meta "$case_dir/state/task-x2.meta" \
+    "window=firstmate:fm-task-x2" \
+    "endpoint_task_id=task-x2" \
+    "worktree=$case_dir/wt" \
+    "project=$case_dir/project" \
+    "kind=ship" \
+    "mode=no-mistakes" \
+    "spawn_gen=s1789000500.5.6"
+  seed_backlog_in_flight "$case_dir"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "legacy-shared-slot: teardown must refuse a shared isolated copy"
+  assert_grep 'task-x2' "$case_dir/stderr" \
+    "legacy-shared-slot: refusal did not name the task that also claims the resource"
+  assert_present "$case_dir/state/task-x1.meta" \
+    "legacy-shared-slot: a refused teardown removed the task record anyway"
+  assert_present "$case_dir/state/task-x2.meta" \
+    "legacy-shared-slot: a refused teardown touched the other task's record"
+  [ "$(backlog_row_state "$case_dir")" = in_flight ] \
+    || fail "legacy-shared-slot: a refused teardown closed the backlog row"
+  pass "a legacy record whose pooled isolated copy another record also claims fails closed"
+}
+
+test_legacy_record_sharing_an_endpoint_refuses() {
+  local case_dir gen rc
+  case_dir=$(make_case legacy-shared-endpoint)
+  write_legacy_meta "$case_dir" no-mistakes ship
+  gen=$(arm_legacy_busy_gen "$case_dir")
+  printf 'busy_gen=%s\n' "$gen" >> "$case_dir/state/task-x1.meta"
+  printf '%s\n' 'pr=https://github.com/example/repo/pull/7' >> "$case_dir/state/task-x1.meta"
+  # Same endpoint, different isolated copy: cleanup closes the endpoint, so the
+  # other task would lose its live worker.
+  fm_write_meta "$case_dir/state/task-x3.meta" \
+    "window=firstmate:fm-task-x1" \
+    "endpoint_task_id=task-x3" \
+    "worktree=$case_dir/other-wt" \
+    "project=$case_dir/project" \
+    "kind=ship" \
+    "mode=no-mistakes" \
+    "spawn_gen=s1789000600.7.8"
+  seed_backlog_in_flight "$case_dir"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "legacy-shared-endpoint: teardown must refuse a shared endpoint"
+  assert_grep 'task-x3' "$case_dir/stderr" \
+    "legacy-shared-endpoint: refusal did not name the task that also claims the endpoint"
+  assert_present "$case_dir/state/task-x1.meta" \
+    "legacy-shared-endpoint: a refused teardown removed the task record anyway"
+  pass "a legacy record whose endpoint another record also claims fails closed"
+}
+
+test_legacy_record_with_unlanded_work_still_refuses() {
+  local case_dir gen rc
+  case_dir=$(make_case legacy-unlanded)
+  write_legacy_meta "$case_dir" local-only ship
+  gen=$(arm_legacy_busy_gen "$case_dir")
+  printf 'busy_gen=%s\n' "$gen" >> "$case_dir/state/task-x1.meta"
+  wt_commit "$case_dir" "unpushed legacy work"
+  seed_backlog_in_flight "$case_dir"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "legacy-unlanded: migration must not bypass the landed-work refusal"
+  grep -q REFUSED "$case_dir/stderr" || fail "legacy-unlanded: no REFUSED line in stderr"
+  assert_present "$case_dir/state/task-x1.meta" \
+    "legacy-unlanded: a refused teardown removed the task record anyway"
+  # A refused teardown must leave the record byte-identical: no half-applied migration.
+  grep -q '^spawn_gen=' "$case_dir/state/task-x1.meta" \
+    && fail "legacy-unlanded: a refused teardown persisted a migrated spawn_gen"
+  pass "migrating a legacy record never weakens the unlanded-work refusal"
+}
+
+test_multiple_spawn_gen_fields_still_refuse() {
+  local case_dir rc
+  case_dir=$(make_case ambiguous-spawn-gen)
+  write_meta "$case_dir" no-mistakes ship
+  printf 'spawn_gen=%s\n' 's1700000000.9.9' >> "$case_dir/state/task-x1.meta"
+  printf '%s\n' 'pr=https://github.com/example/repo/pull/7' >> "$case_dir/state/task-x1.meta"
+  seed_backlog_in_flight "$case_dir"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "ambiguous-spawn-gen: two incarnations must still refuse"
+  assert_present "$case_dir/state/task-x1.meta" \
+    "ambiguous-spawn-gen: a refused teardown removed the task record anyway"
+  pass "a record naming two incarnations still refuses (the exact-one check is not weakened)"
+}
+
+test_current_record_keeps_its_unmigrated_path() {
+  local case_dir out
+  case_dir=$(make_case current-spawn-gen)
+  write_meta "$case_dir" no-mistakes ship
+  printf '%s\n' 'pr=https://github.com/example/repo/pull/7' >> "$case_dir/state/task-x1.meta"
+  # A current record also carries a busy_gen; the real spawn_gen must win and no
+  # migration may be reported for it.
+  printf 'busy_gen=%s\n' "$(arm_legacy_busy_gen "$case_dir")" >> "$case_dir/state/task-x1.meta"
+  seed_backlog_in_flight "$case_dir"
+
+  out=$(run_teardown "$case_dir" 2> "$case_dir/stderr") \
+    || fail "current-spawn-gen: teardown failed on a post-46bbcf49 record: $(cat "$case_dir/stderr")"
+
+  printf '%s\n' "$out" | grep -F 'migrated' >/dev/null \
+    && fail "current-spawn-gen: a record with a real spawn_gen was migrated anyway: $out"
+  [ "$(backlog_row_state "$case_dir")" = "done" ] \
+    || fail "current-spawn-gen: backlog row was left open"
+  assert_absent "$case_dir/state/task-x1.meta" \
+    "current-spawn-gen: teardown remained incomplete"
+  pass "a current one-spawn_gen record keeps its existing unmigrated path"
+}
+
 test_local_only_fork_remote_allows
+test_legacy_record_without_spawn_gen_is_migrated_and_torn_down
+test_legacy_record_migrates_from_the_busy_gen_sidecar
+test_legacy_record_with_no_derivable_incarnation_refuses
+test_legacy_record_with_conflicting_incarnations_refuses
+test_legacy_record_sharing_a_pooled_slot_refuses
+test_legacy_record_sharing_an_endpoint_refuses
+test_legacy_record_with_unlanded_work_still_refuses
+test_multiple_spawn_gen_fields_still_refuse
+test_current_record_keeps_its_unmigrated_path
 test_teardown_closes_the_backlog_item_itself
 test_teardown_manual_backend_leaves_the_backlog_to_the_operator
 test_local_only_truly_unpushed_refuses

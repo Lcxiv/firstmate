@@ -56,6 +56,9 @@ FM_BACKLOG_ROW_ERROR=
 # Set by fm_backlog_close_marker_replay: closed | closed_incomplete | stale | noop.
 # shellcheck disable=SC2034 # Output global, read by the sourcing caller.
 FM_BACKLOG_CLOSE_REPLAY_RESULT=
+# Set by fm_backlog_meta_spawn_gen: present | absent | ambiguous | invalid | unreadable.
+# shellcheck disable=SC2034 # Output global, read by the sourcing caller.
+FM_BACKLOG_META_SPAWN_GEN_RESULT=
 
 # Emit each byte of a value as a decimal number, locale-independently.
 # Deliberately perl rather than od: the spawn and teardown lifecycle runs under a
@@ -370,15 +373,30 @@ fm_backlog_record_publish() {
   return 0
 }
 
+# Read the one spawn generation that identifies this record's exact incarnation.
+# Exactly one field is required and that requirement never relaxes: the close
+# marker's staleness comparison is only sound against an unambiguous identity.
+# FM_BACKLOG_META_SPAWN_GEN_RESULT reports WHY a read failed so a caller can tell
+# the one recoverable shape (`absent` - a record written before spawn_gen existed)
+# apart from `ambiguous` (two or more incarnations named), `invalid` (a token
+# outside the shared charset) and `unreadable` (the record itself is unsafe).
+# Only `absent` is migratable, and bin/fm-teardown.sh owns that migration; every
+# other result stays a refusal here.
 fm_backlog_meta_spawn_gen() {
   local meta=$1 state=$2 count value
   FM_BACKLOG_META_SPAWN_GEN=
+  FM_BACKLOG_META_SPAWN_GEN_RESULT=unreadable
   fm_backlog_record_present "$meta" "task record" "$state" || return 1
   count=$(LC_ALL=C awk -F= '$1 == "spawn_gen" { count++ } END { print count + 0 }' "$meta" 2>/dev/null) || {
     FM_BACKLOG_TRANSITION_ERROR="unreadable spawn generation in task record $meta"
     return 1
   }
   if [ "$count" -ne 1 ]; then
+    if [ "$count" -eq 0 ]; then
+      FM_BACKLOG_META_SPAWN_GEN_RESULT=absent
+    else
+      FM_BACKLOG_META_SPAWN_GEN_RESULT=ambiguous
+    fi
     FM_BACKLOG_TRANSITION_ERROR="task record $meta has $count spawn generation fields; exactly one is required"
     return 1
   fi
@@ -388,10 +406,12 @@ fm_backlog_meta_spawn_gen() {
   }
   case "$value" in
     ''|.*|*[!A-Za-z0-9._-]*)
+      FM_BACKLOG_META_SPAWN_GEN_RESULT=invalid
       FM_BACKLOG_TRANSITION_ERROR="invalid spawn generation in task record $meta"
       return 1
       ;;
   esac
+  FM_BACKLOG_META_SPAWN_GEN_RESULT=present
   FM_BACKLOG_META_SPAWN_GEN=$value
 }
 
