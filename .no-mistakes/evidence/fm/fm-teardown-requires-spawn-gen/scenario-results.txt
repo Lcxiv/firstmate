@@ -1,0 +1,11 @@
+ok - a landed pre-46bbcf49 record is migrated from its busy-state generation and torn down
+ok - a legacy record whose incarnation survives only in the busy-gen sidecar is migrated
+ok - a legacy record with no derivable incarnation still fails closed with an actionable diagnostic
+ok - a legacy record disagreeing with its armed incarnation fails closed
+ok - a legacy record whose pooled isolated copy another record also claims fails closed
+ok - a legacy record whose endpoint another record also claims fails closed
+ok - migrating a legacy record never weakens the unlanded-work refusal
+ok - a record naming two incarnations still refuses (the exact-one check is not weakened)
+ok - a current one-spawn_gen record keeps its existing unmigrated path
+ok - adversarial: an unreadable sibling record blocks the migration instead of being skipped
+ok - adversarial: a teardown that refuses after resolving identity leaves the record byte-identical

@@ -1,0 +1,309 @@
+### legacy record BEFORE teardown (no spawn_gen line)
+window=firstmate:fm-task-x1
+endpoint_task_id=task-x1
+worktree=<case>/wt
+project=<case>/project
+harness=claude
+kind=ship
+mode=no-mistakes
+yolo=off
+tasktmp=/tmp/fm-task-x1
+model=claude-opus-5
+effort=high
+busy_gen=g1789522935.48618.8678
+pr=https://github.com/example/repo/pull/7
+
+### A. landed pre-46bbcf49 record -> migrated and torn down (bin/fm-teardown.sh)
+
+$ cat state/task-x1.meta   # the pre-46bbcf49 record as found on disk
+(record removed by teardown)
+
+$ ls state/
+home-summary.json
+
+--- teardown stdout ---
+migrated: task task-x1's record had no spawn_gen; its incarnation was taken from the busy-state generation g1789522935.48618.8678
+<case>/project: already current
+teardown task-x1 complete (window firstmate:fm-task-x1, worktree <case>/wt)
+Backlog: task-x1 is closed in /private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/fm-teardown-tests.jd6d9A/legacy-meta-gen/data/backlog.md. Run tasks-axi ready for dependency-cleared candidates, check date gates, and dispatch only work whose blockers are gone and date is due.
+
+--- teardown stderr ---
+
+--- backlog row state ---
+done
+
+### B. identity only in the armed busy-gen sidecar -> migrated and torn down
+
+$ cat state/task-x1.meta   # the pre-46bbcf49 record as found on disk
+(record removed by teardown)
+
+$ ls state/
+home-summary.json
+
+--- teardown stdout ---
+migrated: task task-x1's record had no spawn_gen; its incarnation was taken from the busy-state generation g1789522937.49803.7268
+<case>/project: already current
+teardown task-x1 complete (window firstmate:fm-task-x1, worktree <case>/wt)
+Backlog: task-x1 is closed in /private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/fm-teardown-tests.jd6d9A/legacy-sidecar-gen/data/backlog.md. Run tasks-axi ready for dependency-cleared candidates, check date gates, and dispatch only work whose blockers are gone and date is due.
+
+--- teardown stderr ---
+
+--- backlog row state ---
+done
+
+### C. no derivable incarnation -> fails closed, record preserved
+
+$ cat state/task-x1.meta   # the pre-46bbcf49 record as found on disk
+window=firstmate:fm-task-x1
+endpoint_task_id=task-x1
+worktree=<case>/wt
+project=<case>/project
+harness=claude
+kind=ship
+mode=no-mistakes
+yolo=off
+tasktmp=/tmp/fm-task-x1
+model=claude-opus-5
+effort=high
+pr=https://github.com/example/repo/pull/7
+
+$ ls state/
+task-x1.meta
+
+--- teardown stdout ---
+
+--- teardown stderr ---
+error: task task-x1's record has no spawn_gen that identifies one exact incarnation and none can be migrated from its busy-state generation (no busy-state generation identifies this record's incarnation); refusing automatic teardown - establish the record's exact incarnation before retrying
+
+--- backlog row state ---
+in_flight
+
+### D. record generation disagrees with the armed one -> fails closed
+
+$ cat state/task-x1.meta   # the pre-46bbcf49 record as found on disk
+window=firstmate:fm-task-x1
+endpoint_task_id=task-x1
+worktree=<case>/wt
+project=<case>/project
+harness=claude
+kind=ship
+mode=no-mistakes
+yolo=off
+tasktmp=/tmp/fm-task-x1
+model=claude-opus-5
+effort=high
+pr=https://github.com/example/repo/pull/7
+busy_gen=g1700000000.111.222
+
+$ ls state/
+task-x1.busy-gen
+task-x1.busy-state
+task-x1.meta
+
+--- teardown stdout ---
+
+--- teardown stderr ---
+error: task task-x1's record has no spawn_gen that identifies one exact incarnation and none can be migrated from its busy-state generation (the record's busy-state generation is not the one armed for this task, so its incarnation is ambiguous); refusing automatic teardown - establish the record's exact incarnation before retrying
+
+--- backlog row state ---
+in_flight
+
+### E. pooled isolated copy also claimed by another record -> fails closed
+
+$ cat state/task-x1.meta   # the pre-46bbcf49 record as found on disk
+window=firstmate:fm-task-x1
+endpoint_task_id=task-x1
+worktree=<case>/wt
+project=<case>/project
+harness=claude
+kind=ship
+mode=no-mistakes
+yolo=off
+tasktmp=/tmp/fm-task-x1
+model=claude-opus-5
+effort=high
+busy_gen=g1789522941.51884.20608
+pr=https://github.com/example/repo/pull/7
+
+$ ls state/
+task-x1.busy-gen
+task-x1.busy-state
+task-x1.meta
+task-x2.meta
+
+--- teardown stdout ---
+
+--- teardown stderr ---
+error: task task-x1's record predates spawn_gen and its resources are not exclusively its own (task task-x2's record names the same isolated copy <case>/wt, which cleanup would return); refusing automatic teardown - resolve which task owns that resource before retrying
+
+--- backlog row state ---
+in_flight
+
+### F. endpoint also claimed by another record -> fails closed
+
+$ cat state/task-x1.meta   # the pre-46bbcf49 record as found on disk
+window=firstmate:fm-task-x1
+endpoint_task_id=task-x1
+worktree=<case>/wt
+project=<case>/project
+harness=claude
+kind=ship
+mode=no-mistakes
+yolo=off
+tasktmp=/tmp/fm-task-x1
+model=claude-opus-5
+effort=high
+busy_gen=g1789522941.52130.1296
+pr=https://github.com/example/repo/pull/7
+
+$ ls state/
+task-x1.busy-gen
+task-x1.busy-state
+task-x1.meta
+task-x3.meta
+
+--- teardown stdout ---
+
+--- teardown stderr ---
+error: task task-x1's record predates spawn_gen and its resources are not exclusively its own (task task-x3's record names the same endpoint firstmate:fm-task-x1, which cleanup would close); refusing automatic teardown - resolve which task owns that resource before retrying
+
+--- backlog row state ---
+in_flight
+
+### G. unlanded work -> still REFUSED, no half-applied migration
+
+$ cat state/task-x1.meta   # the pre-46bbcf49 record as found on disk
+window=firstmate:fm-task-x1
+endpoint_task_id=task-x1
+worktree=<case>/wt
+project=<case>/project
+harness=claude
+kind=ship
+mode=local-only
+yolo=off
+tasktmp=/tmp/fm-task-x1
+model=claude-opus-5
+effort=high
+busy_gen=g1789522942.52437.10150
+
+$ ls state/
+task-x1.busy-gen
+task-x1.busy-state
+task-x1.meta
+
+--- teardown stdout ---
+
+--- teardown stderr ---
+REFUSED: local-only worktree <case>/wt has work not yet merged into main and not on any remote.
+commits not yet on main:
+e25469d unpushed legacy work
+Merge the branch into local main first (bin/fm-merge-local.sh after the captain approves), or push to a fork/remote, or get the captain's explicit OK to discard, then --force.
+
+--- backlog row state ---
+in_flight
+
+### H. two spawn_gen fields -> exact-one check unchanged, still refuses
+
+$ cat state/task-x1.meta   # the pre-46bbcf49 record as found on disk
+window=firstmate:fm-task-x1
+endpoint_task_id=task-x1
+worktree=<case>/wt
+project=<case>/project
+kind=ship
+mode=no-mistakes
+spawn_gen=teardown-test-task-x1
+spawn_gen=s1700000000.9.9
+pr=https://github.com/example/repo/pull/7
+
+$ ls state/
+task-x1.meta
+
+--- teardown stdout ---
+
+--- teardown stderr ---
+error: task task-x1's record has no spawn_gen that identifies one exact incarnation (task record <case>/state/task-x1.meta has 2 spawn generation fields; exactly one is required); refusing automatic teardown - relaunch the task to publish an unambiguous incarnation, then retry teardown
+
+--- backlog row state ---
+in_flight
+
+### I. current post-46bbcf49 record -> unmigrated path, no migration reported
+
+$ cat state/task-x1.meta   # the pre-46bbcf49 record as found on disk
+(record removed by teardown)
+
+$ ls state/
+home-summary.json
+
+--- teardown stdout ---
+<case>/project: already current
+teardown task-x1 complete (window firstmate:fm-task-x1, worktree <case>/wt)
+Backlog: task-x1 is closed in /private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/fm-teardown-tests.jd6d9A/current-spawn-gen/data/backlog.md. Run tasks-axi ready for dependency-cleared candidates, check date gates, and dispatch only work whose blockers are gone and date is due.
+
+--- teardown stderr ---
+
+--- backlog row state ---
+done
+
+### J. ADVERSARIAL: sibling record is a symlink (unreadable) -> fails closed
+
+$ cat state/task-x1.meta   # the pre-46bbcf49 record as found on disk
+window=firstmate:fm-task-x1
+endpoint_task_id=task-x1
+worktree=<case>/wt
+project=<case>/project
+harness=claude
+kind=ship
+mode=no-mistakes
+yolo=off
+tasktmp=/tmp/fm-task-x1
+model=claude-opus-5
+effort=high
+busy_gen=g1789522945.54459.29000
+pr=https://github.com/example/repo/pull/7
+
+$ ls state/
+task-x1.busy-gen
+task-x1.busy-state
+task-x1.meta
+task-x9.meta
+
+--- teardown stdout ---
+
+--- teardown stderr ---
+error: task task-x1's record predates spawn_gen and its resources are not exclusively its own (task task-x9's record is unsafe to read, so it cannot be ruled out as sharing this record's resources); refusing automatic teardown - resolve which task owns that resource before retrying
+
+--- backlog row state ---
+in_flight
+
+### K. ADVERSARIAL: refused teardown leaves the legacy record byte-identical (cmp clean)
+
+$ cat state/task-x1.meta   # the pre-46bbcf49 record as found on disk
+window=firstmate:fm-task-x1
+endpoint_task_id=task-x1
+worktree=<case>/wt
+project=<case>/project
+harness=claude
+kind=ship
+mode=local-only
+yolo=off
+tasktmp=/tmp/fm-task-x1
+model=claude-opus-5
+effort=high
+busy_gen=g1789522945.54782.28285
+
+$ ls state/
+task-x1.busy-gen
+task-x1.busy-state
+task-x1.meta
+
+--- teardown stdout ---
+
+--- teardown stderr ---
+REFUSED: local-only worktree <case>/wt has work not yet merged into main and not on any remote.
+commits not yet on main:
+c5b35fa unpushed legacy work
+Merge the branch into local main first (bin/fm-merge-local.sh after the captain approves), or push to a fork/remote, or get the captain's explicit OK to discard, then --force.
+
+--- backlog row state ---
+in_flight
+

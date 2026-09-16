@@ -1,0 +1,14 @@
+Regression reproduced through the public CLI, then fixed
+=======================================================
+
+Same pre-46bbcf49 legacy-record fixture driven against bin/fm-teardown.sh.
+
+-- BASE 46bbcf49e49eee488dd3cc0b795baec4222be12d (before the fix) --
+not ok - legacy-meta-gen: teardown refused a landed pre-46bbcf49 record: error: task task-x1's record has no spawn_gen that identifies one exact incarnation (task record /var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T//fm-teardown-tests.uP8jAf/legacy-meta-gen/state/task-x1.meta has 0 spawn generation fields; exactly one is required); refusing automatic teardown - relaunch the task to publish an unambiguous incarnation, then retry teardown
+
+-- HEAD 29e9acd836ee4ca8bfa41bf1c4f49822baa706e4 (after the fix) --
+ok - a landed pre-46bbcf49 record is migrated from its busy-state generation and torn down
+
+-- Pre-existing failure, identical on base and head (NOT from this change) --
+base: not ok - herdr-preflight-missing-adapter: teardown continued without its required preflight
+head: not ok - herdr-preflight-missing-adapter: teardown continued without its required preflight
