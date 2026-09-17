@@ -24,6 +24,23 @@ Only an exhausted failure with no verified watcher commits one last-resort notic
 The Claude turn-end guard owns that notice commit contract, the monotonic failure progression, one-time attended fail-open, post-alarm continuation suppression, and positive recovery reset described in [`turnend-guard.md`](turnend-guard.md#harness-integrations).
 While supervision is still needed and away mode remains inactive, an actionable close or typed failure wakes the idle session through exit 2.
 
+## The handoff that never arrives
+
+The Claude auto-arm is triggered only by a turn end, and so is the turn-end guard that would otherwise refuse a blind stop.
+Claude Code does not run Stop hooks for a turn that is cut short rather than completed: a usage-limit park and an expired login are both observed cases, each recording a turn boundary with no Stop-hook run.
+Such a session then stops producing turn ends altogether, so the last cycle closes normally, nothing arms the next one, and every mechanism that could notice sits downstream of the turn end that is not coming.
+The auto-arm never refuses to claim in this state - it is never invoked, which is why its ledger freezes on a terminal outcome instead of advancing to a refused one, and why a wake still being delivered from the durable queue is no evidence that supervision is running.
+
+`bin/fm-supervision-lib.sh` owns the predicate that separates this from the ordinary shape, because the beacon alone cannot.
+Under this model no watcher runs while the model holds the turn, so a stale beacon is the normal mid-turn reading; three ages together are what distinguish the cases.
+The auto-arm ledger's age is how long ago a handoff was expected, the beacon's age is whether a cycle is running now, and `state/.session-activity` is whether this session is taking turns at all.
+A stretch longer than the handoff window with no cycle is a lapse worth naming in a banner; the same stretch with no session activity either is the unrecoverable state, and only that one interrupts work.
+
+`bin/fm-supervision-pretool-check.sh` is the path back that does not depend on the broken trigger.
+It runs on tool calls rather than turn ends, so the first thing a session does after a usage limit resets, or anything it does inside a turn that has been running blind, reaches the model with the diagnosis.
+It never denies a tool call, never arms a watcher itself - the arm belongs in the Stop hook's own process tree, where the harness owns the process group - and speaks at most once per abandoned handoff.
+`bin/fm-turnend-guard.sh` and `bin/fm-guard.sh` report the same reading in their watcher-down banners, naming how long nothing has armed, so an operator can tell a routine gap between cycles from stopped continuity instead of learning to dismiss both.
+
 ## Actionable wake ordering
 
 After an actionable Pi or OpenCode child close, the adapter starts and verifies one singleton successor before it delivers the original wake.
@@ -40,7 +57,7 @@ The durable wake queue preserves actionable events during the residual active-tu
 The recovery-episode contract below owns once-per-generation announcement.
 A handling successor does not re-announce; it enters its poll loop immediately and keeps scanning signals, stale panes, and checks.
 The model no longer re-arms after ordinary wakes.
-No PreToolUse hook denies fleet commands based on watcher status.
+No PreToolUse hook denies fleet commands based on watcher status; the handoff notice above is non-blocking and exits 0 on every path.
 A genuine auto-arm failure describes the automatic mechanism as broken and never directs a routine manual background arm.
 Terminal arm-output classification (`started`, `attached`, or `FAILED`) remains defense in depth for the manual recovery path.
 Codex retains its bounded foreground checkpoint protocol.
