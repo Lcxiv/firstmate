@@ -620,9 +620,8 @@ __FM_BEARINGS_BOARD_DATA__
       opts.appendChild(lab);
     });
     if (!options.length) {
-      opts.appendChild(el("div", "bb-opt-none", item.allow_freeform
-        ? "This card carries no preset answers - type your answer below."
-        : "This card arrived with no way to answer it - ask firstmate to rebuild the board."));
+      opts.appendChild(el("div", "bb-opt-none",
+        "This card carries no preset answers - type your answer below."));
     }
     form.appendChild(opts);
 
@@ -690,6 +689,7 @@ __FM_BEARINGS_BOARD_DATA__
         return;
       }
       stageAnswer(answer);
+      if (staged.length) closeStage();
       /* deal the next card once this one is answered */
       setTimeout(function () { showCard(active < cards.length - 1 ? active + 1 : active); }, 450);
     });
@@ -792,9 +792,11 @@ __FM_BEARINGS_BOARD_DATA__
       bulkSay(dropped ? "Cancelled - nothing was queued." : "");
     });
     bulkConfirm.addEventListener("click", function () {
-      var sent = staged.slice();
+      var pending = bulkPending();
+      var sent = staged.filter(function (a) { return pending.indexOf(a) !== -1; });
       sent.forEach(function (a) { a.stage(a.recommend); });
       closeStage();
+      if (!sent.length) return;
       showCard(active);
       bulkSay(sent.length + " recommended answer" + (sent.length === 1 ? " is" : "s are") +
         " waiting in the review panel - nothing has been sent yet. Drop any of them there," +

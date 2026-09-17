@@ -211,6 +211,34 @@ test_an_answerless_submit_says_so_instead_of_doing_nothing() {
   pass "a card with nothing chosen says what it needs instead of doing nothing"
 }
 
+# The reachable no-options shape: the builder accepts an empty options list only
+# when the card leans on its freeform box, and with no recommendation to offer
+# as an option the card has nothing but that box.
+FREEFORM_ONLY_CARD='[{"key":"wording","type":"decision","repo":"sample",
+  "title":"Word the release note","about":"draft is ready",
+  "decide":"give the wording","allow_freeform":true,"options":[]}]'
+
+test_a_freeform_only_card_says_so_and_queues_what_is_typed() {
+  local home out
+  home=$(make_home freeform-only)
+  out=$(render_call "$home" "$FREEFORM_ONLY_CARD")
+  printf '%s' "$out" | jq -e '
+    .error == ""
+      and (.call.cards | length) == 1
+      and (.call.cards[0] | (.options | length) == 0
+        and (.noOptionsNote | length) > 0
+        and .freeform == true)
+  ' >/dev/null || fail "a freeform-only card did not render its note and box alone: $out"
+  out=$(render_call "$home" "$FREEFORM_ONLY_CARD" "type:0:ship it tonight" submit:0)
+  printf '%s' "$out" | jq -e '
+    (.queued | length) == 1
+      and (.queued[0] | .question == "wording" and .answer == "ship it tonight")
+      and .sent == 0
+      and (.call.cards[0].queued == true)
+  ' >/dev/null || fail "a freeform-only card did not queue the typed answer: $out"
+  pass "a freeform-only card renders its note plus box and queues the typed answer"
+}
+
 # Two cards with an ordinary options list, one of them recommended, so the bulk
 # control has something to skip.
 BULK_CARDS='[
@@ -299,6 +327,43 @@ test_queue_all_never_queues_a_card_the_captain_already_answered() {
       and ([.queued[] | .answer] == ["hold", "release"])
   ' >/dev/null || fail "queue-all overwrote or duplicated an answered card: $out"
   pass "queue-all skips cards the captain already answered"
+}
+
+test_an_answer_given_while_staged_is_never_overwritten_on_confirm() {
+  local home out
+  home=$(make_home bulk-stale-stage)
+  out=$(render_call "$home" "$BULK_CARDS" bulk-open pick:0:1 submit:0 bulk-open bulk-confirm)
+  printf '%s' "$out" | jq -e '
+    (.queued | length) == 2
+      and ([.queued[] | .question] == ["land-it", "held-item"])
+      and ([.queued[] | .answer] == ["hold", "release"])
+      and .sent == 0
+      and .bulk.staging == false
+      and ([.call.cards[] | .queued] == [true, false, true])
+  ' >/dev/null || fail "confirming a queue-all after answering a staged card re-queued it: $out"
+  pass "a card answered while queue-all is staged keeps the captain's own answer"
+}
+
+test_answering_a_card_closes_an_open_queue_all_stage() {
+  local home out
+  home=$(make_home bulk-stage-closes)
+  out=$(render_call "$home" "$BULK_CARDS" bulk-open pick:0:1 submit:0)
+  printf '%s' "$out" | jq -e '
+    .bulk.staging == false
+      and (.bulk.staged | length) == 0
+      and (.queued | length) == 1
+      and (.queued[0] | .question == "land-it" and .answer == "hold")
+      and .sent == 0
+      and (.bulk.staged | length) == 0
+      and .bulk.canQueueAll == true
+  ' >/dev/null || fail "answering a card left a stale staged list open: $out"
+  out=$(render_call "$home" "$BULK_CARDS" bulk-open pick:0:1 submit:0 bulk-confirm)
+  printf '%s' "$out" | jq -e '
+    (.queued | length) == 1
+      and (.queued[0] | .question == "land-it" and .answer == "hold")
+      and .bulk.note == ""
+  ' >/dev/null || fail "a confirm on a closed stage still queued the stale list: $out"
+  pass "answering a card by hand closes the staged queue-all list"
 }
 
 test_a_board_with_no_recommendations_offers_no_queue_all() {
@@ -417,11 +482,14 @@ test_more_than_one_effort_map_each_gets_its_own_card() {
 test_a_freeform_release_card_still_renders_an_answer_control
 test_that_recommended_answer_is_the_one_that_gets_queued
 test_an_answerless_submit_says_so_instead_of_doing_nothing
+test_a_freeform_only_card_says_so_and_queues_what_is_typed
 test_an_ordinary_card_keeps_rendering_and_queueing_exactly_as_before
 test_queue_all_stages_the_recommended_answers_without_queueing_them
 test_cancelling_a_queue_all_leaves_nothing_queued
 test_confirming_a_queue_all_queues_every_recommendation_and_sends_nothing
 test_queue_all_never_queues_a_card_the_captain_already_answered
+test_an_answer_given_while_staged_is_never_overwritten_on_confirm
+test_answering_a_card_closes_an_open_queue_all_stage
 test_a_board_with_no_recommendations_offers_no_queue_all
 test_a_long_queue_keeps_every_row_reachable
 test_a_short_queue_does_not_become_a_scroll_region
