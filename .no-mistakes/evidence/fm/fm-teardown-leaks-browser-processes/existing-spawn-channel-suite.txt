@@ -1,0 +1,18 @@
+FM_TEST_BEGIN 2026-09-17T17:07:06Z tests/fm-trace-context-spawn.test.sh family=backend-dispatch expected_gate_skip=none
+ok - enabled: one resolved carrier is recorded in meta and the identical TRACEPARENT is exported before launch
+ok - disabled: neither traceparent= in meta nor a TRACEPARENT export is produced
+ok - failed TRACEPARENT delivery omits metadata while the source task still launches
+ok - uncleared TRACEPARENT input stops before the launch command is appended
+ok - failed traceparent metadata append removes the carrier from the launched task
+ok - duplicate secondmate preflight leaves trace-context unchanged
+ok - relaunch reuses the recorded carrier verbatim for both the meta record and the injected export
+ok - session start freezes the env override and later config or environment edits do not alter spawns
+ok - two-level: env-on/file-absent keeps the nested worker enabled, rooting its own per-task trace
+ok - two-level: env-off/file-present keeps the nested worker disabled even though the config file was copied into the secondmate home
+ok - two unrelated routed tasks through one persistent Secondmate root distinct traces, adopt nothing from its environment, and keep per-task identity across relaunch
+ok - secondmate carrier and FM_TRACE_CONTEXT snapshot always agree, both derived from one frozen decision (file-decided path)
+# all fm-trace-context-spawn tests passed
+FM_TEST_END 2026-09-17T17:07:58Z tests/fm-trace-context-spawn.test.sh exit=0 duration_ms=52512 gate_skip=false
+FM_TEST_SUMMARY total=1 failed=0 skipped_gate=0 duration_ms=52563
+FM_TEST_SUMMARY_FAMILY family=backend-dispatch count=1 duration_ms=52512 failed=0
+FM_TEST_SLOWEST rank=1 script=tests/fm-trace-context-spawn.test.sh duration_ms=52512

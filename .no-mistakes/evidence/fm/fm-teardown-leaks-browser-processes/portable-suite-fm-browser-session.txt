@@ -1,0 +1,18 @@
+FM_TEST_BEGIN 2026-09-17T17:00:06Z tests/fm-browser-session.test.sh family=backend-dispatch expected_gate_skip=none
+ok - session names are task-scoped, home-scoped, stable, and always tool-legal
+ok - a host with no SHA-256 tool refuses loudly instead of minting an unhashed session name
+ok - fm-spawn binds a task-scoped browser session in the crewmate shell and the task record
+ok - the task's own browser and its child are retired; an unrelated browser survives byte-for-byte
+ok - a secondmate teardown retires its own proven browser session and no other
+ok - a forced secondmate cleanup retires each child's proven session before erasing its record
+ok - a bridge alive but no longer listening is reported as surviving and keeps its record
+ok - a recorded pid that is not a browser bridge is reported and left alone
+ok - a recorded pid not serving the recorded port is reported and left alone
+ok - the ambient default browser session is never retired
+ok - a host without lsof reports ownership as unprovable, retires nothing, and keeps the record
+ok - stale and corrupt records are reported; never-started and pre-binding records are silent no-ops
+tests/fm-browser-session.test.sh: line 37: 14835 Killed: 9               sleep 600
+FM_TEST_END 2026-09-17T17:00:36Z tests/fm-browser-session.test.sh exit=0 duration_ms=30393 gate_skip=false
+FM_TEST_SUMMARY total=1 failed=0 skipped_gate=0 duration_ms=30447
+FM_TEST_SUMMARY_FAMILY family=backend-dispatch count=1 duration_ms=30393 failed=0
+FM_TEST_SLOWEST rank=1 script=tests/fm-browser-session.test.sh duration_ms=30393

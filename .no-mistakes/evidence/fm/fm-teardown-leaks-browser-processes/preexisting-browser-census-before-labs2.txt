@@ -1,0 +1,33 @@
+# Pre-existing Chrome-family BINARY processes before the real-teardown and unclean-branch labs (2026-09-17T17:03:22Z)
+# pid | lstart | command
+12659 | Mon Sep 7 15:41:24 2026 | /private/var/folders/hn/1c1gl0tx4fd2j0w701_rtgjw0000gp/T/AppTranslocation/A0DCAEF1-2471-4AF6-BE61-FD374FD91EC4/d/Google Chrome.app/Contents/
+12662 | Mon Sep 7 15:41:56 2026 | /private/var/folders/hn/1c1gl0tx4fd2j0w701_rtgjw0000gp/T/AppTranslocation/A0DCAEF1-2471-4AF6-BE61-FD374FD91EC4/d/Google Chrome.app/Contents/
+21596 | Tue Sep 15 12:26:40 2026 | /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --no-startup-window
+21598 | Tue Sep 15 12:26:40 2026 | /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/152.0.7977.83/Helpers/chrome_crashpad_handler
+21602 | Tue Sep 15 12:26:40 2026 | /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/152.0.7977.83/Helpers/Google Chrome Helper.ap
+21604 | Tue Sep 15 12:26:40 2026 | /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/152.0.7977.83/Helpers/Google Chrome Helper.ap
+21605 | Tue Sep 15 12:26:40 2026 | /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/152.0.7977.83/Helpers/Google Chrome Helper.ap
+21610 | Tue Sep 15 12:26:40 2026 | /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/152.0.7977.83/Helpers/Google Chrome Helper (R
+21623 | Tue Sep 15 12:26:41 2026 | /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/152.0.7977.83/Helpers/Google Chrome Helper (R
+29629 | Wed Sep 16 23:07:16 2026 | /Applications/Claude.app/Contents/Frameworks/Electron Framework.framework/Helpers/chrome_crashpad_handler --no-rate-limit --monitor-self-ann
+31880 | Tue Sep 15 14:38:28 2026 | /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/152.0.7977.83/Helpers/Google Chrome Helper (R
+36487 | Thu Sep 17 08:53:10 2026 | /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/152.0.7977.83/Helpers/Google Chrome Helper (R
+36493 | Thu Sep 17 08:53:17 2026 | /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/152.0.7977.83/Helpers/Google Chrome Helper (R
+36494 | Thu Sep 17 08:53:17 2026 | /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/152.0.7977.83/Helpers/Google Chrome Helper (R
+37988 | Thu Sep 17 10:02:10 2026 | /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/152.0.7977.83/Helpers/Google Chrome Helper (R
+42310 | Thu Sep 17 09:40:20 2026 | /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/152.0.7977.83/Helpers/Google Chrome Helper (R
+47675 | Thu Sep 17 10:03:00 2026 | /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/152.0.7977.83/Helpers/Google Chrome Helper (R
+48778 | Mon Sep 7 09:37:46 2026 | /private/var/folders/hn/1c1gl0tx4fd2j0w701_rtgjw0000gp/T/AppTranslocation/A0DCAEF1-2471-4AF6-BE61-FD374FD91EC4/d/Google Chrome.app/Contents/
+48825 | Mon Sep 7 09:37:58 2026 | /var/folders/hn/1c1gl0tx4fd2j0w701_rtgjw0000gp/T/AppTranslocation/A0DCAEF1-2471-4AF6-BE61-FD374FD91EC4/d/Google Chrome.app/Contents/Framewor
+48839 | Mon Sep 7 09:38:05 2026 | /private/var/folders/hn/1c1gl0tx4fd2j0w701_rtgjw0000gp/T/AppTranslocation/A0DCAEF1-2471-4AF6-BE61-FD374FD91EC4/d/Google Chrome.app/Contents/
+48840 | Mon Sep 7 09:38:05 2026 | /private/var/folders/hn/1c1gl0tx4fd2j0w701_rtgjw0000gp/T/AppTranslocation/A0DCAEF1-2471-4AF6-BE61-FD374FD91EC4/d/Google Chrome.app/Contents/
+48843 | Mon Sep 7 09:38:07 2026 | /private/var/folders/hn/1c1gl0tx4fd2j0w701_rtgjw0000gp/T/AppTranslocation/A0DCAEF1-2471-4AF6-BE61-FD374FD91EC4/d/Google Chrome.app/Contents/
+49150 | Mon Sep 7 09:40:00 2026 | /private/var/folders/hn/1c1gl0tx4fd2j0w701_rtgjw0000gp/T/AppTranslocation/A0DCAEF1-2471-4AF6-BE61-FD374FD91EC4/d/Google Chrome.app/Contents/
+49202 | Thu Sep 17 10:03:22 2026 | /bin/zsh -c source /Users/louiscondevaux/.claude/shell-snapshots/snapshot-zsh-1789664265972-vjyqnp.sh 2>/dev/null || true && setopt NO_EXTEN
+54527 | Wed Sep 9 08:11:32 2026 | /Applications/Discord.app/Contents/Frameworks/Electron Framework.framework/Helpers/chrome_crashpad_handler --no-rate-limit --monitor-self-an
+61324 | Thu Sep 17 09:48:55 2026 | /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/152.0.7977.83/Helpers/Google Chrome Helper (R
+61349 | Thu Sep 17 09:48:55 2026 | /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/152.0.7977.83/Helpers/Google Chrome Helper (R
+73207 | Tue Sep 15 12:31:16 2026 | /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/152.0.7977.83/Helpers/Google Chrome Helper (R
+75781 | Tue Sep 15 12:31:31 2026 | /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/152.0.7977.83/Helpers/Google Chrome Helper.ap
+75783 | Tue Sep 15 12:31:31 2026 | /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/152.0.7977.83/Helpers/Google Chrome Helper.ap
+88558 | Tue Sep 15 14:52:44 2026 | /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/152.0.7977.83/Helpers/Google Chrome Helper (R

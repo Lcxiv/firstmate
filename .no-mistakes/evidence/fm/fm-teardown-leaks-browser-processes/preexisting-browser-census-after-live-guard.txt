@@ -1,0 +1,37 @@
+# Pre-existing browser roots after the live guard (2026-09-17T17:01:39Z) - compared against preexisting-browser-census-before.txt
+## roots (must be identical pid+lstart)
+21596     1 21596 Tue Sep 15 12:26:40 2026     /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --no-startup-window
+48778     1 48778 Mon Sep  7 09:37:46 2026     /private/var/folders/hn/1c1gl0tx4fd2j0w701_rtgjw0000gp/T/AppTranslocation/A0DCAEF1-2471-4AF6-BE61-FD374FD91EC4/d/Google Chrome.app/Contents/MacOS/Google 
+
+## every pre-existing Chrome-family pid: still alive with the same start time?
+same   12659 Mon Sep 7 15:41:24 2026
+same   12662 Mon Sep 7 15:41:56 2026
+CHANGED 13319 before=[Thu Sep 17 10:00:15 2026] now=[]
+same   21596 Tue Sep 15 12:26:40 2026
+same   21598 Tue Sep 15 12:26:40 2026
+same   21602 Tue Sep 15 12:26:40 2026
+same   21604 Tue Sep 15 12:26:40 2026
+same   21605 Tue Sep 15 12:26:40 2026
+same   21610 Tue Sep 15 12:26:40 2026
+same   21623 Tue Sep 15 12:26:41 2026
+same   29629 Wed Sep 16 23:07:16 2026
+same   31880 Tue Sep 15 14:38:28 2026
+same   36487 Thu Sep 17 08:53:10 2026
+same   36493 Thu Sep 17 08:53:17 2026
+same   36494 Thu Sep 17 08:53:17 2026
+same   42310 Thu Sep 17 09:40:20 2026
+same   48778 Mon Sep 7 09:37:46 2026
+same   48825 Mon Sep 7 09:37:58 2026
+same   48839 Mon Sep 7 09:38:05 2026
+same   48840 Mon Sep 7 09:38:05 2026
+same   48843 Mon Sep 7 09:38:07 2026
+same   49150 Mon Sep 7 09:40:00 2026
+same   54527 Wed Sep 9 08:11:32 2026
+CHANGED 57826 before=[Thu Sep 17 09:59:10 2026] now=[]
+same   61324 Thu Sep 17 09:48:55 2026
+same   61349 Thu Sep 17 09:48:55 2026
+same   73207 Tue Sep 15 12:31:16 2026
+same   75781 Tue Sep 15 12:31:31 2026
+same   75783 Tue Sep 15 12:31:31 2026
+same   88558 Tue Sep 15 14:52:44 2026
+changed_or_gone=2

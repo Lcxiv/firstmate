@@ -1,0 +1,22 @@
+live lab session fm-lablive-amb4995-1789664809: bridge pid 5014, record {"pid":5014,"port":59894}, tree of 11 processes
+unrelated live non-bridge process (stands in for a recycled pid): sleep pid 5272
+records under test:
+  fm-labmismatch-amb4995-1789664809 -> {pid=5014 (the REAL live bridge), port=59911 (NOT the port it serves)}
+  fm-labreuse-amb4995-1789664809 -> {pid=5272 (live, not a bridge), port=59894}
+  fm-labstale-amb4995-1789664809 -> {pid=5303 (already exited), port=59894}
+
+$ teardown br-mis-amb4995-1789664809   (record names the live bridge pid but the wrong port)
+  | browser cleanup skipped: pid 5014 is not listening on browser session fm-labmismatch-amb4995-1789664809 port 59911; leaving it alone
+  => live browser intact (11/11, byte-for-byte), still listening on 59894; refused record kept
+
+$ teardown br-reuse-amb4995-1789664809   (record names a live pid that is not a bridge)
+  | browser cleanup skipped: pid 5272 recorded for browser session fm-labreuse-amb4995-1789664809 is not a browser bridge; leaving it alone
+  => sleep 5272 alive, live browser intact (11/11), refused record kept
+
+$ teardown br-stale-amb4995-1789664809   (record names an exited pid)
+  | browser cleanup skipped: browser session fm-labstale-amb4995-1789664809 bridge record is stale: pid 5303 already exited (any browser it launched was not checked)
+  => live browser intact (11/11); stale record directory cleared
+
+ok - real fm-teardown.sh refused all three unproven records against chrome-devtools-axi 0.1.34; the live lab browser never lost a process and the tool's stop was never issued
+/Users/louiscondevaux/.no-mistakes/evidence/01M2PC61AT3702RM09BJQSHQZD/real-teardown-ambiguity-lab.sh: line 38:  5272 Terminated: 15          sleep 600
+cleanup: lab browser processes still alive after 1s: 0

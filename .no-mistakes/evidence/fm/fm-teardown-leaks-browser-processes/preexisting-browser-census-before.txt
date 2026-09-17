@@ -1,0 +1,37 @@
+# Pre-existing browser roots and bridges before any lab launch (2026-09-17T17:00:36Z)
+# pid ppid pgid lstart command
+  PID  PPID  PGID STARTED                      COMMAND
+21596     1 21596 Tue Sep 15 12:26:40 2026     /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --no-startup-window
+48778     1 48778 Mon Sep  7 09:37:46 2026     /private/var/folders/hn/1c1gl0tx4fd2j0w701_rtgjw0000gp/T/AppTranslocation/A0DCAEF1-2471-4AF6-BE61-FD374FD91EC4/d/Google Chrome.app/Contents/MacOS/Google Chrome
+
+# all Chrome-family pids (roots+helpers), pid+lstart, for byte-for-byte comparison
+12659 Mon Sep 7 15:41:24 2026
+12662 Mon Sep 7 15:41:56 2026
+13319 Thu Sep 17 10:00:15 2026
+21596 Tue Sep 15 12:26:40 2026
+21598 Tue Sep 15 12:26:40 2026
+21602 Tue Sep 15 12:26:40 2026
+21604 Tue Sep 15 12:26:40 2026
+21605 Tue Sep 15 12:26:40 2026
+21610 Tue Sep 15 12:26:40 2026
+21623 Tue Sep 15 12:26:41 2026
+29629 Wed Sep 16 23:07:16 2026
+31880 Tue Sep 15 14:38:28 2026
+36487 Thu Sep 17 08:53:10 2026
+36493 Thu Sep 17 08:53:17 2026
+36494 Thu Sep 17 08:53:17 2026
+42310 Thu Sep 17 09:40:20 2026
+48778 Mon Sep 7 09:37:46 2026
+48825 Mon Sep 7 09:37:58 2026
+48839 Mon Sep 7 09:38:05 2026
+48840 Mon Sep 7 09:38:05 2026
+48843 Mon Sep 7 09:38:07 2026
+49150 Mon Sep 7 09:40:00 2026
+54527 Wed Sep 9 08:11:32 2026
+57826 Thu Sep 17 09:59:10 2026
+61324 Thu Sep 17 09:48:55 2026
+61349 Thu Sep 17 09:48:55 2026
+73207 Tue Sep 15 12:31:16 2026
+75781 Tue Sep 15 12:31:31 2026
+75783 Tue Sep 15 12:31:31 2026
+88558 Tue Sep 15 14:52:44 2026

@@ -1,0 +1,59 @@
+task id:          br-real-rt53721-1789664621
+owned session:    fm-br-real-rt53721-1789664621-beb47012   (derived exactly as fm-spawn records it)
+control session:  fm-labcontrol-rt53721-1789664621
+meta:
+  window=fakeses:fm-br-real-rt53721-1789664621
+  worktree=/tmp/fm-real-teardown-lab.TEEulu/nonexistent-wt-br-real-rt53721-1789664621
+  project=/tmp/fm-real-teardown-lab.TEEulu/nonexistent-proj-br-real-rt53721-1789664621
+  harness=claude
+  kind=ship
+  mode=no-mistakes
+  yolo=off
+  browser_session=fm-br-real-rt53721-1789664621-beb47012
+
+owned bridge pid 53756; pid file: {"pid":53756,"port":59767}
+owned tree (11 processes):
+53756     1 53756 node
+53972 53756 53756 npm exec chrome-devtools-mcp@latest --userDataDir=/tmp/fm-real-teardown-lab.TEEulu/profile-owned --hea
+54187 53972 53756 chrome-devtools-mcp
+54414 54187 54414 /Users/louiscondevaux/.hermes/node/bin/node
+54751 54187 54751 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
+55337 54751 54751 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/153.0.8
+55338 54751 54751 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/153.0.8
+55341 54751 54751 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/153.0.8
+55424 54751 54751 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/153.0.8
+55425 54751 54751 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/153.0.8
+55468 54751 54751 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/153.0.8
+control bridge pid 55506; pid file: {"pid":55506,"port":59788}
+control tree (11 processes):
+55506     1 55506 node
+55508 55506 55506 npm exec chrome-devtools-mcp@latest --userDataDir=/tmp/fm-real-teardown-lab.TEEulu/profile-control --h
+55524 55508 55506 chrome-devtools-mcp
+55526 55524 55526 /Users/louiscondevaux/.hermes/node/bin/node
+55528 55524 55528 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
+55539 55528 55528 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/153.0.8
+55540 55528 55528 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/153.0.8
+55542 55528 55528 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/153.0.8
+55553 55528 55528 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/153.0.8
+55554 55528 55528 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/153.0.8
+55575 55528 55528 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/153.0.8
+
+browser cwd (outside the task worktree, so the cwd sweep cannot attribute it):
+/private/tmp/fm-real-teardown-lab.TEEulu/launcher-cwd
+owned tree processes running the lab-owned profile: 7
+
+$ FM_GATE_REFUSE_BYPASS=1 FM_HOME=/tmp/fm-real-teardown-lab.TEEulu/home bash /tmp/fm-real-teardown-lab.TEEulu/home/bin/fm-teardown.sh br-real-rt53721-1789664621      (real chrome-devtools-axi on PATH)
+  | browser cleanup: stopped browser session fm-br-real-rt53721-1789664621-beb47012; its bridge (pid 53756) is gone (browser tree not separately verified)
+  | teardown br-real-rt53721-1789664621 complete (window fakeses:fm-br-real-rt53721-1789664621, worktree /tmp/fm-real-teardown-lab.TEEulu/nonexistent-wt-br-real-rt53721-1789664621)
+  | Backlog: br-real-rt53721-1789664621 just finished (this home keeps no backlog at /private/tmp/fm-real-teardown-lab.TEEulu/home/data/backlog.md). Update /private/tmp/fm-real-teardown-lab.TEEulu/home/data/backlog.md - move br-real-rt53721-1789664621 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+teardown exit=0
+
+owned tree alive after teardown (+0s): 0 of 11
+control tree alive:                     11 of 11
+control tree identities byte-for-byte identical: yes
+owned session dir removed: yes; control session record intact: yes
+
+repeat retirement (idempotence) via the interface teardown calls:
+  rc=0 output=[]
+ok - real fm-teardown.sh retired the task's recorded chrome-devtools-axi 0.1.34 session (bridge + MCP server + Chrome + helpers) and left the control browser untouched
+cleanup: lab processes still alive after 0s: 0

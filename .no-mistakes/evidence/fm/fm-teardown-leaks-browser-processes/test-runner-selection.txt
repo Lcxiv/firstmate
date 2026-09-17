@@ -1,0 +1,17 @@
+$ bin/fm-test-run.sh --list --changed --base 785751924c196a67d8c338d83df79159d21b83c1 | grep browser
+tests/fm-browser-session-live-e2e.test.sh
+tests/fm-browser-session.test.sh
+
+$ bin/fm-test-run.sh --list --family live-harness-optin | grep browser
+tests/fm-browser-session-live-e2e.test.sh
+
+$ bin/fm-test-run.sh --list --family backend-dispatch | grep browser
+tests/fm-browser-session.test.sh
+
+$ bin/fm-test-run.sh --check-coverage | tail -1
+FM_TEST_COVERAGE ok total=183 parallel=24 serial=147 serial_shards=4 herdr=12
+
+$ bin/fm-test-run.sh tests/fm-browser-session-live-e2e.test.sh   (without the opt-in: must skip explicitly)
+skip: set FM_BROWSER_SESSION_LIVE_E2E=1 to run the real-browser session-retirement guard
+FM_TEST_END 2026-09-17T17:08:40Z tests/fm-browser-session-live-e2e.test.sh exit=0 duration_ms=27 gate_skip=true
+FM_TEST_SUMMARY total=1 failed=0 skipped_gate=1 duration_ms=76

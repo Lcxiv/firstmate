@@ -1,0 +1,47 @@
+# Records the guard kept on the unclean branch, captured before clearing the deliberately-caused survivors
+## $LAB_ROOT/launched
+fm-labowned-live60548-1789664646 60832
+fm-labowned-live60548-1789664646 61152
+fm-labowned-live60548-1789664646 61171
+fm-labowned-live60548-1789664646 61172
+fm-labowned-live60548-1789664646 61173
+fm-labowned-live60548-1789664646 61179
+fm-labowned-live60548-1789664646 61180
+fm-labowned-live60548-1789664646 61181
+fm-labowned-live60548-1789664646 61183
+fm-labowned-live60548-1789664646 61184
+fm-labowned-live60548-1789664646 61204
+fm-labcontrol-live60548-1789664646 61235
+fm-labcontrol-live60548-1789664646 61238
+fm-labcontrol-live60548-1789664646 61258
+fm-labcontrol-live60548-1789664646 61259
+fm-labcontrol-live60548-1789664646 61260
+fm-labcontrol-live60548-1789664646 61265
+fm-labcontrol-live60548-1789664646 61266
+fm-labcontrol-live60548-1789664646 61268
+fm-labcontrol-live60548-1789664646 61271
+fm-labcontrol-live60548-1789664646 61272
+fm-labcontrol-live60548-1789664646 61273
+## session record
+{"pid":61235,"port":59839}
+## owned session record (removed by the successful stop, so NOT listed by the guard):
+absent, as expected
+
+## alive launched pids before clearing (identity = LAB_ROOT in argv; the bridge's argv carries no LAB_ROOT so the guard did not list it, see review round 6 no-op finding)
+  fm-labcontrol-live60548-1789664646 61235 node
+  fm-labcontrol-live60548-1789664646 61238 npm exec chrome-devtools-mcp@latest --userDataDir=/var/folders/gp/phywrkfd3kj2jp
+  fm-labcontrol-live60548-1789664646 61258 chrome-devtools-mcp
+  fm-labcontrol-live60548-1789664646 61259 /Users/louiscondevaux/.hermes/node/bin/node
+  fm-labcontrol-live60548-1789664646 61260 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
+  fm-labcontrol-live60548-1789664646 61265 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.fram
+  fm-labcontrol-live60548-1789664646 61266 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.fram
+  fm-labcontrol-live60548-1789664646 61268 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.fram
+  fm-labcontrol-live60548-1789664646 61271 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.fram
+  fm-labcontrol-live60548-1789664646 61272 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.fram
+  fm-labcontrol-live60548-1789664646 61273 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.fram
+
+## clearing: the tool's own stop for the control session (the only reach this run has), then a bounded wait
+$ CHROME_DEVTOOLS_AXI_SESSION=fm-labcontrol-live60548-1789664646 chrome-devtools-axi stop
+status: stopped
+launched pids still alive after 1s: 0
+removed /var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T//fm-browser-session-live.lNjHpL and the control session record
