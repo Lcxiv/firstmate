@@ -1,0 +1,12 @@
+ok - report-only unresolved captain call is reproduced and completion refuses before loss
+ok - the completion gate attests captain-held inventory and transfers open status decisions
+ok - an inventory entry that resolves to no task is refused by name, never as a blank
+ok - calls answered on another task complete in both forms and release cleanup
+ok - answer records the captain's words, closes idempotently, and releases routed work
+ok - release frees held work with the captain's words recorded and the body preserved
+ok - a deferred captain call leaves the live Captain's Call until its date and stays answerable
+ok - an out-of-band close is recordable with the captain's word and nothing else
+ok - ended visual review follows the same captain-hold completion owner
+ok - resolved findings and decision-like prose do not create captain-held tasks
+ok - terminal single-owner stale status decisions do not block empty inventory
+ok - main-home and secondmate-home captain calls remain correctly routed

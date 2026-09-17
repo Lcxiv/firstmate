@@ -1,0 +1,49 @@
+=== script under test: HEAD 1b0e122 (fixed) ===
+
+### Shape A: durable meta whose recorded inventory names a task no longer in the backlog
+$ fm-captain-hold.sh complete jt-personal-data-purge-plan --none
+  fm-captain-hold: no captain-held task jt-personal-data-purge-plan and no legacy identity jt-personal-data-purge-plan-decision-jt-personal-data-purge-plan in /var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T//fm-captain-hold-drive.XPILW6/shapeA/data/backlog.md
+  [exit 1]
+$ fm-captain-hold.sh complete jt-personal-data-purge-plan jt-personal-data-purge-execute
+  fm-captain-hold: no captain-held task jt-personal-data-purge-plan and no legacy identity jt-personal-data-purge-plan-decision-jt-personal-data-purge-plan in /var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T//fm-captain-hold-drive.XPILW6/shapeA/data/backlog.md
+  [exit 1]
+$ fm-captain-hold.sh verify jt-personal-data-purge-plan
+  fm-captain-hold: no captain-held task jt-personal-data-purge-plan and no legacy identity jt-personal-data-purge-plan-decision-jt-personal-data-purge-plan in /var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T//fm-captain-hold-drive.XPILW6/shapeA/data/backlog.md
+  [exit 1]
+### Neighbours given an empty id
+$ fm-captain-hold.sh answer  --decision-file /dev/null
+  fm-captain-hold: task-id is required but no value was supplied
+  [exit 1]
+$ fm-captain-hold.sh hold  --title x --reason y
+  fm-captain-hold: task-id is required but no value was supplied
+  [exit 1]
+$ fm-captain-hold.sh binding 
+  fm-captain-hold: source-id is required but no value was supplied
+  [exit 1]
+$ fm-decision-hold.sh complete '' --none
+  fm-decision-hold: origin-id is required but no value was supplied
+  [exit 1]
+
+### Shape B: calls answered on a different task; complete both forms, verify, teardown
+$ fm-captain-hold.sh complete jt-personal-data-purge-plan jt-personal-data-purge-execute
+  complete: jt-personal-data-purge-plan captain-call inventory reviewed (jt-personal-data-purge-execute)
+  [exit 0]
+  meta now: decisions_reviewed=1 decision_keys=jt-personal-data-purge-execute 
+$ fm-captain-hold.sh complete jt-personal-data-purge-plan --none
+  complete: jt-personal-data-purge-plan captain-call inventory reviewed (jt-personal-data-purge-execute)
+  [exit 0]
+$ fm-captain-hold.sh verify jt-personal-data-purge-plan
+  verified: jt-personal-data-purge-plan captain-call inventory
+  [exit 0]
+$ fm-teardown.sh jt-personal-data-purge-plan
+  ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ●  WATCHER DOWN - SUPERVISION IS OFF
+  ●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+  ●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+  ●  This is a supervision warning only; the guarded operation WILL still run.
+  ●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+  ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  teardown jt-personal-data-purge-plan complete (window firstmate:fm-jt-personal-data-purge-plan, worktree /var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T//fm-captain-hold-drive.XPILW6/shapeB/projects/missing-jt-personal-data-purge-plan)
+  Backlog: jt-personal-data-purge-plan is closed in /private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/fm-captain-hold-drive.XPILW6/shapeB/data/backlog.md. Run tasks-axi ready for dependency-cleared candidates, check date gates, and dispatch only work whose blockers are gone and date is due.
+  [exit 0]
+  state/jt-personal-data-purge-plan.meta removed: cleanup proceeded

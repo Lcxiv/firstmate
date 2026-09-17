@@ -1,0 +1,16 @@
+=== script under test: base 8191e4e (unfixed) ===
+
+### Shape A: durable meta whose recorded inventory names a task no longer in the backlog
+$ fm-captain-hold.sh complete jt-personal-data-purge-plan --none
+  fm-captain-hold: no captain-held task jt-personal-data-purge-plan and no legacy identity jt-personal-data-purge-plan-decision-jt-personal-data-purge-plan in /var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T//fm-captain-hold-drive.5jh4Bt/shapeA/data/backlog.md
+  fm-captain-hold: captain-held task  is absent from /var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T//fm-captain-hold-drive.5jh4Bt/shapeA/data/backlog.md
+  [exit 1]
+$ fm-captain-hold.sh complete jt-personal-data-purge-plan jt-personal-data-purge-execute
+  fm-captain-hold: no captain-held task jt-personal-data-purge-plan and no legacy identity jt-personal-data-purge-plan-decision-jt-personal-data-purge-plan in /var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T//fm-captain-hold-drive.5jh4Bt/shapeA/data/backlog.md
+  fm-captain-hold: captain-held task  is absent from /var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T//fm-captain-hold-drive.5jh4Bt/shapeA/data/backlog.md
+  [exit 1]
+$ fm-captain-hold.sh verify jt-personal-data-purge-plan
+  fm-captain-hold: no captain-held task jt-personal-data-purge-plan and no legacy identity jt-personal-data-purge-plan-decision-jt-personal-data-purge-plan in /var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T//fm-captain-hold-drive.5jh4Bt/shapeA/data/backlog.md
+  fm-captain-hold: captain-held task  is absent from /var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T//fm-captain-hold-drive.5jh4Bt/shapeA/data/backlog.md
+  [exit 1]
+### Neighbours given an empty id

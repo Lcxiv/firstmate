@@ -1,0 +1,3 @@
+ok - report-only unresolved captain call is reproduced and completion refuses before loss
+ok - the completion gate attests captain-held inventory and transfers open status decisions
+not ok - the --none refusal reported an empty captain-held task id
