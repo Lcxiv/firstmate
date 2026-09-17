@@ -25,7 +25,13 @@
 #     tree, where the harness owns the process group and tears arm and watcher
 #     down together; arming from a transient per-tool-call hook would orphan the
 #     watcher it started. The model repairs supervision through its documented
-#     protocol, which this notice points at.
+#     protocol, which this notice names via bin/fm-supervision-instructions.sh.
+#   - It speaks on TWO channels at once, because its reader is usually
+#     unattended: hookSpecificOutput.additionalContext is the field Claude Code
+#     adds to the model's context, so the model can act on the diagnosis by
+#     itself; systemMessage is shown to an attending operator only, and is kept
+#     so a human at the keyboard still sees it. Neither is a permission
+#     decision.
 #   - It speaks at most once per handoff episode, so a session that is working
 #     through the repair is not nagged on every subsequent call.
 #   - bin/fm-supervision-lib.sh owns the overdue predicate and the activity
@@ -34,8 +40,11 @@
 #
 # Exit/output contract:
 #   exit 0 and no output  - nothing to say, or any uncertainty at all.
-#   exit 0 with a {"systemMessage": ...} object on stdout - the notice, the same
-#   informational shape bin/fm-turnend-guard.sh uses for its attended fail-open.
+#   exit 0 with one JSON object on stdout carrying both
+#   hookSpecificOutput.additionalContext (model-visible) and systemMessage
+#   (operator-visible) - the notice. This is deliberately NOT the bare
+#   systemMessage shape bin/fm-turnend-guard.sh uses for its attended fail-open:
+#   that precedent assumes a human is watching, and this hook cannot.
 set -u
 
 CLAUDE_MODE=0
@@ -48,13 +57,14 @@ for arg in "$@"; do
   esac
 done
 # Accepted for transport parity with the other tracked hook entries; the notice
-# renders identically for every harness that reads a systemMessage object.
+# renders identically for every harness that reads the hook output object.
 : "$CLAUDE_MODE"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || exit 0
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}" || exit 0
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
+CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 GRACE=${FM_GUARD_GRACE:-300}
 MARKER="$STATE/.supervision-handoff-notified"
 
@@ -143,7 +153,15 @@ FOR_HOW_LONG=$(fm_supervision_duration "$HANDOFF_AGE")
 json_escape() {
   printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | tr '\n' ' '
 }
-MSG=$(printf 'FIRSTMATE SUPERVISION IS OFF AND NOTHING IS SCHEDULED TO RESTART IT: %s, and no watcher cycle has been armed for %s. The automatic re-arm runs only when a turn ends, and this session went that whole stretch without ending one - a turn cut short by a usage limit, an expired login, or a similar abort does not run the Stop hooks that own it - so it cannot recover on its own no matter how long you wait. Repair supervision now, per the operating block this session start emitted, before continuing other work.' \
-  "$NEED_DESC" "$FOR_HOW_LONG")
-printf '{"systemMessage":"%s"}\n' "$(json_escape "$MSG")"
+x_mode=0
+[ -f "$CONFIG/x-mode.env" ] && x_mode=1
+phone_mode=0
+[ -f "$CONFIG/phone-mode.env" ] && phone_mode=1
+REPAIR=$("$SCRIPT_DIR/fm-supervision-instructions.sh" --afk 0 --x-mode "$x_mode" --phone-mode "$phone_mode" --repair-line 2>/dev/null \
+  || printf '%s\n' 'Repair supervision now, per the operating block this session start emitted.')
+REPAIR=${REPAIR%$'\n'}
+MSG=$(printf 'FIRSTMATE SUPERVISION IS OFF AND NOTHING IS SCHEDULED TO RESTART IT: %s, and no watcher cycle has been armed for %s. The automatic re-arm runs only when a turn ends, and this session went that whole stretch without ending one - a turn cut short by a usage limit, an expired login, or a similar abort does not run the Stop hooks that own it - so it cannot recover on its own no matter how long you wait. Repair supervision before continuing other work: %s' \
+  "$NEED_DESC" "$FOR_HOW_LONG" "$REPAIR")
+ESCAPED=$(json_escape "$MSG")
+printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"%s"},"systemMessage":"%s"}\n' "$ESCAPED" "$ESCAPED"
 exit 0

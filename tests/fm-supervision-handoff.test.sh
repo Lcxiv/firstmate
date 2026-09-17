@@ -215,7 +215,7 @@ test_pretool_is_silent_while_supervision_is_healthy() {
 }
 
 test_pretool_reports_the_unrecoverable_state() {
-  local dir out
+  local dir out context
   dir=$(make_home pretool-parked)
   record_handoff "$dir"
   park_session "$dir"
@@ -224,8 +224,15 @@ test_pretool_reports_the_unrecoverable_state() {
   assert_contains "$out" "SUPERVISION IS OFF" "the notice must name the condition"
   assert_contains "$out" "1 task(s) in flight" "the notice must name what is unsupervised"
   assert_contains "$out" "cannot recover on its own" "the notice must say waiting will not help"
-  assert_contains "$out" "systemMessage" "the notice must use the informational object shape"
-  pass "the pre-tool notice reports an abandoned handoff without blocking the call"
+  assert_contains "$out" "systemMessage" "an attending operator must still see the notice"
+  assert_contains "$out" '"hookEventName":"PreToolUse"' "the model-facing channel must name its hook event"
+  assert_contains "$out" '"additionalContext":"' "the notice must reach the model, not only the operator UI"
+  context=$(printf '%s\n' "$out" | jq -r '.hookSpecificOutput.additionalContext')
+  [ -n "$context" ] && [ "$context" != null ] || fail "additionalContext must parse as a string, got: $out"
+  assert_contains "$context" "SUPERVISION IS OFF" "the model-facing text must name the condition"
+  assert_contains "$context" "Repair supervision" "the model-facing text must name the repair step"
+  assert_not_contains "$out" "permissionDecision" "the notice must never carry a permission decision"
+  pass "the pre-tool notice reports an abandoned handoff on both channels without blocking the call"
 }
 
 test_pretool_speaks_once_per_episode() {
@@ -352,9 +359,11 @@ test_turnend_banner_omits_the_lapse_line_between_cycles() {
   pass "the turn-end banner does not claim a lapse between ordinary cycles"
 }
 
+# Pin the supervision model rather than letting the host runner's harness
+# ancestry pick it: the handoff lines belong to the Claude auto-arm model only.
 run_guard() {
-  local dir=$1 rc=0
-  GUARD_OUT=$(FM_ROOT_OVERRIDE="$dir" FM_HOME="$dir" "$ROOT/bin/fm-guard.sh" 2>&1) || rc=$?
+  local dir=$1 model=${2:-autoarm} rc=0
+  GUARD_OUT=$(FM_ROOT_OVERRIDE="$dir" FM_HOME="$dir" FM_SUPERVISION_MODEL="$model" "$ROOT/bin/fm-guard.sh" 2>&1) || rc=$?
   GUARD_RC=$rc
   return 0
 }
@@ -386,6 +395,25 @@ test_guard_warning_does_not_cry_lapse_between_cycles() {
   pass "the watcher-down warning separates an ordinary gap from a lapse"
 }
 
+# The ledger is never removed, so a home that once ran under Claude and was
+# re-spawned under a persistent-watcher harness still carries it; the guard must
+# not read a Claude-specific diagnosis into that home.
+test_guard_warning_keeps_handoff_lines_to_the_autoarm_model() {
+  local dir out
+  dir=$(make_home guard-persistent)
+  record_handoff "$dir"
+  park_session "$dir"
+  run_guard "$dir" persistent; out=$GUARD_OUT
+  assert_contains "$out" "WATCHER DOWN" "the guard must still alarm under a persistent model"
+  assert_not_contains "$out" "Nothing has armed a watcher for" \
+    "a stale Claude ledger must not be diagnosed in a persistent-watcher home"
+  assert_not_contains "$out" "cannot recover on its own" \
+    "the Claude turn-end diagnosis must not reach a persistent-watcher home"
+  assert_not_contains "$out" "the next turn end arms one" \
+    "the between-cycles wording is also autoarm-only"
+  pass "the watcher-down warning keeps the handoff lines to the auto-arm model"
+}
+
 test_autoarm_claims_a_new_generation_on_every_firing
 test_fresh_handoff_between_turns_is_not_overdue
 test_active_session_mid_turn_is_not_overdue
@@ -406,3 +434,4 @@ test_turnend_banner_names_an_abandoned_handoff
 test_turnend_banner_omits_the_lapse_line_between_cycles
 test_guard_warning_names_the_unrecoverable_state
 test_guard_warning_does_not_cry_lapse_between_cycles
+test_guard_warning_keeps_handoff_lines_to_the_autoarm_model
