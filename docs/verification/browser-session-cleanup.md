@@ -95,6 +95,14 @@ In both, a Chrome tree can outlive the bridge.
 Cleanup therefore only ever proves the bridge, and [`bin/fm-browser-session-lib.sh`](../../bin/fm-browser-session-lib.sh) words every message to the bridge rather than to the browser.
 Recording the Chrome tree's own ownership at launch would be needed to close this, and is deliberately out of scope: the design reuses the tool's per-session pid file as the sole registry rather than creating a parallel one.
 
+## Accepted tradeoff: peak memory
+
+Isolating a browser per task is what makes ownership provable, and it is what removes accumulation **across** tasks — each tree is now retired with the task that bound it, instead of outliving every task that ever touched it.
+The cost is at the other end: each browser-using task now holds its own bridge, MCP server and Chrome tree rather than sharing one, so several browser-using tasks running at once carry a higher **peak** footprint than the single shared tree they used to reuse.
+
+Going back to a shared session is not available: one task's cleanup would then reach another task's browser, which the ownership contract forbids outright.
+A cap on how many browser-bound tasks may run at once is deliberately out of scope for this change and would be separate work.
+
 ## Refreshing this record
 
 ```sh

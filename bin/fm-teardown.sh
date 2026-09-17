@@ -189,16 +189,22 @@
 #     leftover session directory is cleared with it, so binding a session per
 #     task does not trade a process leak for a pile of state directories; a
 #     record whose live owner was refused is preserved instead. Only the bridge
-#     is ever proved, so what it reports is what it measured: the bridge is gone
-#     and no longer serving its port, never that the browser tree was confirmed
-#     to have exited. Unlike Fix 1 and Fix 2 this step runs for EVERY kind,
+#     is ever proved, so what it reports is what it measured: the bridge pid is
+#     gone, never that the browser tree was confirmed to have exited; a bridge
+#     still alive after the stop keeps its record so a later cleanup can still
+#     prove it. Unlike Fix 1 and Fix 2 this step runs for EVERY kind,
 #     kind=secondmate included: fm-spawn binds and records a session for all of
 #     them, and a secondmate whose session was never retired leaks exactly the
 #     browser tree this fix exists for. It is keyed by the task's own recorded
 #     session name, not by anything under a task worktree, so it has no stake in
 #     the worktree boundary those two are guarded by. Silent when the task never
 #     recorded a session or never started a bridge. Best effort: an unretired
-#     browser never blocks this teardown.
+#     browser never blocks this teardown. A forced secondmate cleanup runs the
+#     same step per CHILD inside cleanup_firstmate_home_children, immediately
+#     before that child's own meta is removed: that record is the only thing
+#     naming the child's session, so once it is gone the child's bridge could
+#     never be attributed by anything again. That loop recurses, so a nested
+#     secondmate home's children are covered at the same point.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -2737,6 +2743,10 @@ cleanup_firstmate_home_children() {
     fi
     retire_busy_state "$sub_state" "$child_id" "$child_busy_gen" || return 1
     status_retire_presentation_task "$sub_state" "$child_id" || return 1
+    # Fix 4 (see script header) for this child, while its own record still names
+    # the session: the removal below is the last moment that binding exists, and
+    # after it no cleanup anywhere could ever attribute that bridge again.
+    fm_browser_session_stop "$(meta_value "$child_meta" browser_session)" >&2 || true
     fm_backlog_atomic_transition remove "$sub_state/$child_id.meta" "task record" "$sub_state" || return 1
     rm -f "$sub_state/$child_id.turn-ended" \
       "$sub_state/$child_id.pi-ext.ts" \

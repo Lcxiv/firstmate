@@ -60,13 +60,16 @@ mkdir -p "$STATE_ROOT/sessions"
 # production path matches on browser process names.
 BRIDGE_SCRIPT="$TMP_ROOT/chrome-devtools-axi-bridge.js"
 cat > "$BRIDGE_SCRIPT" <<'PYBRIDGE'
-import os, socket, sys, time
+import os, signal, socket, sys, time
 port = int(sys.argv[1])
 os.setsid()
 srv = socket.socket()
 srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 srv.bind(("127.0.0.1", port))
 srv.listen(1)
+# SIGUSR1 stands in for a shutdown that got as far as releasing the listening
+# socket and then wedged: the process stays alive, the port is no longer served.
+signal.signal(signal.SIGUSR1, lambda *_: srv.close())
 if os.fork() == 0:            # stand-in for the browser tree under the bridge
     while True:
         time.sleep(3600)
@@ -193,6 +196,13 @@ run_teardown() {  # <fake-root> <id> -> stdout+stderr on fd 1
     bash "$fake/bin/fm-teardown.sh" "$id" 2>&1
 }
 
+run_stop() {  # <fake-root> <session> -> stdout+stderr on fd 1, exit code preserved
+  local fake=$1 name=$2
+  PATH="$fake/fakebin:$PATH" \
+  FM_BROWSER_SESSION_STATE_ROOT="$STATE_ROOT" \
+    bash -c '. "$1"; fm_browser_session_stop "$2"' _ "$LIB" "$name" 2>&1
+}
+
 # --- name derivation --------------------------------------------------------
 
 test_name_is_task_scoped_and_never_default() {
@@ -284,7 +294,7 @@ test_spawn_binds_and_records_the_session() {
 
 test_owned_browser_retired_control_survives() {
   local owned control owned_pid control_pid owned_port control_port
-  local owned_tree control_tree before after fake out
+  local owned_tree control_tree before after fake out before_stops
   owned=$(start_bridge fm-owned-a1b2c3d4); owned_pid=${owned%% *}; owned_port=${owned##* }
   control=$(start_bridge fm-control-9f8e7d6c); control_pid=${control%% *}; control_port=${control##* }
   owned_tree=$(bridge_tree "$owned_pid")
@@ -319,10 +329,18 @@ test_owned_browser_retired_control_survives() {
     *"browser cleanup: stopped browser session fm-owned-a1b2c3d4"*) ;;
     *) fail "teardown did not report the stop it performed: $out" ;;
   esac
-  # Repeat cleanup: the record is gone, so a second run must be a silent no-op.
-  out=$(run_teardown "$fake" br-retire 2>&1) || true
+  # Repeat cleanup, driven at the interface teardown actually calls: the record is
+  # gone, so a second retirement must succeed, say nothing, and signal nothing.
+  # (A second run_teardown could not show this - it exits at endpoint validation
+  # long before the browser step, so it would pass however the mechanism behaved.)
+  before_stops=$(wc -l < "$TMP_ROOT/stop-retire.log")
+  out=$(run_stop "$fake" fm-owned-a1b2c3d4) \
+    || fail "a repeated retirement of an already-retired session failed: $out"
+  [ -z "$out" ] || fail "a repeated retirement was not silent: $out"
+  [ "$(wc -l < "$TMP_ROOT/stop-retire.log")" -eq "$before_stops" ] \
+    || fail "a repeated retirement invoked the browser tool again"
   [ "$(tree_alive_count "$control_tree")" -eq 2 ] \
-    || fail "a repeated teardown killed the unrelated browser"
+    || fail "a repeated retirement killed the unrelated browser"
   pass "the task's own browser and its child are retired; an unrelated browser survives byte-for-byte"
   printf '%s' "$owned_port" >/dev/null
 }
@@ -353,6 +371,81 @@ test_secondmate_retires_its_own_session() {
   lsof -nP -a -p "$control_pid" -iTCP:"$control_port" -sTCP:LISTEN >/dev/null 2>&1 \
     || fail "the unrelated browser stopped serving its own port"
   pass "a secondmate teardown retires its own proven browser session and no other"
+}
+
+test_forced_secondmate_cleanup_retires_child_sessions() {
+  # A forced secondmate cleanup erases each child's meta - the ONLY record naming
+  # that child's session. If the child's bridge is not retired before that, its
+  # browser tree is permanently unattributable: exactly the leak this fix targets.
+  local owned control owned_pid control_pid control_port owned_tree control_tree
+  local fake sub out
+  owned=$(start_bridge fm-child-c0ffee11); owned_pid=${owned%% *}
+  control=$(start_bridge fm-child-control-11eeff0c)
+  control_pid=${control%% *}; control_port=${control##* }
+  owned_tree=$(bridge_tree "$owned_pid")
+  control_tree=$(bridge_tree "$control_pid")
+  [ "$(tree_alive_count "$owned_tree")" -ge 2 ] || fail "child fixture browser has no child process"
+  fake=$(make_fake_root br-force fm-parent-none-00000000 "$TMP_ROOT/stop-force.log" secondmate)
+  sub="$TMP_ROOT/secondmate-home-br-force"
+  {
+    printf 'window=fakeses:fm-kid\n'
+    printf 'worktree=%s/nonexistent-wt-kid\n' "$TMP_ROOT"
+    printf 'project=%s/nonexistent-proj-kid\n' "$TMP_ROOT"
+    printf 'harness=claude\nkind=ship\nmode=no-mistakes\nyolo=off\n'
+    printf 'browser_session=fm-child-c0ffee11\n'
+  } > "$sub/state/kid.meta"
+  out=$(PATH="$fake/fakebin:$PATH" FM_HOME="$fake" \
+    FM_BROWSER_SESSION_STATE_ROOT="$STATE_ROOT" \
+    bash "$fake/bin/fm-teardown.sh" br-force --force 2>&1) \
+    || fail "forced secondmate teardown failed: $out"
+  sleep 1
+  [ ! -f "$sub/state/kid.meta" ] || fail "forced cleanup left the child record behind"
+  [ "$(tree_alive_count "$owned_tree")" -eq 0 ] \
+    || fail "the child's browser survived its home's forced cleanup ($(tree_alive_count "$owned_tree") alive)"
+  grep -q "stop fm-child-c0ffee11" "$TMP_ROOT/stop-force.log" \
+    || fail "forced cleanup removed the child record without retiring its session"
+  grep -q "fm-child-control-11eeff0c" "$TMP_ROOT/stop-force.log" \
+    && fail "forced cleanup touched an unrelated session"
+  [ "$(tree_alive_count "$control_tree")" -eq 2 ] \
+    || fail "forced cleanup killed an unrelated browser"
+  lsof -nP -a -p "$control_pid" -iTCP:"$control_port" -sTCP:LISTEN >/dev/null 2>&1 \
+    || fail "the unrelated browser stopped serving its own port"
+  pass "a forced secondmate cleanup retires each child's proven session before erasing its record"
+}
+
+test_alive_bridge_that_released_its_port_is_reported_and_kept() {
+  # A shutdown that releases the listening socket and then wedges leaves the proven
+  # pid alive with its port free. Identity was proven BEFORE the stop, so that pid
+  # is still the bridge: it must be reported as surviving and its record - the only
+  # evidence a later cleanup could ever use - must be preserved.
+  local b pid port tree fake out session=fm-wedged-abcd1234
+  b=$(start_bridge "$session"); pid=${b%% *}; port=${b##* }
+  tree=$(bridge_tree "$pid")
+  fake=$(make_fake_root br-wedged "$session" "$TMP_ROOT/stop-wedged.log")
+  # Stand in for the wedged vendor stop: release the port, leave the process alive.
+  cat > "$fake/fakebin/chrome-devtools-axi" <<STUB
+#!/usr/bin/env bash
+printf '%s %s\n' "\${1:-}" "\${CHROME_DEVTOOLS_AXI_SESSION:-<unset>}" >> "$TMP_ROOT/stop-wedged.log"
+[ "\${1:-}" = stop ] || exit 0
+kill -USR1 $pid 2>/dev/null || true
+exit 0
+STUB
+  chmod +x "$fake/fakebin/chrome-devtools-axi"
+  out=$(run_stop "$fake" "$session") && fail "a surviving bridge was reported as a successful stop: $out"
+  sleep 1
+  [ "$(tree_alive_count "$tree")" -eq 2 ] || fail "the fixture bridge died; this case proves nothing"
+  lsof -nP -a -p "$pid" -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1 \
+    && fail "the fixture bridge never released its port; this case proves nothing"
+  case "$out" in
+    *"is still alive after stop"*) ;;
+    *) fail "a surviving bridge was not reported as surviving: $out" ;;
+  esac
+  case "$out" in
+    *" is gone"*) fail "a live bridge was reported as gone: $out" ;;
+  esac
+  [ -f "$STATE_ROOT/sessions/$session/bridge.pid" ] \
+    || fail "the only ownership record of a live bridge was deleted"
+  pass "a bridge alive but no longer listening is reported as surviving and keeps its record"
 }
 
 # --- ambiguity refuses ------------------------------------------------------
@@ -480,6 +573,8 @@ test_name_is_task_scoped_and_never_default
 test_spawn_binds_and_records_the_session
 test_owned_browser_retired_control_survives
 test_secondmate_retires_its_own_session
+test_forced_secondmate_cleanup_retires_child_sessions
+test_alive_bridge_that_released_its_port_is_reported_and_kept
 test_pid_reuse_is_refused
 test_port_identity_mismatch_is_refused
 test_default_session_is_never_retired

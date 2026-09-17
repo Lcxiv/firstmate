@@ -58,15 +58,37 @@
 # The only process this file can ever prove is the BRIDGE. Chrome leads its own
 # process group below the bridge and is closed by the tool's CDP shutdown, not by
 # any signal sent here, so after a stop the post-check can confirm only that the
-# bridge pid is gone and no longer serving its recorded port. Two paths were not
-# measured and are not claimed: a bridge SIGKILLed out from under its shutdown
-# handler (the memory pressure in the original incident can do exactly that), and a
-# shutdown that wedges on a dead CDP transport so the tool escalates to the bridge's
-# own process group only. In both a Chrome tree can outlive the bridge. Every
-# message this file prints is therefore worded to the bridge, never the browser.
+# bridge pid is gone. Two paths were not measured and are not claimed: a bridge
+# SIGKILLed out from under its shutdown handler (the memory pressure in the original
+# incident can do exactly that), and a shutdown that wedges on a dead CDP transport
+# so the tool escalates to the bridge's own process group only. In both a Chrome tree
+# can outlive the bridge. Every message this file prints is therefore worded to the
+# bridge, never the browser.
+# The post-stop check is `kill -0` on the proven pid ALONE. Releasing the listening
+# socket is one of the first things the bridge's shutdown handler does, so a wedged
+# shutdown leaves the pid alive with the socket already released; reading that as
+# exit would delete the only ownership record of a live bridge.
 #
 # Idempotent by construction: a retired, never-started, or already-exited session has
 # no live pid to prove, so every later call is a no-op.
+#
+# ACCEPTED LIMITATIONS
+# 1. Peak memory can rise. One session per task means one bridge, MCP server and
+#    Chrome tree per task, so concurrent browser-using tasks no longer share a
+#    browser. This removes accumulation ACROSS tasks - each tree is retired with its
+#    task - at the cost of a higher footprint at any single instant when several
+#    browser-using tasks run at once. Sharing a session again is not an option: one
+#    task's cleanup would then reach another task's browser, which the ownership
+#    contract forbids. A cap on simultaneous browser-bound tasks is deliberately out
+#    of scope here.
+# 2. Two concurrent tasks can collide on the vendor's hashed port. chrome-devtools-axi
+#    derives a named session's bridge port from a hash of the session name into a
+#    bounded port range, so two live sessions whose names hash together leave the
+#    second task's first browser command failing outright with the tool's own
+#    port-in-use error and its actionable guidance. The name is deterministic in
+#    (task id, FM_HOME), so a colliding pair recurs. This is accepted as a loud,
+#    self-explaining failure rather than a silent fault; per-task port allocation or
+#    retry-on-EADDRINUSE machinery is deliberately out of scope.
 #
 # DEGRADATION
 # Two cases land back on the pre-binding behavior rather than on a wrong kill: a
@@ -251,7 +273,7 @@ fm_browser_session_pid_listens_on() {
 # closed by the tool's own shutdown handler, so no message here asserts that the
 # browser itself was confirmed gone.
 fm_browser_session_stop() {
-  local name=${1:-} proof pid port rc
+  local name=${1:-} proof pid rc
   proof=$(fm_browser_session_bridge_pid "$name") && rc=0 || rc=$?
   if [ "$rc" -ne 0 ]; then
     # rc 2 means a live process we refused to touch still owns that record, and
@@ -265,7 +287,6 @@ fm_browser_session_stop() {
     return 0
   fi
   pid=${proof%% *}
-  port=${proof##* }
   if ! command -v chrome-devtools-axi >/dev/null 2>&1; then
     printf 'browser cleanup skipped: chrome-devtools-axi is not installed; browser session %s (pid %s) left running\n' \
       "$name" "$pid"
@@ -274,15 +295,18 @@ fm_browser_session_stop() {
   CHROME_DEVTOOLS_AXI_SESSION="$name" \
     fm_run_timed "$FM_BROWSER_SESSION_STOP_TIMEOUT" \
       chrome-devtools-axi stop >/dev/null 2>&1 || true
-  if kill -0 "$pid" 2>/dev/null \
-     && fm_browser_session_pid_listens_on "$pid" "$port"; then
-    printf 'browser cleanup incomplete: browser session %s bridge (pid %s) survived stop\n' \
+  # Pid identity was proven BEFORE the stop was issued, so a pid that is still
+  # alive is still that bridge, whether or not it has released its socket by now.
+  # Releasing the socket is part of the shutdown this may have wedged halfway
+  # through, so it is not evidence of exit and must not be read as one.
+  if kill -0 "$pid" 2>/dev/null; then
+    printf 'browser cleanup incomplete: browser session %s bridge (pid %s) is still alive after stop; leaving its record in place\n' \
       "$name" "$pid"
     return 1
   fi
   fm_browser_session_clear_state "$name"
-  printf 'browser cleanup: stopped browser session %s; its bridge (pid %s) is gone and no longer serving port %s (browser tree not separately verified)\n' \
-    "$name" "$pid" "$port"
+  printf 'browser cleanup: stopped browser session %s; its bridge (pid %s) is gone (browser tree not separately verified)\n' \
+    "$name" "$pid"
   return 0
 }
 
