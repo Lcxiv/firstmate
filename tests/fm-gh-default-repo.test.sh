@@ -152,7 +152,7 @@ test_pin_holds_without_a_gh_auth_store() {
   make_fork_clone "$dir"
   mkdir -p "$cfg"
   got=$(
-    unset GH_TOKEN GH_ENTERPRISE_TOKEN GH_HOST
+    unset GH_TOKEN GITHUB_TOKEN GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN GH_HOST
     export GH_CONFIG_DIR="$cfg"
     fm_gh_default_repo_ensure "$dir" || fail "pinning origin failed with no gh auth store"
     resolved_repo "$dir"
