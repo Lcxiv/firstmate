@@ -115,7 +115,8 @@ Without both, an operator with `CHROME_DEVTOOLS_AXI_AUTO_CONNECT=1` exported wou
 Run it after every chrome-devtools-axi upgrade.
 It skips explicitly when chrome-devtools-axi, lsof, or python3 is absent.
 A clean run leaves no lab process and no lab state behind.
-If a future release ever stops the bridge without reaping the browser, the guard keeps the session directories and lab profiles instead of deleting them and prints each surviving process, so a leak it caused stays traceable; it never signals a process itself.
+If a future release ever stops the bridge without reaping the browser, the run fails, and the guard keeps the launched-pid list, the lab profiles and whichever session records still exist instead of deleting them, printing each surviving process so a leak it caused stays traceable; it never signals a process itself.
+The census waits on the same bound the assertions use, so ordinary Chrome shutdown latency is not published here as an accusation against a tool version.
 
 Latest run: 2026-09-16, chrome-devtools-axi 0.1.34.
 

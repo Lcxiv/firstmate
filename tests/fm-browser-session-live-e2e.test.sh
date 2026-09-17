@@ -22,11 +22,11 @@
 #     profile before anything is measured or retired.
 # It fails naming the tool version rather than degrading quietly. On a clean run it
 # leaves no lab process and no lab state behind. If the tool's own stop ever leaves
-# lab processes running, the guard keeps every record naming them - the session
-# directories and the lab profiles - and prints each survivor, so the leak is
-# traceable and clearable rather than orphaned. It never signals a process itself,
-# not even its own: stopping a session it created, through the tool, is its only
-# reach.
+# lab processes running past the settle bound, the run FAILS, the guard keeps every
+# record naming them - the launched-pid list, the lab profiles and whichever session
+# directories still exist - and prints each survivor, so the leak is traceable and
+# clearable rather than orphaned. It never signals a process itself, not even its
+# own: stopping a session it created, through the tool, is its only reach.
 #
 # Opt-in because it launches real browsers. Run it after every chrome-devtools-axi
 # upgrade and before trusting a refreshed
@@ -98,23 +98,40 @@ lab_survivors() {
 # On the clean path the records are the lab's own litter and go. On the UNCLEAN path
 # they are the only thing naming the processes still running, so deleting them would
 # turn a leak this guard caused into an untraceable one - the exact shape of the
-# incident this whole change exists for. They are kept and pointed at instead.
+# incident this whole change exists for. They are kept and pointed at instead, and
+# the run goes red: "left nothing behind" is one of this guard's acceptance criteria,
+# so failing it has to be a failure rather than a note under an ok.
+#
+# The census waits first, on the same bound the body uses after a stop. The tool's
+# stop returns once the BRIDGE pid is gone, while Chrome is closed over CDP by the
+# MCP server and can still be winding down for a moment afterwards. Censusing the
+# instant stop returns would read that ordinary latency as a leak and publish it as
+# an accusation against a tool version operators are told to trust.
 cleanup() {
-  local survivors
+  local survivors waited=0 dir
   lab_stop "$OWNED_SESSION"
   lab_stop "$CONTROL_SESSION"
   survivors=$(lab_survivors)
+  while [ -n "$survivors" ] && [ "$waited" -lt 10 ]; do
+    sleep 1
+    waited=$((waited + 1))
+    survivors=$(lab_survivors)
+  done
   if [ -n "$survivors" ]; then
     {
-      printf 'LAB NOT CLEAN: chrome-devtools-axi %s left lab processes running after stop.\n' "$AXI_VERSION"
+      printf 'LAB NOT CLEAN: chrome-devtools-axi %s left lab processes running %ss after stop.\n' \
+        "$AXI_VERSION" "$waited"
       printf 'Nothing was signalled; this guard only ever stops sessions it created, through the tool.\n'
       printf 'Still running:\n%s\n' "$survivors"
       printf 'Records kept so you can trace and clear them:\n'
-      printf '  %s\n' "$HOME/.chrome-devtools-axi/sessions/$OWNED_SESSION"
-      printf '  %s\n' "$HOME/.chrome-devtools-axi/sessions/$CONTROL_SESSION"
-      printf '  lab profiles and the launched-pid list under %s\n' "$LAB_ROOT"
+      printf '  %s   <- the launched pids listed above\n' "$LAB_LAUNCHED"
+      printf '  %s   <- lab profiles\n' "$LAB_ROOT"
+      for dir in "$HOME/.chrome-devtools-axi/sessions/$OWNED_SESSION" \
+                 "$HOME/.chrome-devtools-axi/sessions/$CONTROL_SESSION"; do
+        [ -d "$dir" ] && printf '  %s   <- session record\n' "$dir"
+      done
     } >&2
-    return
+    exit 1
   fi
   rm -rf "$HOME/.chrome-devtools-axi/sessions/$OWNED_SESSION" \
          "$HOME/.chrome-devtools-axi/sessions/$CONTROL_SESSION"
