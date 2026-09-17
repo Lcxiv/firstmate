@@ -58,6 +58,22 @@ render_maps() {  # <home> <maps-json>
     || fail "the built board could not be rendered"
 }
 
+# Build the board from <captains-call-json> and return what the renderer
+# produced after driving <action>... through the rendered controls.
+render_call() {  # <home> <captains-call-json> [action...]
+  local home=$1 call=$2 data="$1/payload.json"
+  shift 2
+  jq -n --argjson call "$call" '{
+    schema:"fm-bearings-board.v1", home:"render-home", generated:"2026-08-26T00:00Z",
+    prs_live:false, captains_call:$call, underway:[], landed:[], charted:[]}' > "$data"
+  PATH="$home/fakebin:$PATH" FM_HOME="$home" \
+    FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
+    FM_PROCEVENT_CLAIM_ROOT="$home/procevent-claims" \
+    "$BOARD" build "$data" >/dev/null || fail "the board did not build"
+  node "$HARNESS" "$home/.lavish/bearings-board.html" "$@" \
+    || fail "the built board could not be rendered"
+}
+
 charted_next_count() {  # <render-json>
   printf '%s' "$1" | jq -r '.stats[] | select(.label == "charted next") | .n'
 }
@@ -146,6 +162,192 @@ test_an_omitted_kind_keeps_the_existing_queued_rendering() {
 }
 
 
+# The captain's own reported shape: a captain-gated work item that leans on its
+# freeform box, carries no preset options, and still recommends an answer. It
+# used to reach the board with no option controls on it at all.
+RELEASE_CARD='[{"key":"held-item","type":"decision","repo":"sample",
+  "title":"Release the held item","about":"held since yesterday",
+  "decide":"release it or keep holding","allow_freeform":true,
+  "freeform_hint":"Or type your own instruction",
+  "close":"release","recommend_value":"release","options":[]}]'
+
+test_a_freeform_release_card_still_renders_an_answer_control() {
+  local home out
+  home=$(make_home freeform-release)
+  out=$(render_call "$home" "$RELEASE_CARD")
+  printf '%s' "$out" | jq -e '.error == ""' >/dev/null \
+    || fail "the board rendered its fail-closed error instead of the card: $out"
+  printf '%s' "$out" | jq -e '
+    (.call.cards | length) == 1
+      and (.call.cards[0] | .title == "Release the held item"
+        and (.options | length) == 1
+        and (.options[0] | .value == "release" and .rec == true)
+        and .freeform == true)
+  ' >/dev/null || fail "a recommended freeform card rendered no option control: $out"
+  pass "a freeform release card renders its recommended answer as a real option"
+}
+
+test_that_recommended_answer_is_the_one_that_gets_queued() {
+  local home out
+  home=$(make_home freeform-release-answer)
+  out=$(render_call "$home" "$RELEASE_CARD" pick:0:0 submit:0)
+  printf '%s' "$out" | jq -e '
+    (.queued | length) == 1
+      and (.queued[0] | .question == "held-item" and .answer == "release" and .close == "release")
+      and .sent == 0
+      and (.call.cards[0].queued == true)
+  ' >/dev/null || fail "the rendered control did not queue the release answer: $out"
+  pass "picking the rendered control queues the release answer and sends nothing"
+}
+
+test_an_answerless_submit_says_so_instead_of_doing_nothing() {
+  local home out
+  home=$(make_home empty-submit)
+  out=$(render_call "$home" "$RELEASE_CARD" submit:0)
+  printf '%s' "$out" | jq -e '
+    (.queued | length) == 0
+      and (.call.cards[0] | .limitShown == true and (.limit | test("Pick an option")))
+  ' >/dev/null || fail "an empty submit stayed silent: $out"
+  pass "a card with nothing chosen says what it needs instead of doing nothing"
+}
+
+# Two cards with an ordinary options list, one of them recommended, so the bulk
+# control has something to skip.
+BULK_CARDS='[
+  {"key":"land-it","type":"decision","repo":"sample","title":"Land the branch",
+   "about":"reviews are in","decide":"land or hold","close":"done","recommend_value":"land",
+   "options":[{"value":"land","label":"Land it"},{"value":"hold","label":"Hold"}]},
+  {"key":"naming","type":"decision","repo":"sample","title":"Pick a naming scheme",
+   "about":"two candidates","decide":"which one",
+   "options":[{"value":"short","label":"Short"},{"value":"long","label":"Long"}]},
+  {"key":"held-item","type":"decision","repo":"sample","title":"Release the held item",
+   "about":"held since yesterday","decide":"release or hold","allow_freeform":true,
+   "close":"release","recommend_value":"release","options":[]}
+]'
+
+test_an_ordinary_card_keeps_rendering_and_queueing_exactly_as_before() {
+  local home out
+  home=$(make_home single-answer)
+  out=$(render_call "$home" "$BULK_CARDS" pick:0:1 submit:0)
+  printf '%s' "$out" | jq -e '
+    ([.call.cards[0].options[] | .label] == ["Land it", "Hold"])
+      and ([.call.cards[0].options[] | .rec] == [true, false])
+      and (.call.cards[1].options | length) == 2
+      and (.queued | length) == 1
+      and (.queued[0] | .question == "land-it" and .answer == "hold" and .close == "done")
+      and .sent == 0
+  ' >/dev/null || fail "an ordinary card changed how it renders or queues: $out"
+  pass "an ordinary options card renders and queues one answer exactly as before"
+}
+
+test_queue_all_stages_the_recommended_answers_without_queueing_them() {
+  local home out
+  home=$(make_home bulk-stage)
+  out=$(render_call "$home" "$BULK_CARDS" bulk-open)
+  printf '%s' "$out" | jq -e '
+    .bulk.shown == true
+      and .bulk.staging == true
+      and (.bulk.staged | length) == 2
+      and (.bulk.staged[0] | test("Land the branch") and test("land"))
+      and (.bulk.staged[1] | test("Release the held item") and test("release"))
+      and (.queued | length) == 0
+      and .sent == 0
+      and ([.call.cards[] | .queued] == [false, false, false])
+  ' >/dev/null || fail "queue-all queued or sent something before it was confirmed: $out"
+  pass "queue-all stages every recommended answer and queues nothing on its own"
+}
+
+test_cancelling_a_queue_all_leaves_nothing_queued() {
+  local home out
+  home=$(make_home bulk-cancel)
+  out=$(render_call "$home" "$BULK_CARDS" bulk-open bulk-cancel)
+  printf '%s' "$out" | jq -e '
+    .bulk.staging == false
+      and (.bulk.staged | length) == 0
+      and (.bulk.note | test("nothing was queued"))
+      and (.queued | length) == 0
+      and .sent == 0
+      and ([.call.cards[] | .queued] == [false, false, false])
+  ' >/dev/null || fail "cancelling a queue-all did not clear it: $out"
+  pass "cancelling a queue-all clears the staged answers and queues nothing"
+}
+
+test_confirming_a_queue_all_queues_every_recommendation_and_sends_nothing() {
+  local home out
+  home=$(make_home bulk-confirm)
+  out=$(render_call "$home" "$BULK_CARDS" bulk-open bulk-confirm)
+  printf '%s' "$out" | jq -e '
+    (.queued | length) == 2
+      and ([.queued[] | .question] == ["land-it", "held-item"])
+      and ([.queued[] | .answer] == ["land", "release"])
+      and ([.queued[] | .close] == ["done", "release"])
+      and .sent == 0
+      and ([.call.cards[] | .queued] == [true, false, true])
+      and (.bulk.note | test("nothing has been sent"))
+      and .bulk.canQueueAll == false
+  ' >/dev/null || fail "confirming a queue-all did not stage exactly the recommendations: $out"
+  pass "a confirmed queue-all queues every recommendation for review and sends nothing"
+}
+
+test_queue_all_never_queues_a_card_the_captain_already_answered() {
+  local home out
+  home=$(make_home bulk-skip-answered)
+  out=$(render_call "$home" "$BULK_CARDS" pick:0:1 submit:0 bulk-open bulk-confirm)
+  printf '%s' "$out" | jq -e '
+    (.queued | length) == 2
+      and ([.queued[] | .question] == ["land-it", "held-item"])
+      and ([.queued[] | .answer] == ["hold", "release"])
+  ' >/dev/null || fail "queue-all overwrote or duplicated an answered card: $out"
+  pass "queue-all skips cards the captain already answered"
+}
+
+test_a_board_with_no_recommendations_offers_no_queue_all() {
+  local home out
+  home=$(make_home bulk-absent)
+  out=$(render_call "$home" '[
+    {"key":"naming","type":"decision","repo":"sample","title":"Pick a naming scheme",
+     "about":"two candidates","decide":"which one",
+     "options":[{"value":"short","label":"Short"},{"value":"long","label":"Long"}]}
+  ]')
+  printf '%s' "$out" | jq -e '.bulk.shown == false' >/dev/null \
+    || fail "a board with nothing recommended still offered queue-all: $out"
+  pass "a board with no recommended answers offers no queue-all control"
+}
+
+test_a_long_queue_keeps_every_row_reachable() {
+  local home out rows
+  rows=$(jq -nc '[range(0; 23) | {
+    id: ("queued-" + (. | tostring)), repo: "sample",
+    title: ("Queued item " + (. | tostring)), reason: "waiting on prep",
+    dispatchable: false }]')
+  home=$(make_home long-queue)
+  out=$(render "$home" "$rows")
+  printf '%s' "$out" | jq -e '
+    (.charted | length) == 23
+      and (.more | length) == 0
+      and (.chartedRegion | .scroll == true and .focusable == true
+        and (.label | test("scroll")))
+      and (.chartedRegion.sub | test("23 queued"))
+  ' >/dev/null || fail "a long queue was truncated or left unreachable: $out"
+  [ "$(charted_next_count "$out")" = 23 ] \
+    || fail "the charted next tally disagreed with the rendered rows: $out"
+  pass "every row of a long queue renders and stays reachable by scrolling"
+}
+
+test_a_short_queue_does_not_become_a_scroll_region() {
+  local home out
+  home=$(make_home short-queue)
+  out=$(render "$home" '[
+    {"id":"one","repo":"sample","title":"One","reason":"gated","dispatchable":true},
+    {"id":"two","repo":"sample","title":"Two","reason":"gated","dispatchable":true}
+  ]')
+  printf '%s' "$out" | jq -e '
+    .chartedRegion.scroll == false
+      and (.chartedRegion.sub == "2 queued")
+  ' >/dev/null || fail "a short queue was turned into a scroll region: $out"
+  pass "a short queue stays a plain list"
+}
+
 test_an_effort_map_renders_its_destination_counts_and_fog() {
   local home out
   home=$(make_home effort-map)
@@ -212,6 +414,17 @@ test_more_than_one_effort_map_each_gets_its_own_card() {
   pass "each effort map gets its own card"
 }
 
+test_a_freeform_release_card_still_renders_an_answer_control
+test_that_recommended_answer_is_the_one_that_gets_queued
+test_an_answerless_submit_says_so_instead_of_doing_nothing
+test_an_ordinary_card_keeps_rendering_and_queueing_exactly_as_before
+test_queue_all_stages_the_recommended_answers_without_queueing_them
+test_cancelling_a_queue_all_leaves_nothing_queued
+test_confirming_a_queue_all_queues_every_recommendation_and_sends_nothing
+test_queue_all_never_queues_a_card_the_captain_already_answered
+test_a_board_with_no_recommendations_offers_no_queue_all
+test_a_long_queue_keeps_every_row_reachable
+test_a_short_queue_does_not_become_a_scroll_region
 test_a_warning_row_reads_as_a_repair_not_as_queued_work
 test_warnings_are_excluded_from_the_charted_next_count
 test_a_board_of_only_warnings_still_reports_nothing_queued

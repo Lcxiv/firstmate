@@ -42,6 +42,12 @@
 # the template may display the routing id. Anything else refuses before the
 # existing board is touched.
 #
+# A Captain's Call item's `recommend_value` must name one of that item's own
+# `options` values whenever the item carries options. An item that leans on its
+# freeform box and carries none may still declare one: the recommendation is
+# itself an answer value, and the template offers it as that card's option
+# rather than rendering a card the captain cannot click.
+#
 # The board path is stable - $FM_HOME/.lavish/bearings-board.html - so a
 # re-invocation rebuilds the same file in place, which keeps the same Lavish
 # session URL and the same canonical process-event source id. Injection escapes
@@ -107,7 +113,8 @@ validate_payload() {  # <data.json>
       and ((has("allow_freeform") | not) or (.allow_freeform | type == "boolean"))
       and ((has("recommend_value") | not)
         or ((.recommend_value | slug(128))
-          and (.recommend_value as $recommend | [.options[].value] | index($recommend) != null)))
+          and ((.options | length) == 0
+            or (.recommend_value as $recommend | [.options[].value] | index($recommend) != null))))
       and (if .type == "merge" then (.risk | nonempty_string) else true end);
     def underway_item:
       type == "object" and repo_marker and (.id | nonempty_string)

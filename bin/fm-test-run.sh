@@ -1303,6 +1303,17 @@ families_for_changed_path() {
           || printf '%s\n' "__unmapped__:$path"
       fi
       ;;
+    tests/assets/*)
+      # A shared harness or asset belongs to whichever suites drive it, found by
+      # the same reference scan the shared helpers use. A direct reference is
+      # per-script evidence, so it selects per script rather than widening to
+      # every referencing script's family. A removed asset has no consuming
+      # suite left to select.
+      if [ -e "$path" ]; then
+        scripts_for_test_reference "assets/$(basename "$path")" \
+          || printf '%s\n' "__unmapped__:$path"
+      fi
+      ;;
     tests/*)
       printf '%s\n' "__unmapped__:$path"
       ;;

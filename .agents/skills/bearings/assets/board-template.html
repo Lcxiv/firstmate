@@ -51,6 +51,12 @@
 }
 
 * { box-sizing: border-box; }
+/* Every board chrome class below sets an explicit `display`, which outranks the
+   user-agent `[hidden] { display: none }` rule. Without this the renderer's
+   `hidden = true` is silently ignored and the captain sees empty scaffolding -
+   an Effort Maps heading with no band under it, a dead dispatch bar, stack
+   arrows with no cards. */
+[hidden] { display: none !important; }
 html, body { margin: 0; padding: 0; }
 body {
   font-family: var(--font-sans);
@@ -232,9 +238,41 @@ a { color: inherit; text-decoration: none; }
 .bb-freeform { width: 100%; font-family: var(--font-sans); font-size: var(--fs-sm); color: var(--text-strong);
   background: var(--surface-card); border: 1.5px solid var(--border-default); border-radius: var(--radius-sm); padding: 8px 11px; }
 .bb-freeform:focus { outline: none; border-color: var(--rust-400); box-shadow: var(--focus-ring); }
+/* Said out loud on a card that carries no preset answers, so an options-free
+   card reads as "type it" instead of as a card with its controls missing. */
+.bb-opt-none { font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.4;
+  border: 1.5px dashed var(--border-default); border-radius: var(--radius-sm); padding: 9px 12px; }
+
+/* ---- Captain's Call bulk staging ---- */
+/* Two steps on purpose: the first collects the recommended answers into a list
+   the captain can read and cancel, and only the second puts them in the review
+   panel. Nothing here ever sends. */
+.bb-bulk { display: flex; flex-direction: column; gap: 10px; }
+.bb-bulk__head { display: flex; align-items: center; gap: 10px; }
+.bb-bulk__count { flex: 1 1 auto; font-size: var(--fs-xs); font-weight: 800; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.07em; }
+.bb-bulk__stage { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px;
+  background: var(--surface-card-warm); border: 1.5px solid var(--ink-900);
+  border-radius: var(--radius-sm); box-shadow: var(--shadow-hard-sm); }
+.bb-bulk__lead { font-size: var(--fs-xs); font-weight: 700; color: var(--text-strong); line-height: 1.4; }
+.bb-bulk__list { display: flex; flex-direction: column; gap: 5px; margin: 0; padding: 0; list-style: none; }
+.bb-bulk__item { font-size: var(--fs-xs); color: var(--text-body); line-height: 1.35; min-width: 0; }
+.bb-bulk__title { font-weight: 700; color: var(--text-strong); }
+.bb-bulk__answer { font-family: var(--font-mono); font-weight: 700; color: var(--rust-600); }
+.bb-bulk__acts { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.bb-bulk__cancel { font-family: var(--font-sans); font-size: var(--fs-xs); font-weight: 800; cursor: pointer;
+  color: var(--text-muted); background: none; border: none; padding: 6px 2px; text-decoration: underline; }
+.bb-bulk__cancel:hover { color: var(--status-danger); }
+.bb-bulk__cancel:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.bb-bulk__note { margin: 0; font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.4; }
 
 /* ---- compact rows (Underway / Landed / Charted) ---- */
 .bb-rows { display: flex; flex-direction: column; }
+/* Charted Next carries the WHOLE queue, however long it is: the card scrolls
+   rather than the board hiding the tail behind a "showing N of M" summary. The
+   dispatch bar sits outside this region, so it stays put while the list moves. */
+.bb-rows--scroll { max-height: 30rem; overflow-y: auto; overscroll-behavior: contain; }
+.bb-rows--scroll:focus-visible { outline: none; box-shadow: inset var(--focus-ring); }
 .bb-row {
   display: flex; align-items: center; gap: 12px; padding: 11px 18px;
   border-top: 1px solid var(--border-soft); min-width: 0;
@@ -342,6 +380,21 @@ a { color: inherit; text-decoration: none; }
         <button type="button" class="bb-stacknav__btn" id="bb-stack-next" aria-label="Next card">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
         </button>
+      </div>
+      <div class="bb-bulk" id="bb-bulk" hidden>
+        <div class="bb-bulk__head">
+          <span class="bb-bulk__count" id="bb-bulk-count"></span>
+          <button type="button" class="fm-btn fm-btn--sm fm-btn--gold" id="bb-bulk-btn">Queue all recommended</button>
+        </div>
+        <div class="bb-bulk__stage" id="bb-bulk-stage" hidden>
+          <span class="bb-bulk__lead" id="bb-bulk-lead"></span>
+          <ul class="bb-bulk__list" id="bb-bulk-list"></ul>
+          <div class="bb-bulk__acts">
+            <button type="button" class="fm-btn fm-btn--sm fm-btn--primary" id="bb-bulk-confirm">Queue these answers</button>
+            <button type="button" class="bb-bulk__cancel" id="bb-bulk-cancel">Cancel - queue nothing</button>
+          </div>
+        </div>
+        <p class="bb-bulk__note" id="bb-bulk-note" hidden></p>
       </div>
     </div>
   </section>
@@ -466,6 +519,9 @@ __FM_BEARINGS_BOARD_DATA__
   function chartedQueued(rows) { return (rows || []).filter(function (t) { return !isWarning(t); }); }
   var chartedMoreQueued = data.charted_more || 0;
   var chartedMoreWarnings = data.charted_warning_more || 0;
+  /* Rows past this many turn Charted Next into a scroll region rather than
+     stretching the board; every row stays in the DOM and reachable. */
+  var CHARTED_SCROLL_AFTER = 8;
   function utf8ByteLength(text) { return new TextEncoder().encode(text).length; }
   var CHECK_SVG = '<svg class="fm-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
 
@@ -491,6 +547,22 @@ __FM_BEARINGS_BOARD_DATA__
 
   /* Captain's Call deck: every item renders as the same full card */
   var deck = document.getElementById("bb-call");
+  /* Every card the captain can actually answer, in deck order, each carrying
+     its recommended value and the one function that stages its answer. The
+     bulk control reads this list; nothing else does. */
+  var answerable = [];
+
+  /* The answer values a card offers. A composer that leans on the freeform box
+     can leave `options` empty, and a card that then still declares a
+     recommendation IS declaring a real answer value - so offer it as an option
+     rather than rendering a card with no controls on it at all. */
+  function cardOptions(item) {
+    if (item.options.length) return item.options;
+    if (typeof item.recommend_value === "string" && item.recommend_value) {
+      return [{ value: item.recommend_value, label: item.recommend_value }];
+    }
+    return [];
+  }
   function ctxRow(k, v, rec) {
     var row = el("div", "bb-ctx__row" + (rec ? " bb-ctx__row--rec" : ""));
     row.appendChild(el("span", "bb-ctx__k", k));
@@ -532,7 +604,8 @@ __FM_BEARINGS_BOARD_DATA__
     var form = document.createElement("form");
     form.setAttribute("data-lavish-question", item.key);
     var opts = el("div", "bb-opts");
-    item.options.forEach(function (o) {
+    var options = cardOptions(item);
+    options.forEach(function (o) {
       var lab = el("label", "bb-opt");
       var input = document.createElement("input");
       input.type = "radio"; input.name = "answer"; input.value = o.value;
@@ -546,6 +619,11 @@ __FM_BEARINGS_BOARD_DATA__
       }
       opts.appendChild(lab);
     });
+    if (!options.length) {
+      opts.appendChild(el("div", "bb-opt-none", item.allow_freeform
+        ? "This card carries no preset answers - type your answer below."
+        : "This card arrived with no way to answer it - ask firstmate to rebuild the board."));
+    }
     form.appendChild(opts);
 
     if (item.allow_freeform) {
@@ -567,20 +645,10 @@ __FM_BEARINGS_BOARD_DATA__
     foot.appendChild(answerLimit);
     form.appendChild(foot);
 
-    form.addEventListener("submit", function (ev) {
-      ev.preventDefault();
-      answerLimit.classList.remove("is-visible");
-      var fd = new FormData(form);
-      var value = fd.get("answer");
-      var note = (fd.get("note") || "").trim();
-      /* picked option, optionally annotated; a bare note is itself the answer */
-      var answer = value ? (note ? value + " - " + note : value) : note;
-      if (!answer) return;
-      if (utf8ByteLength(answer) > 512) {
-        answerLimit.textContent = "Answer is too long to queue (512 bytes maximum).";
-        answerLimit.classList.add("is-visible");
-        return;
-      }
+    /* One owner for what a staged answer looks like, so a single Queue answer
+       click and the bulk control put identical records in the review panel.
+       Queueing is never sending: Lavish holds these until the captain sends. */
+    function stageAnswer(answer) {
       if (window.lavish && window.lavish.queuePrompt) {
         /* close carries the composer-declared close mode: "release" frees a
            captain-gated work item instead of completing a question task */
@@ -593,6 +661,35 @@ __FM_BEARINGS_BOARD_DATA__
         );
       }
       card.classList.add("is-queued");
+    }
+
+    answerable.push({
+      key: item.key, title: item.title, card: card, stage: stageAnswer,
+      recommend: options.length && typeof item.recommend_value === "string" ? item.recommend_value : ""
+    });
+
+    form.addEventListener("submit", function (ev) {
+      ev.preventDefault();
+      answerLimit.classList.remove("is-visible");
+      var fd = new FormData(form);
+      var value = fd.get("answer");
+      var note = (fd.get("note") || "").trim();
+      /* picked option, optionally annotated; a bare note is itself the answer */
+      var answer = value ? (note ? value + " - " + note : value) : note;
+      if (!answer) {
+        /* an empty submit used to do nothing at all, which reads as a dead card */
+        answerLimit.textContent = options.length
+          ? "Pick an option or type an answer before queueing it."
+          : "Type an answer before queueing it.";
+        answerLimit.classList.add("is-visible");
+        return;
+      }
+      if (utf8ByteLength(answer) > 512) {
+        answerLimit.textContent = "Answer is too long to queue (512 bytes maximum).";
+        answerLimit.classList.add("is-visible");
+        return;
+      }
+      stageAnswer(answer);
       /* deal the next card once this one is answered */
       setTimeout(function () { showCard(active < cards.length - 1 ? active + 1 : active); }, 450);
     });
@@ -629,6 +726,80 @@ __FM_BEARINGS_BOARD_DATA__
     deck.classList.add("bb-call--empty");
     deck.appendChild(el("div", "bb-empty", "Nothing needs your action right now."));
     stackNav.hidden = true;
+  }
+
+  /* Bulk staging for the recommended answers.
+     Its value is bulk and so is its risk, so it takes two deliberate steps: the
+     first only builds a readable list of exactly what would be queued, and can
+     be cancelled outright; the second puts those answers in the review panel
+     beside a single Queue answer click. Neither step sends anything - the
+     captain still presses Send in the review panel, and can drop any answer
+     there or re-answer its card to replace it. */
+  var bulkHost = document.getElementById("bb-bulk");
+  var bulkCount = document.getElementById("bb-bulk-count");
+  var bulkBtn = document.getElementById("bb-bulk-btn");
+  var bulkStage = document.getElementById("bb-bulk-stage");
+  var bulkLead = document.getElementById("bb-bulk-lead");
+  var bulkList = document.getElementById("bb-bulk-list");
+  var bulkConfirm = document.getElementById("bb-bulk-confirm");
+  var bulkCancel = document.getElementById("bb-bulk-cancel");
+  var bulkNote = document.getElementById("bb-bulk-note");
+  var recommended = answerable.filter(function (a) { return a.recommend; });
+  var staged = [];
+
+  function bulkSay(text) {
+    bulkNote.textContent = text;
+    bulkNote.hidden = !text;
+  }
+  function bulkPending() {
+    return recommended.filter(function (a) { return !a.card.classList.contains("is-queued"); });
+  }
+  function closeStage() {
+    staged = [];
+    bulkStage.hidden = true;
+    bulkList.textContent = "";
+    bulkBtn.disabled = !bulkPending().length;
+    bulkCount.textContent = recommended.length +
+      " of " + answerable.length + " cards carry a recommended answer";
+  }
+
+  if (recommended.length) {
+    bulkHost.hidden = false;
+    closeStage();
+    bulkBtn.addEventListener("click", function () {
+      staged = bulkPending();
+      if (!staged.length) {
+        bulkStage.hidden = true;
+        bulkSay("Every recommended answer is already waiting in the review panel.");
+        return;
+      }
+      bulkSay("");
+      bulkList.textContent = "";
+      bulkLead.textContent = "These " + staged.length +
+        " recommended answer" + (staged.length === 1 ? "" : "s") +
+        " would go to the review panel. Nothing is sent from this board.";
+      staged.forEach(function (a) {
+        var li = el("li", "bb-bulk__item");
+        li.appendChild(el("span", "bb-bulk__title", a.title + " → "));
+        li.appendChild(el("span", "bb-bulk__answer", a.recommend));
+        bulkList.appendChild(li);
+      });
+      bulkStage.hidden = false;
+    });
+    bulkCancel.addEventListener("click", function () {
+      var dropped = staged.length;
+      closeStage();
+      bulkSay(dropped ? "Cancelled - nothing was queued." : "");
+    });
+    bulkConfirm.addEventListener("click", function () {
+      var sent = staged.slice();
+      sent.forEach(function (a) { a.stage(a.recommend); });
+      closeStage();
+      showCard(active);
+      bulkSay(sent.length + " recommended answer" + (sent.length === 1 ? " is" : "s are") +
+        " waiting in the review panel - nothing has been sent yet. Drop any of them there," +
+        " or answer that card again to replace its queued answer.");
+    });
   }
 
   /* Underway */
@@ -744,8 +915,19 @@ __FM_BEARINGS_BOARD_DATA__
   });
   var chartedShown = chartedQueued(data.charted).length;
   var chartedTotal = chartedShown + chartedMoreQueued;
+  /* The list scrolls instead of stopping short, so every row the payload
+     carries stays reachable however long the queue gets. */
+  var chartedScrolls = data.charted.length > CHARTED_SCROLL_AFTER;
+  if (chartedScrolls) {
+    ch.classList.add("bb-rows--scroll");
+    ch.setAttribute("tabindex", "0");
+    ch.setAttribute("role", "region");
+    ch.setAttribute("aria-label", "Charted Next queue - scroll for the whole list");
+  }
   document.getElementById("bb-charted-sub").textContent =
-    chartedMoreQueued ? "showing " + chartedShown + " of " + chartedTotal : "";
+    chartedMoreQueued ? "showing " + chartedShown + " of " + chartedTotal
+      : chartedTotal ? chartedTotal + " queued" + (chartedScrolls ? " · scroll for all" : "")
+      : "";
   if (chartedMoreQueued) {
     ch.appendChild(el("span", "bb-morechip", "+" + chartedMoreQueued + " more queued - ask firstmate for the full chart"));
   }
