@@ -48,7 +48,11 @@
 # Flags:
 #   (default)        compact projection, TOON, local-only
 #   --json           the same projected model as JSON (machine/debug; parity form)
-#   --include-prs    ALSO do live open-PR discovery + checks (the only network path)
+#   --include-prs    ALSO do live open-PR discovery + checks (the only network path).
+#                    Each candidate_prs row carries checks as one of none,
+#                    passing, pending, cancelled, or failing. "cancelled" means a
+#                    check produced no verdict (cancelled or timed out) and wants
+#                    a rerun, which is the opposite response to "failing".
 #   --fields <list>  opt in to dropped surfaces: bodies,paths,actions,endpoints
 #   --all-in-flight  include every in-flight task
 #   --all-decisions  include every open decision
@@ -247,10 +251,16 @@ EOF
           url:(.url // "-"),
           review:(.reviewDecision // "none"),
           mergeable:(.mergeable // "UNKNOWN"),
+          # A cancelled or timed-out check produced no verdict, so it is NOT
+          # reported as "failing": the two call for opposite responses, rerun
+          # versus debug, and collapsing them sends readers hunting a test
+          # failure in a suite that passed. A genuine failure still outranks a
+          # cancellation when both are present.
           checks:(
             (.statusCheckRollup // []) as $c
             | if ($c|length) == 0 then "none"
-              elif any($c[]; (.conclusion // .state // "") as $s | ($s=="FAILURE" or $s=="ERROR" or $s=="TIMED_OUT" or $s=="CANCELLED" or $s=="ACTION_REQUIRED")) then "failing"
+              elif any($c[]; (.conclusion // .state // "") as $s | ($s=="FAILURE" or $s=="ERROR" or $s=="ACTION_REQUIRED")) then "failing"
+              elif any($c[]; (.conclusion // .state // "") as $s | ($s=="CANCELLED" or $s=="TIMED_OUT")) then "cancelled"
               elif any($c[]; ((.status // "") != "COMPLETED") and ((.state // "") != "SUCCESS")) then "pending"
               else "passing" end)
         } ] as $rows | {returned:($rows | length), rows:$rows[:$limit]}') || { nwarn=$((nwarn + 1)); continue; }
