@@ -1174,8 +1174,10 @@ families_for_changed_path() {
       printf '%s\n' live-harness-optin
       ;;
     bin/fm-timeout-lib.sh)
+      printf '%s\n' __script__:fm-browser-session.test.sh
       # The shared hard bound: session start's runtime bound, the fleet/bearings
-      # snapshots, the vendor auth probe, the stow cascade's per-home step, and
+      # snapshots, the vendor auth probe, the browser-session vendor stop bound,
+      # the stow cascade's per-home step, and
       # the wedge detector's worktree write probe all depend on it.
       printf '%s\n' session-bootstrap
       printf '%s\n' snapshot-bearings

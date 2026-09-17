@@ -15,7 +15,11 @@
 #   - two sessions, both named for this run, on kernel-allocated ports;
 #   - one is retired, the other must survive byte-for-byte;
 #   - nothing pre-existing is read, signalled, or connected to, and the ambient
-#     default session (an operator's own browser) is never named.
+#     default session (an operator's own browser) is never named. That is enforced,
+#     not assumed: every inherited variable that would divert the tool into
+#     attaching to an already-running browser is cleared before each launch, and
+#     each tree must contain a browser running this lab's own freshly created
+#     profile before anything is measured or retired.
 # It fails naming the tool version rather than degrading quietly, and leaves no lab
 # process or lab state behind.
 #
@@ -79,15 +83,27 @@ PY
 
 # lab_open <session> <profile-dir> -> echoes the bridge pid; launches a real browser
 # on its own control port with its own freshly created profile.
+#
+# A session name isolates the BRIDGE only. Connection mode is chosen separately, and
+# in the tool's own buildTransportArgs the attach modes win outright over the
+# profile: `if (autoConnect) ... else if (browserUrl) ... else { userDataDir ... }`.
+# An operator who exported CHROME_DEVTOOLS_AXI_AUTO_CONNECT=1 (the tool's README
+# suggests exactly that) would otherwise have this guard attach to their own running
+# Chrome, open a tab in it, and then retire it. Every variable in that attach class
+# is therefore cleared here, so the lab can only ever take the launch path into the
+# profile it just created.
 lab_open() {
   local session=$1 profile=$2 port proof
   port=$(free_port)
   mkdir -p "$profile"
   ( cd "$LAB_ROOT" && \
-    CHROME_DEVTOOLS_AXI_SESSION="$session" \
-    CHROME_DEVTOOLS_AXI_PORT="$port" \
-    CHROME_DEVTOOLS_AXI_USER_DATA_DIR="$profile" \
-    chrome-devtools-axi open about:blank >/dev/null 2>&1 ) || true
+    env -u CHROME_DEVTOOLS_AXI_AUTO_CONNECT \
+        -u CHROME_DEVTOOLS_AXI_BROWSER_URL \
+        -u CHROME_DEVTOOLS_AXI_WS_HEADERS \
+      CHROME_DEVTOOLS_AXI_SESSION="$session" \
+      CHROME_DEVTOOLS_AXI_PORT="$port" \
+      CHROME_DEVTOOLS_AXI_USER_DATA_DIR="$profile" \
+      chrome-devtools-axi open about:blank >/dev/null 2>&1 ) || true
   proof=$(fm_browser_session_bridge_pid "$session") \
     || fail "chrome-devtools-axi $AXI_VERSION: lab session $session never came up ($proof)"
   printf '%s' "${proof%% *}"
@@ -118,6 +134,22 @@ alive_count() {
   printf '%s' "$n"
 }
 
+# lab_browser_pid <tree> <profile-dir> -> the pid of the browser this lab launched
+# into that profile, or non-zero if the tree holds none. The browser is the process
+# carrying Chrome's own `--user-data-dir=<profile>`; the node processes above it
+# carry the tool's camelCase `--userDataDir=`, so this cannot mistake one for the
+# other. Scoped to pids already inside this lab's own tree - never a search of the
+# process table for browsers.
+lab_browser_pid() {
+  local pid tree=$1 profile=$2
+  for pid in $tree; do
+    case "$(ps -ww -p "$pid" -o command= 2>/dev/null)" in
+      *"--user-data-dir=$profile"*) printf '%s' "$pid"; return 0 ;;
+    esac
+  done
+  return 1
+}
+
 identities() {
   local pid
   for pid in $1; do ps -p "$pid" -o pid=,lstart= 2>/dev/null; done
@@ -129,13 +161,15 @@ test_real_stop_retires_one_session_only() {
   control_pid=$(lab_open "$CONTROL_SESSION" "$LAB_ROOT/profile-control")
   owned_tree=$(lab_tree "$owned_pid")
   control_tree=$(lab_tree "$control_pid")
-  # A real browser tree is a bridge, an MCP server and a Chrome with helpers. Fewer
-  # than that means the lab never actually launched a browser, so a later "it was
-  # retired" would be vacuous.
-  [ "$(alive_count "$owned_tree")" -ge 4 ] \
-    || fail "chrome-devtools-axi $AXI_VERSION: owned lab browser tree is only $(alive_count "$owned_tree") processes; nothing meaningful to retire"
-  [ "$(alive_count "$control_tree")" -ge 4 ] \
-    || fail "chrome-devtools-axi $AXI_VERSION: control lab browser tree is only $(alive_count "$control_tree") processes"
+  # A process count cannot tell a real browser tree from bridge + npx + MCP server
+  # + node with no browser at all, and that is exactly the shape an attach mode
+  # produces. Require the browser ITSELF, positively bound to the profile this lab
+  # just created, or "its whole browser tree was retired" would be recorded as
+  # version-scoped evidence for something never measured.
+  lab_browser_pid "$owned_tree" "$LAB_ROOT/profile-owned" >/dev/null \
+    || fail "chrome-devtools-axi $AXI_VERSION: no browser running this lab's own owned profile is present in the launched tree; nothing meaningful to retire"
+  lab_browser_pid "$control_tree" "$LAB_ROOT/profile-control" >/dev/null \
+    || fail "chrome-devtools-axi $AXI_VERSION: no browser running this lab's own control profile is present in the launched tree"
   before=$(identities "$control_tree")
 
   # The production call, with exactly the production argument.

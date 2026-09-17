@@ -110,6 +110,8 @@ FM_BROWSER_SESSION_LIVE_E2E=1 bash tests/fm-browser-session-live-e2e.test.sh
 ```
 
 That opt-in guard rebuilds the two-session lab from scratch against the installed chrome-devtools-axi and a real Chrome, asserts the retired tree is gone and the other session's tree survives byte-for-byte, asserts a repeated retirement is a no-op, and fails naming the tool version.
+Its isolation is enforced rather than assumed: a session name isolates only the bridge, so the guard clears every inherited variable that would put the tool into an attach mode (`CHROME_DEVTOOLS_AXI_AUTO_CONNECT`, `_BROWSER_URL`, `_WS_HEADERS`) before each launch, and then requires each tree to contain a browser actually running the profile that run just created.
+Without both, an operator with `CHROME_DEVTOOLS_AXI_AUTO_CONNECT=1` exported would have the guard drive their own Chrome and still report a pass, and this record would carry evidence that was never measured.
 Run it after every chrome-devtools-axi upgrade.
 It skips explicitly when chrome-devtools-axi, lsof, or python3 is absent.
 
