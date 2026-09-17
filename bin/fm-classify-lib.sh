@@ -1588,11 +1588,21 @@ status_span_has_actionable() {  # <status-file> <start-offset>
 #             (e.g. waiting on CI);
 #   paused  - the crew's authoritative current state is a declared external-wait
 #             pause (paused:), which is EXPECTED to idle;
-#   none    - neither, so the wake must surface (a stopped/finished/parked/failed/
+#   parked  - the crew's authoritative current state is a no-mistakes gate park
+#             attributed from the RUN STEP (state: parked with source: run-step):
+#             the pipeline is holding at an approval or fix-review gate and can
+#             advance only on a response the crew is forbidden to produce itself,
+#             so its endpoint is EXPECTED to idle for as long as the gate is open.
+#             A parked verdict from any other source is deliberately excluded. In
+#             particular `source: status-log` parked is derived from the log's last
+#             line, and that line is an event record, not current state; trusting it
+#             would absorb on a needs-decision line that nothing ever retracts.
+#   none    - none of those, so the wake must surface (a stopped/finished/failed/
 #             torn-down/unknown crew, or an unreadable verdict).
-# One fm-crew-state.sh read serves BOTH absorb reasons at once. Reading the state
+# One fm-crew-state.sh read serves EVERY absorb reason at once. Reading the state
 # authoritatively (not the status log) is what keeps run-step precedence: a crew
-# that appended paused: but then STARTED a run reports working, never paused.
+# that appended paused: but then STARTED a run reports working, never paused, and a
+# crew whose gate has since been answered reports working, never parked.
 # NOT a pure read: fm-crew-state.sh may make a bounded no-mistakes call, so callers
 # run it only on no-verb signal and first-sighting stale paths, never every wake.
 # FM_CREW_STATE_BIN lets tests stub the verdict.
@@ -1603,8 +1613,9 @@ crew_absorb_class() {  # <id>
   case "$line" in state:*) ;; *) printf 'none'; return ;; esac
   state=${line#state: }; state=${state%% *}
   if [ "$state" = paused ]; then printf 'paused'; return; fi
+  src=${line#*source: }; src=${src%% *}
+  if [ "$state" = parked ] && [ "$src" = run-step ]; then printf 'parked'; return; fi
   if [ "$state" = working ]; then
-    src=${line#*source: }; src=${src%% *}
     case "$src" in run-step|pane) printf 'working'; return ;; esac
   fi
   printf 'none'
@@ -1619,7 +1630,7 @@ crew_absorb_class() {  # <id>
 # because the crew may be done, waiting on a decision, or wedged. For stale panes
 # it is checked before trusting the status log so a pre-validation captain-relevant
 # line does not override an active run. See crew_absorb_class for the exact
-# working/paused/none decision.
+# working/paused/parked/none decision.
 crew_is_provably_working() {  # <id>
   [ "$(crew_absorb_class "$1")" = working ]
 }
