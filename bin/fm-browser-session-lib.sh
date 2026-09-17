@@ -49,12 +49,24 @@
 # CHROME_DEVTOOLS_AXI_SESSION set to the proven name. That is the tool's public
 # lifecycle owner, not a reimplementation: it runs the bridge's shutdown handler,
 # which closes the browser over CDP, and escalates to the bridge's process group.
-# Verified to retire the bridge, npx, the MCP server, Chrome, every Chrome helper and
-# the updater it spawned, while a concurrently running browser on a different session
-# survived untouched (docs/verification/browser-session-cleanup.md).
+# On the healthy stop path this was measured to retire the bridge, npx, the MCP
+# server, Chrome, every Chrome helper and the updater it spawned, while a
+# concurrently running browser on a different session survived untouched
+# (docs/verification/browser-session-cleanup.md).
+#
+# WHAT RETIREMENT PROVES, AND WHAT IT DOES NOT
+# The only process this file can ever prove is the BRIDGE. Chrome leads its own
+# process group below the bridge and is closed by the tool's CDP shutdown, not by
+# any signal sent here, so after a stop the post-check can confirm only that the
+# bridge pid is gone and no longer serving its recorded port. Two paths were not
+# measured and are not claimed: a bridge SIGKILLed out from under its shutdown
+# handler (the memory pressure in the original incident can do exactly that), and a
+# shutdown that wedges on a dead CDP transport so the tool escalates to the bridge's
+# own process group only. In both a Chrome tree can outlive the bridge. Every
+# message this file prints is therefore worded to the bridge, never the browser.
 #
 # Idempotent by construction: a retired, never-started, or already-exited session has
-# no live pid to prove, so every later call is a silent no-op.
+# no live pid to prove, so every later call is a no-op.
 #
 # DEGRADATION
 # Two cases land back on the pre-binding behavior rather than on a wrong kill: a
@@ -143,11 +155,15 @@ fm_browser_session_valid_name() {
 
 # fm_browser_session_bridge_pid <name>
 # Prints "<pid> <port>" when all three records above agree. Otherwise prints a
-# one-line reason and returns 1 when nothing live is implicated (no record, a stale
-# or corrupt one, an already-exited bridge), or 2 when a LIVE process is implicated
-# but not proven ours. The caller must not signal either way; the split exists only
-# so a live stranger's record is preserved while a dead one can be cleared.
-# Read-only: signals nothing.
+# one-line reason and returns one of:
+#   1 - nothing live is implicated AND there is nothing an operator needs to know:
+#       no session was recorded, or the recorded one never started a bridge.
+#   3 - nothing live is implicated, but the record itself is wrong and worth
+#       reporting: unreadable, not the tool's shape, or naming a pid that is gone.
+#   2 - a LIVE process is implicated but is not proven ours.
+# The caller must not signal in any of the three. 1 and 3 both allow the task's own
+# leftover state directory to be cleared; 2 preserves it, because a live stranger
+# still owns that record. Read-only: signals nothing.
 fm_browser_session_bridge_pid() {
   local name=${1:-} dir pidfile raw pid port cmd
   if ! fm_browser_session_valid_name "$name"; then
@@ -165,17 +181,20 @@ fm_browser_session_bridge_pid() {
   fi
   raw=$(cat "$pidfile" 2>/dev/null) || {
     printf 'browser session %s bridge record is unreadable\n' "$name"
-    return 1
+    return 3
   }
   pid=$(fm_browser_session_json_number "$raw" pid)
   port=$(fm_browser_session_json_number "$raw" port)
   if [ -z "$pid" ] || [ -z "$port" ]; then
     printf 'browser session %s bridge record does not name a pid and port\n' "$name"
-    return 1
+    return 3
   fi
   if ! kill -0 "$pid" 2>/dev/null; then
-    printf 'browser session %s bridge (pid %s) already exited\n' "$name" "$pid"
-    return 1
+    # Only the bridge pid was checked. Whether a browser it launched is still
+    # running is not knowable from this record, so do not claim it exited.
+    printf 'browser session %s bridge record is stale: pid %s already exited (any browser it launched was not checked)\n' \
+      "$name" "$pid"
+    return 3
   fi
   cmd=$(LC_ALL=C ps -p "$pid" -o command= 2>/dev/null) || cmd=
   case "$cmd" in
@@ -218,18 +237,29 @@ fm_browser_session_pid_listens_on() {
 }
 
 # fm_browser_session_stop <name>
-# Retire one proven session through the tool's public per-session stop. Prints one
-# outcome line. Returns 0 when the session is gone or was never live, 1 only when a
-# proven-owned bridge survived the tool's own stop.
+# Retire one proven session through the tool's public per-session stop. Returns 0
+# when the session is gone or was never live, 1 only when a proven-owned bridge
+# survived the tool's own stop.
+#
+# Speaks only when an operator has something to act on or know about: a stop that
+# ran, a bridge that survived it, a live process deliberately left alone, or a
+# record that is itself wrong. A task that never touched a browser says nothing, the
+# same way the cwd sweep it runs beside is silent when it finds nothing.
+#
+# Every message claims exactly what was measured. Only the bridge pid is ever
+# proved; the browser tree hangs off the bridge in its own process group and is
+# closed by the tool's own shutdown handler, so no message here asserts that the
+# browser itself was confirmed gone.
 fm_browser_session_stop() {
   local name=${1:-} proof pid port rc
   proof=$(fm_browser_session_bridge_pid "$name") && rc=0 || rc=$?
   if [ "$rc" -ne 0 ]; then
-    printf 'browser cleanup skipped: %s\n' "$proof"
-    # rc 1 means nothing live is implicated, so the task's own leftover session
-    # directory can go; rc 2 means a live process we refused to touch still owns
-    # that record, and removing it would orphan whatever does own it.
-    if [ "$rc" -eq 1 ]; then
+    # rc 2 means a live process we refused to touch still owns that record, and
+    # removing it would orphan whatever does own it. rc 1 and rc 3 implicate
+    # nothing live, so the task's own leftover session directory can go; only rc 3
+    # is worth a line, because rc 1 is simply a task that never used a browser.
+    [ "$rc" -eq 1 ] || printf 'browser cleanup skipped: %s\n' "$proof"
+    if [ "$rc" -ne 2 ]; then
       fm_browser_session_clear_state "$name"
     fi
     return 0
@@ -241,7 +271,7 @@ fm_browser_session_stop() {
       "$name" "$pid"
     return 0
   fi
-  CHROME_DEVTOOLS_AXI_SESSION="$name" CHROME_DEVTOOLS_AXI_PORT="$port" \
+  CHROME_DEVTOOLS_AXI_SESSION="$name" \
     fm_run_timed "$FM_BROWSER_SESSION_STOP_TIMEOUT" \
       chrome-devtools-axi stop >/dev/null 2>&1 || true
   if kill -0 "$pid" 2>/dev/null \
@@ -251,7 +281,8 @@ fm_browser_session_stop() {
     return 1
   fi
   fm_browser_session_clear_state "$name"
-  printf 'browser cleanup: retired browser session %s (bridge pid %s)\n' "$name" "$pid"
+  printf 'browser cleanup: stopped browser session %s; its bridge (pid %s) is gone and no longer serving port %s (browser tree not separately verified)\n' \
+    "$name" "$pid" "$port"
   return 0
 }
 

@@ -127,7 +127,7 @@ tree_alive_count() {
 # teardown dependency does not silently break this fixture, then override the few
 # that must not touch live state.
 make_fake_root() {
-  local id=$1 session=$2 stop_log=$3
+  local id=$1 session=$2 stop_log=$3 kind=${4:-ship}
   local fake="$TMP_ROOT/home-$id"
   mkdir -p "$fake/bin/backends" "$fake/state" "$fake/data"
   ln -s "$ROOT"/bin/*.sh "$fake/bin/" 2>/dev/null || true
@@ -165,9 +165,23 @@ STUB
     printf 'window=fakeses:fm-%s\n' "$id"
     printf 'worktree=%s/nonexistent-wt-%s\n' "$TMP_ROOT" "$id"
     printf 'project=%s/nonexistent-proj-%s\n' "$TMP_ROOT" "$id"
-    printf 'harness=claude\nkind=ship\nmode=no-mistakes\nyolo=off\n'
+    printf 'harness=claude\nkind=%s\nmode=no-mistakes\nyolo=off\n' "$kind"
     [ "$session" = '<none>' ] || printf 'browser_session=%s\n' "$session"
   } > "$fake/state/$id.meta"
+  if [ "$kind" = secondmate ]; then
+    # A secondmate is retired by home, not by worktree: it needs a genuine seeded
+    # home and the registry route that binds it to this id, or teardown refuses
+    # before it ever reaches the browser step.
+    local sub="$TMP_ROOT/secondmate-home-$id"
+    mkdir -p "$sub/bin" "$sub/data" "$sub/state"
+    printf '# Firstmate\n' > "$sub/AGENTS.md"
+    printf '%s\n' "$id" > "$sub/.fm-secondmate-home"
+    printf '%s\n' "$fake" > "$sub/.fm-secondmate-parent"
+    mkdir -p "$fake/data"
+    printf -- '- %s - browser session guard (home: %s; scope: browser cleanup; projects: none; added 2026-09-16)\n' \
+      "$id" "$sub" > "$fake/data/secondmates.md"
+    printf 'home=%s\n' "$sub" >> "$fake/state/$id.meta"
+  fi
   printf '%s' "$fake"
 }
 
@@ -297,12 +311,48 @@ test_owned_browser_retired_control_survives() {
     || fail "teardown left the retired session's state directory behind"
   [ -f "$STATE_ROOT/sessions/fm-control-9f8e7d6c/bridge.pid" ] \
     || fail "teardown cleared the unrelated session's record"
+  case "$out" in
+    *"retired browser session"*|*"browser retired"*)
+      fail "teardown claimed the browser tree was retired when only the bridge was proved: $out" ;;
+  esac
+  case "$out" in
+    *"browser cleanup: stopped browser session fm-owned-a1b2c3d4"*) ;;
+    *) fail "teardown did not report the stop it performed: $out" ;;
+  esac
   # Repeat cleanup: the record is gone, so a second run must be a silent no-op.
   out=$(run_teardown "$fake" br-retire 2>&1) || true
   [ "$(tree_alive_count "$control_tree")" -eq 2 ] \
     || fail "a repeated teardown killed the unrelated browser"
   pass "the task's own browser and its child are retired; an unrelated browser survives byte-for-byte"
   printf '%s' "$owned_port" >/dev/null
+}
+
+test_secondmate_retires_its_own_session() {
+  # fm-spawn binds and records a session for EVERY kind, secondmate included, so a
+  # secondmate teardown that skipped the browser step would leak exactly the tree
+  # this whole mechanism exists for.
+  local owned control owned_pid control_pid control_port
+  local owned_tree control_tree fake out
+  owned=$(start_bridge fm-sub-a0b1c2d3); owned_pid=${owned%% *}
+  control=$(start_bridge fm-sub-control-d3c2b1a0)
+  control_pid=${control%% *}; control_port=${control##* }
+  owned_tree=$(bridge_tree "$owned_pid")
+  control_tree=$(bridge_tree "$control_pid")
+  [ "$(tree_alive_count "$owned_tree")" -ge 2 ] || fail "secondmate fixture browser has no child"
+  fake=$(make_fake_root br-sub fm-sub-a0b1c2d3 "$TMP_ROOT/stop-sub.log" secondmate)
+  out=$(run_teardown "$fake" br-sub) || fail "secondmate teardown failed: $out"
+  sleep 1
+  [ "$(tree_alive_count "$owned_tree")" -eq 0 ] \
+    || fail "a secondmate's own browser survived its teardown ($(tree_alive_count "$owned_tree") alive)"
+  grep -q "stop fm-sub-a0b1c2d3" "$TMP_ROOT/stop-sub.log" \
+    || fail "secondmate teardown did not retire its recorded session"
+  grep -q "fm-sub-control-d3c2b1a0" "$TMP_ROOT/stop-sub.log" \
+    && fail "secondmate teardown touched an unrelated session"
+  [ "$(tree_alive_count "$control_tree")" -eq 2 ] \
+    || fail "secondmate teardown killed an unrelated browser"
+  lsof -nP -a -p "$control_pid" -iTCP:"$control_port" -sTCP:LISTEN >/dev/null 2>&1 \
+    || fail "the unrelated browser stopped serving its own port"
+  pass "a secondmate teardown retires its own proven browser session and no other"
 }
 
 # --- ambiguity refuses ------------------------------------------------------
@@ -389,29 +439,47 @@ test_stale_and_absent_records_are_no_ops() {
   fake=$(make_fake_root br-stale "$session" "$TMP_ROOT/stop-stale.log")
   out=$(run_teardown "$fake" br-stale) || fail "teardown failed on a stale record: $out"
   [ ! -f "$TMP_ROOT/stop-stale.log" ] || fail "teardown retired an already-exited browser"
-  case "$out" in *"already exited"*) ;; *) fail "stale record not reported: $out" ;; esac
+  case "$out" in *"bridge record is stale"*) ;; *) fail "stale record not reported: $out" ;; esac
+  # Only the bridge pid was checked, so the report must not claim the browser went.
+  case "$out" in
+    *"browser session $session"*"already exited"*"not checked"*) ;;
+    *) fail "stale record report claimed more than the bridge pid: $out" ;;
+  esac
   [ ! -d "$STATE_ROOT/sessions/$session" ] \
     || fail "teardown left a dead session's state directory to accumulate"
-  # (b) a session recorded but never started (no pid file at all).
+  # (b) a session recorded but never started (no pid file at all): nothing an
+  # operator can act on, so teardown must say nothing at all about browsers.
   fake=$(make_fake_root br-never fm-never-00112233 "$TMP_ROOT/stop-never.log")
   out=$(run_teardown "$fake" br-never) || fail "teardown failed with no bridge record: $out"
   [ ! -f "$TMP_ROOT/stop-never.log" ] || fail "teardown retired a session that never started"
-  # (c) a corrupt record.
+  case "$out" in
+    *"browser cleanup"*) fail "teardown spoke about a session that never started a bridge: $out" ;;
+  esac
+  # (c) a corrupt record IS worth reporting: the record itself is wrong.
   mkdir -p "$STATE_ROOT/sessions/fm-corrupt-44556677"
   printf 'not json at all\n' > "$STATE_ROOT/sessions/fm-corrupt-44556677/bridge.pid"
   fake=$(make_fake_root br-corrupt fm-corrupt-44556677 "$TMP_ROOT/stop-corrupt.log")
   out=$(run_teardown "$fake" br-corrupt) || fail "teardown failed on a corrupt record: $out"
   [ ! -f "$TMP_ROOT/stop-corrupt.log" ] || fail "teardown acted on a corrupt record"
+  case "$out" in
+    *"does not name a pid and port"*) ;;
+    *) fail "teardown did not report a corrupt bridge record: $out" ;;
+  esac
   # (d) backward compatibility: a task spawned before browser_session= existed.
+  # Nothing was ever recorded, so teardown has nothing to say.
   fake=$(make_fake_root br-legacy '<none>' "$TMP_ROOT/stop-legacy.log")
   out=$(run_teardown "$fake" br-legacy) || fail "teardown failed without browser_session=: $out"
   [ ! -f "$TMP_ROOT/stop-legacy.log" ] || fail "teardown retired something with no recorded session"
-  pass "stale, never-started, corrupt, and pre-binding records are silent no-ops"
+  case "$out" in
+    *"browser cleanup"*) fail "teardown spoke about browsers for a task with no recorded session: $out" ;;
+  esac
+  pass "stale and corrupt records are reported; never-started and pre-binding records are silent no-ops"
 }
 
 test_name_is_task_scoped_and_never_default
 test_spawn_binds_and_records_the_session
 test_owned_browser_retired_control_survives
+test_secondmate_retires_its_own_session
 test_pid_reuse_is_refused
 test_port_identity_mismatch_is_refused
 test_default_session_is_never_retired

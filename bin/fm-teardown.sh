@@ -188,8 +188,17 @@
 #     teardown proves no live bridge and is a silent no-op. The task's own
 #     leftover session directory is cleared with it, so binding a session per
 #     task does not trade a process leak for a pile of state directories; a
-#     record whose live owner was refused is preserved instead. Best effort: an
-#     unretired browser never blocks this teardown.
+#     record whose live owner was refused is preserved instead. Only the bridge
+#     is ever proved, so what it reports is what it measured: the bridge is gone
+#     and no longer serving its port, never that the browser tree was confirmed
+#     to have exited. Unlike Fix 1 and Fix 2 this step runs for EVERY kind,
+#     kind=secondmate included: fm-spawn binds and records a session for all of
+#     them, and a secondmate whose session was never retired leaks exactly the
+#     browser tree this fix exists for. It is keyed by the task's own recorded
+#     session name, not by anything under a task worktree, so it has no stake in
+#     the worktree boundary those two are guarded by. Silent when the task never
+#     recorded a session or never started a bridge. Best effort: an unretired
+#     browser never blocks this teardown.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -2925,12 +2934,15 @@ fi
 if [ "$KIND" != secondmate ]; then
   conclude_task_no_mistakes_run "$WT"
   reap_task_worktree_processes worktree "$WT" "$TASK_TMP"
-  # Fix 4 (see script header): retire this task's own browser session. Runs AFTER
-  # the cwd sweep so a browser this task also launched itself is already gone and
-  # this is a proven no-op; what it adds is the browser this task drove but did not
-  # launch, which no cwd under this worktree can reach.
-  fm_browser_session_stop "$BROWSER_SESSION" >&2 || true
 fi
+# Fix 4 (see script header): retire this task's own browser session. Every kind,
+# secondmate included: fm-spawn binds and records a session for all of them, and
+# the retirement is keyed by the task's own recorded session name rather than by
+# anything in a task worktree, so it has no stake in the worktree boundary above.
+# Runs AFTER the cwd sweep so a browser this task also launched itself is already
+# gone and this is a proven no-op; what it adds is the browser this task drove but
+# did not launch, which no cwd under this worktree can reach.
+fm_browser_session_stop "$BROWSER_SESSION" >&2 || true
 
 # Fix 3 (see script header): sweep remote job workers abandoned by an already
 # pruned code root. Best effort - a sweep failure never blocks this teardown.

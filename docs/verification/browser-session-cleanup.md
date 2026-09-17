@@ -2,7 +2,7 @@
 
 Audience: maintainer verification.
 
-This record contains reusable version-scoped evidence for the guarantee that a browser launched for one task is retired with that task, and that no other browser is.
+This record contains reusable version-scoped evidence for the guarantee that a browser launched for one task is stopped with that task on the tool's healthy stop path, and that no other browser is touched.
 [`bin/fm-browser-session-lib.sh`](../../bin/fm-browser-session-lib.sh) owns the mechanism; this file records what was measured.
 Exact task chronology, branch names, and delivery transcripts remain in private reports or PR evidence.
 
@@ -82,6 +82,18 @@ status: stopped
 
 One session's stop retired that session's bridge, npx, MCP server, Chrome, every Chrome helper and the updater Chrome spawned, and left the other session's browser whole.
 Every pre-existing browser process on the machine survived; the only pids that disappeared from the pre-run census were Chrome's own `--type=renderer` processes recycling, none of them a browser root.
+
+### Limits of this measurement
+
+This measured the **healthy stop path only**: a live bridge whose shutdown handler ran to completion, where the whole tree did exit.
+Two paths were not measured and are not claimed here.
+
+- A bridge SIGKILLed out from under its shutdown handler — which the memory pressure in the original incident can cause — leaves a stale pid record; only that the recorded pid is gone is knowable, not whether the Chrome tree exited.
+- A shutdown that wedges on a dead CDP transport makes the tool escalate to the bridge's own process group, which (per the group structure above) does not contain Chrome.
+
+In both, a Chrome tree can outlive the bridge.
+Cleanup therefore only ever proves the bridge, and [`bin/fm-browser-session-lib.sh`](../../bin/fm-browser-session-lib.sh) words every message to the bridge rather than to the browser.
+Recording the Chrome tree's own ownership at launch would be needed to close this, and is deliberately out of scope: the design reuses the tool's per-session pid file as the sole registry rather than creating a parallel one.
 
 ## Refreshing this record
 

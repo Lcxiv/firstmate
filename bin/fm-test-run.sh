@@ -1184,7 +1184,13 @@ families_for_changed_path() {
       printf '%s\n' watcher-wake-lock
       printf '%s\n' "__script__:fm-procevent-quota.test.sh"
       ;;
-    bin/fm-phone-*|bin/fm-pr-*|bin/fm-merge-local.sh|bin/fm-teardown.sh|bin/fm-review-diff.sh|\
+    bin/fm-teardown.sh)
+      printf '%s\n' pr-forge
+      # Teardown owns Fix 4's call site and the browser_session= meta read, which
+      # tests/fm-browser-session.test.sh drives through the real script.
+      printf '%s\n' __script__:fm-browser-session.test.sh
+      ;;
+    bin/fm-phone-*|bin/fm-pr-*|bin/fm-merge-local.sh|bin/fm-review-diff.sh|\
     bin/fm-x-*|bin/fm-check*)
       printf '%s\n' pr-forge
       ;;
