@@ -164,6 +164,8 @@ fm_browser_session_hash() {
 # The tool's own per-session state directory. Mirrors resolveSessionStateDir():
 # named sessions live under sessions/<name>; the default session keeps the legacy
 # root, which is exactly why the default name is refused everywhere below.
+# FM_BROWSER_SESSION_STATE_ROOT relocates that root (default ~/.chrome-devtools-axi)
+# so tests can point it at scratch space; production never sets it.
 fm_browser_session_state_dir() {
   local name=$1 base
   base=${FM_BROWSER_SESSION_STATE_ROOT:-$HOME/.chrome-devtools-axi}

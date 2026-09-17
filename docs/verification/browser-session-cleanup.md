@@ -88,7 +88,7 @@ Every pre-existing browser process on the machine survived; the only pids that d
 This measured the **healthy stop path only**: a live bridge whose shutdown handler ran to completion, where the whole tree did exit.
 Two paths were not measured and are not claimed here.
 
-- A bridge SIGKILLed out from under its shutdown handler — which the memory pressure in the original incident can cause — leaves a stale pid record; only that the recorded pid is gone is knowable, not whether the Chrome tree exited.
+- A bridge SIGKILLed out from under its shutdown handler - which the memory pressure in the original incident can cause - leaves a stale pid record; only that the recorded pid is gone is knowable, not whether the Chrome tree exited.
 - A shutdown that wedges on a dead CDP transport makes the tool escalate to the bridge's own process group, which (per the group structure above) does not contain Chrome.
 
 In both, a Chrome tree can outlive the bridge.
@@ -97,7 +97,7 @@ Recording the Chrome tree's own ownership at launch would be needed to close thi
 
 ## Accepted tradeoff: peak memory
 
-Isolating a browser per task is what makes ownership provable, and it is what removes accumulation **across** tasks — each tree is now retired with the task that bound it, instead of outliving every task that ever touched it.
+Isolating a browser per task is what makes ownership provable, and it is what removes accumulation **across** tasks - each tree is now retired with the task that bound it, instead of outliving every task that ever touched it.
 The cost is at the other end: each browser-using task now holds its own bridge, MCP server and Chrome tree rather than sharing one, so several browser-using tasks running at once carry a higher **peak** footprint than the single shared tree they used to reuse.
 
 Going back to a shared session is not available: one task's cleanup would then reach another task's browser, which the ownership contract forbids outright.
