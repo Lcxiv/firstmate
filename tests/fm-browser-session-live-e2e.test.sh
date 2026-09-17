@@ -20,8 +20,13 @@
 #     attaching to an already-running browser is cleared before each launch, and
 #     each tree must contain a browser running this lab's own freshly created
 #     profile before anything is measured or retired.
-# It fails naming the tool version rather than degrading quietly, and leaves no lab
-# process or lab state behind.
+# It fails naming the tool version rather than degrading quietly. On a clean run it
+# leaves no lab process and no lab state behind. If the tool's own stop ever leaves
+# lab processes running, the guard keeps every record naming them - the session
+# directories and the lab profiles - and prints each survivor, so the leak is
+# traceable and clearable rather than orphaned. It never signals a process itself,
+# not even its own: stopping a session it created, through the tool, is its only
+# reach.
 #
 # Opt-in because it launches real browsers. Run it after every chrome-devtools-axi
 # upgrade and before trusting a refreshed
@@ -60,13 +65,57 @@ fm_browser_session_valid_name "$OWNED_SESSION" \
 
 LAB_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/fm-browser-session-live.XXXXXX")
 
+# Every pid this lab launched, as "<session> <pid>" lines, written at launch. It has
+# to be a FILE: lab_open runs inside a command substitution, so a shell array never
+# reaches the EXIT trap. Chrome is reparented to init once the bridge exits, so it
+# stops being a descendant of anything - the tree has to be captured while it is
+# still walkable, not rediscovered afterwards.
+LAB_LAUNCHED="$LAB_ROOT/launched"
+
 lab_stop() {  # <session>
   CHROME_DEVTOOLS_AXI_SESSION="$1" chrome-devtools-axi stop >/dev/null 2>&1 || true
 }
 
+# lab_survivors -> one line per launched process still alive AND still identifiable
+# as this lab's own. Identity is the run's own LAB_ROOT in the process command line,
+# so a recycled pid can never be reported as a lab leak. Read-only: this file never
+# signals a process, including its own.
+lab_survivors() {
+  local session pid cmd
+  [ -f "$LAB_LAUNCHED" ] || return 0
+  while read -r session pid; do
+    [ -n "$pid" ] || continue
+    kill -0 "$pid" 2>/dev/null || continue
+    cmd=$(ps -ww -p "$pid" -o command= 2>/dev/null) || continue
+    case "$cmd" in
+      *"$LAB_ROOT"*)
+        printf '  session %s  pid %-7s %s\n' \
+          "$session" "$pid" "$(ps -ww -p "$pid" -o comm= 2>/dev/null)" ;;
+    esac
+  done < "$LAB_LAUNCHED"
+}
+
+# On the clean path the records are the lab's own litter and go. On the UNCLEAN path
+# they are the only thing naming the processes still running, so deleting them would
+# turn a leak this guard caused into an untraceable one - the exact shape of the
+# incident this whole change exists for. They are kept and pointed at instead.
 cleanup() {
+  local survivors
   lab_stop "$OWNED_SESSION"
   lab_stop "$CONTROL_SESSION"
+  survivors=$(lab_survivors)
+  if [ -n "$survivors" ]; then
+    {
+      printf 'LAB NOT CLEAN: chrome-devtools-axi %s left lab processes running after stop.\n' "$AXI_VERSION"
+      printf 'Nothing was signalled; this guard only ever stops sessions it created, through the tool.\n'
+      printf 'Still running:\n%s\n' "$survivors"
+      printf 'Records kept so you can trace and clear them:\n'
+      printf '  %s\n' "$HOME/.chrome-devtools-axi/sessions/$OWNED_SESSION"
+      printf '  %s\n' "$HOME/.chrome-devtools-axi/sessions/$CONTROL_SESSION"
+      printf '  lab profiles and the launched-pid list under %s\n' "$LAB_ROOT"
+    } >&2
+    return
+  fi
   rm -rf "$HOME/.chrome-devtools-axi/sessions/$OWNED_SESSION" \
          "$HOME/.chrome-devtools-axi/sessions/$CONTROL_SESSION"
   rm -rf "$LAB_ROOT"
@@ -93,7 +142,7 @@ PY
 # is therefore cleared here, so the lab can only ever take the launch path into the
 # profile it just created.
 lab_open() {
-  local session=$1 profile=$2 port proof
+  local session=$1 profile=$2 port proof bridge pid
   port=$(free_port)
   mkdir -p "$profile"
   ( cd "$LAB_ROOT" && \
@@ -106,7 +155,11 @@ lab_open() {
       chrome-devtools-axi open about:blank >/dev/null 2>&1 ) || true
   proof=$(fm_browser_session_bridge_pid "$session") \
     || fail "chrome-devtools-axi $AXI_VERSION: lab session $session never came up ($proof)"
-  printf '%s' "${proof%% *}"
+  bridge=${proof%% *}
+  for pid in $(lab_tree "$bridge"); do
+    printf '%s %s\n' "$session" "$pid" >> "$LAB_LAUNCHED"
+  done
+  printf '%s' "$bridge"
 }
 
 # lab_tree <bridge-pid> -> every pid descended from the bridge, this lab's only reach.

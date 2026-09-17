@@ -140,14 +140,23 @@ fm_browser_session_name() {
   printf 'fm-%s-%s' "$safe" "$hash"
 }
 
-# fm_browser_session_hash <text> -> 8 hex chars
+# fm_browser_session_hash <text> -> 8 hex chars, or a refusal on stderr and non-zero.
+# A real digest or nothing. The 8 chars carried here are what keep two (FM_HOME,
+# task id) pairs on separate sessions, and a collision means one task's teardown
+# retires another task's browser - the single outcome the ownership contract exists
+# to prevent. A weaker checksum folded into the same 8 chars is the only way that
+# becomes reachable in practice, so there is no fallback below these three: a host
+# with none of them gets a loud refusal rather than a name it cannot trust.
 fm_browser_session_hash() {
   if command -v shasum >/dev/null 2>&1; then
     printf '%s' "$1" | shasum -a 256 | awk '{print substr($1,1,8)}'
   elif command -v sha256sum >/dev/null 2>&1; then
     printf '%s' "$1" | sha256sum | awk '{print substr($1,1,8)}'
+  elif command -v openssl >/dev/null 2>&1; then
+    printf '%s' "$1" | openssl dgst -sha256 | awk '{print substr($NF,1,8)}'
   else
-    printf '%s' "$1" | cksum | awk '{printf "%08x", $1}'
+    printf 'fm-browser-session: no SHA-256 tool found; install shasum, sha256sum or openssl to bind a browser session to this task\n' >&2
+    return 1
   fi
 }
 

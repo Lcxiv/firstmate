@@ -216,8 +216,8 @@ no_lsof_path() {
       ln -sf "$src" "$NO_LSOF_BIN/$tool"
     done
   fi
-  command -v lsof >/dev/null 2>&1 \
-    && [ ! -e "$NO_LSOF_BIN/lsof" ] || fail "the no-lsof fixture PATH still resolves lsof"
+  PATH="$NO_LSOF_BIN" /bin/bash -c 'command -v lsof' >/dev/null 2>&1 \
+    && fail "the no-lsof fixture PATH still resolves lsof"
   printf '%s' "$NO_LSOF_BIN"
 }
 
@@ -244,6 +244,41 @@ test_name_is_task_scoped_and_never_default() {
     *[!A-Za-z0-9._-]*) fail "unsafe task id leaked unsafe characters into the session name" ;;
   esac
   pass "session names are task-scoped, home-scoped, stable, and always tool-legal"
+}
+
+test_no_digest_tool_refuses_rather_than_naming() {
+  # The 8 hash chars are what keep two (FM_HOME, task id) pairs on separate
+  # sessions, so a host that cannot compute a real digest must get no name at all -
+  # an unhashed or half-hashed name would let one task's teardown reach another
+  # task's browser, which is the one outcome the ownership contract forbids.
+  local bare out rc
+  bare="$TMP_ROOT/no-digest-bin"
+  if [ ! -d "$bare" ]; then
+    mkdir -p "$bare"
+    for tool in cat tr awk dirname basename sed; do
+      ln -sf "$(command -v "$tool")" "$bare/$tool"
+    done
+  fi
+  for tool in shasum sha256sum openssl; do
+    PATH="$bare" /bin/bash -c 'command -v "$1"' _ "$tool" >/dev/null 2>&1 \
+      && fail "the no-digest fixture PATH still resolves $tool"
+  done
+  out=$(PATH="$bare" /bin/bash -c '. "$1"; fm_browser_session_name "$2" "$3"' \
+    _ "$LIB" some-task /some/home 2>"$TMP_ROOT/no-digest.err") && rc=0 || rc=$?
+  [ "$rc" -ne 0 ] || fail "a host with no SHA-256 tool still minted a session name: $out"
+  [ -z "$out" ] || fail "a session name was printed without a hash: $out"
+  case "$(cat "$TMP_ROOT/no-digest.err")" in
+    *"no SHA-256 tool found"*) ;;
+    *) fail "the refusal did not name the missing dependency: $(cat "$TMP_ROOT/no-digest.err")" ;;
+  esac
+  # And the name that IS minted on a normal host is never left hash-less.
+  out=$(bash -c '. "$1"; fm_browser_session_name "$2" "$3"' _ "$LIB" some-task /some/home) \
+    || fail "a host with a digest tool failed to mint a name"
+  case "$out" in
+    *-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
+    *) fail "the minted session name does not end in a digest: $out" ;;
+  esac
+  pass "a host with no SHA-256 tool refuses loudly instead of minting an unhashed session name"
 }
 
 # --- the launch half of the record -------------------------------------------
@@ -624,6 +659,7 @@ test_stale_and_absent_records_are_no_ops() {
 }
 
 test_name_is_task_scoped_and_never_default
+test_no_digest_tool_refuses_rather_than_naming
 test_spawn_binds_and_records_the_session
 test_owned_browser_retired_control_survives
 test_secondmate_retires_its_own_session

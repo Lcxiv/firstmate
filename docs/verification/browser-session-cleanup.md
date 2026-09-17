@@ -114,6 +114,8 @@ Its isolation is enforced rather than assumed: a session name isolates only the 
 Without both, an operator with `CHROME_DEVTOOLS_AXI_AUTO_CONNECT=1` exported would have the guard drive their own Chrome and still report a pass, and this record would carry evidence that was never measured.
 Run it after every chrome-devtools-axi upgrade.
 It skips explicitly when chrome-devtools-axi, lsof, or python3 is absent.
+A clean run leaves no lab process and no lab state behind.
+If a future release ever stops the bridge without reaping the browser, the guard keeps the session directories and lab profiles instead of deleting them and prints each surviving process, so a leak it caused stays traceable; it never signals a process itself.
 
 Latest run: 2026-09-16, chrome-devtools-axi 0.1.34.
 
