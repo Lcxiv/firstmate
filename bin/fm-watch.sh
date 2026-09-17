@@ -2028,32 +2028,17 @@ EOF
           # triage exists to stop. gate_park_class owns the admission and its
           # bounds; the same-hash recheck below lets that absorb expire and
           # re-surface on the shared cadences instead of outliving the park.
-          if [ "$(cat "$sf" 2>/dev/null || true)" != "$h" ]; then
+          if [ "$(cat "$sf" 2>/dev/null || true)" != "$h" ] || pause_flag_is_gate_park "$key"; then
             case "$(gate_park_class "$w" "$task")" in
-              working)
-                printf '%s' "$h" > "$sf"
-                date +%s > "$ssf"
-                clear_write_tracking "$key"
-                triage_log "absorbed stale (provably working, overriding a stale captain-relevant status): $w"
-                ;;
-              parked)
-                handle_paused_stale "$w" "$task" "$h" gate-park
-                ;;
-              *)
-                surface_terminal_stale "$w" "$h"
-                ;;
-            esac
-          elif pause_flag_is_gate_park "$key"; then
-            case "$(gate_park_class "$w" "$task")" in
-              parked)
-                handle_paused_stale "$w" "$task" "$h" gate-park
-                ;;
               working)
                 clear_pause_state "$key"
                 printf '%s' "$h" > "$sf"
                 date +%s > "$ssf"
                 clear_write_tracking "$key"
                 triage_log "absorbed stale (provably working, overriding a stale captain-relevant status): $w"
+                ;;
+              parked)
+                handle_paused_stale "$w" "$task" "$h" gate-park
                 ;;
               *)
                 surface_terminal_stale "$w" "$h"

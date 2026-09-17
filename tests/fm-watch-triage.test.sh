@@ -1947,7 +1947,9 @@ test_nonterminal_stale_paused_absorbed_then_resurfaced() {
 # source: run-step` to `none` because the absorb vocabulary knew only working and
 # paused. The park is admitted only while the keyed decision is OPEN per the
 # durable status fold - the leg where firstmate owes the answer - never from a
-# last-line read.
+# last-line read. This fixture ENDS on the open needs-decision line so every
+# poll takes that terminal branch; the routine-note variant below pins the
+# fold-not-last-line rule on the non-terminal branch instead.
 test_gate_parked_stale_absorbed_then_resurfaced() {
   local dir state fakebin out drain_out capture_file window key pane_hash sig pid back statusf i
   dir=$(make_case nonterminal-stale-gate-parked); state="$dir/state"; fakebin="$dir/fakebin"
@@ -1956,13 +1958,9 @@ test_gate_parked_stale_absorbed_then_resurfaced() {
   printf 'idle prompt while the gate waits' > "$capture_file"
   printf 'window=%s\nkind=ship\n' "$window" > "$state/gateparked.meta"
   statusf="$state/gateparked.status"
-  # The escalation the crew raised at the gate, still OPEN: no resolution line
-  # has closed the key, so firstmate owes the answer. A routine note after it
-  # proves the fold, not the last line, is what admits the park.
-  {
-    printf 'needs-decision: [key=gate-4] two calls above me at the review gate\n'
-    printf 'working: holding at the review gate for the decision\n'
-  } > "$statusf"
+  # The escalation the crew raised at the gate, still OPEN and the log's last
+  # line: no resolution line has closed the key, so firstmate owes the answer.
+  printf 'needs-decision: [key=gate-4] two calls above me at the review gate\n' > "$statusf"
   sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-gateparked_status"
   key=$(printf '%s' "$window" | tr ':/.' '___')
   pane_hash=$(hash_text "idle prompt while the gate waits")
@@ -2001,8 +1999,19 @@ test_gate_parked_stale_absorbed_then_resurfaced() {
     sleep 0.1; i=$((i + 1))
   done
   [ "$(cat "$state/.stale-$key" 2>/dev/null || true)" = "$pane_hash" ] || fail "the churned pane hash was never classified"
+  printf 'idle prompt while the gate waits, footer ticked again' > "$capture_file"
+  pane_hash=$(hash_text "idle prompt while the gate waits, footer ticked again")
+  i=0
+  while [ "$i" -lt 200 ] && [ "$(cat "$state/.stale-$key" 2>/dev/null || true)" != "$pane_hash" ]; do
+    kill -0 "$pid" 2>/dev/null || { fail "watcher exited during gate-park pane churn: $(cat "$out")"; }
+    sleep 0.1; i=$((i + 1))
+  done
+  [ "$(cat "$state/.stale-$key" 2>/dev/null || true)" = "$pane_hash" ] || fail "the second churned pane hash was never classified"
+  kill -0 "$pid" 2>/dev/null || fail "watcher did not stay alive across gate-park pane churn: $(cat "$out")"
   [ ! -s "$out" ] || fail "a gate park re-surfaced on pane churn: $(cat "$out")"
   [ ! -s "$state/.wake-queue" ] || fail "a gate park enqueued a wake on pane churn"
+  [ "$(grep -c "parked at a validation gate" "$state/.watch-triage.log")" -ge 3 ] || fail "each churn absorb was not recorded with its reason"
+  [ "$(cat "$state/.paused-$key" 2>/dev/null || true)" = gate-park ] || fail "the gate-park class token did not survive pane churn"
   [ "$(cat "$state/.paused-$key" 2>/dev/null || true)" = gate-park ] || fail "the gate-park class token was not recorded"
   [ ! -e "$state/.stale-since-$key" ] || fail "a gate-park absorb must not start the wedge timer"
   grep -F "possible wedge" "$state/.watch-triage.log" >/dev/null && fail "a gate park was timed toward a wedge"
@@ -2032,6 +2041,46 @@ test_gate_parked_stale_absorbed_then_resurfaced() {
   grep "$(printf '\tstale\t')" "$drain_out" | grep -F "$window" >/dev/null || fail "the gate-park re-surface was not queued"
   unset FM_FAKE_CREW_STATE
   pass "a crew parked at a gate with an open decision stops looping across pane churn, is recorded, then re-surfaced once per bounded cadence, never wedge-escalated"
+}
+
+# The fold-not-last-line rule on the non-terminal branch: a routine note appended
+# AFTER the open needs-decision makes the last line non-captain-relevant, yet the
+# keyed decision is still open in the durable fold, so the park is still
+# firstmate's wait and is still absorbed.
+test_gate_parked_open_decision_behind_routine_note_absorbed() {
+  local dir state fakebin out capture_file window key pane_hash sig pid statusf
+  dir=$(make_case gate-parked-routine-note); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"
+  window="test:fm-gatenote"
+  printf 'idle prompt while the gate waits' > "$capture_file"
+  printf 'window=%s\nkind=ship\n' "$window" > "$state/gatenote.meta"
+  statusf="$state/gatenote.status"
+  {
+    printf 'needs-decision: [key=gate-4] two calls above me at the review gate\n'
+    printf 'working: holding at the review gate for the decision\n'
+  } > "$statusf"
+  sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-gatenote_status"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  pane_hash=$(hash_text "idle prompt while the gate waits")
+  printf '%s' "$pane_hash" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+  export FM_FAKE_CREW_STATE='state: parked · source: run-step · parked at review: 3 finding(s) (ask-user: authority decision)'
+
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_TMUX_CURRENT_COMMAND=claude \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_STALE_ESCALATE_SECS=999 FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_absorbed "$state" "$pid" "parked at a validation gate" \
+    || { reap "$pid"; fail "an open decision behind a routine note was not absorbed: $(cat "$out")"; }
+  wait_poll_cycle "$state" "$pid" || { reap "$pid"; fail "watcher exited during the gate park: $(cat "$out")"; }
+  reap "$pid"
+  [ ! -s "$out" ] || fail "an open decision behind a routine note printed a wake: $(cat "$out")"
+  [ ! -s "$state/.wake-queue" ] || fail "an open decision behind a routine note enqueued a wake"
+  [ "$(cat "$state/.paused-$key" 2>/dev/null || true)" = gate-park ] || fail "the gate-park class token was not recorded"
+  unset FM_FAKE_CREW_STATE
+  pass "an open decision still admits the gate park when a routine note is the log's last line, because admission reads the durable fold"
 }
 
 # The half that is easy to break. A parked RUN proves nothing about the worker
@@ -4207,6 +4256,7 @@ test_afk_busy_declared_pause_ticking_pane_hands_off_once
 test_nonterminal_stale_not_working_surfaced
 test_nonterminal_stale_paused_absorbed_then_resurfaced
 test_gate_parked_stale_absorbed_then_resurfaced
+test_gate_parked_open_decision_behind_routine_note_absorbed
 test_gate_parked_dead_endpoint_still_surfaces
 test_gate_park_that_ends_returns_to_the_ordinary_stale_schedule
 test_resolved_but_parked_worker_still_surfaces
