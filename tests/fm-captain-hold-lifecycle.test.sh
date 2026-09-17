@@ -1016,6 +1016,141 @@ SH
   pass "the chat channel feeds the same keyed-answer intake a captured review does"
 }
 
+# Every refusal this script prints must name the id it could not find. A blank
+# where the id belongs sends the reader looking for a record that was never
+# queried, so assert on the rendered diagnostic: no run of interpolation
+# whitespace, and no message that trails off after its label.
+assert_refusal_names_every_id() {  # <stderr-file> <msg>
+  local offenders
+  offenders=$(grep -nE '[^ ] {2,}|: *$' "$1" || true)
+  [ -z "$offenders" ] || fail "$2"$'\n'"--- blank id rendered ---"$'\n'"$offenders"
+}
+
+# The completion gate resolves an inventory entry in a subshell. `fail` inside a
+# command substitution exits only that subshell, so discarding its status handed
+# the durability check an EMPTY id and refused with "captain-held task  is
+# absent" - a diagnostic naming nothing, over a record that was never queried.
+# Reproduces that shape: durable metadata whose recorded inventory names a task
+# id that is no longer a row in the backlog. Every form must refuse by naming
+# the entry it could not resolve.
+test_unresolvable_inventory_entry_is_named_not_blanked() {
+  local home id
+  home=$(make_home unresolvable-inventory)
+  id=sample-purge-plan
+  mkdir -p "$home/data/$id"
+  write_origin_meta "$home" "$id"
+  # A durable captain-held sibling, so the explicit-id form clears its first
+  # entry and reaches the stale one the way the reported run did.
+  run_captain "$home" hold sample-purge-execute \
+    --title "Choose the sample purge scope" --reason "captain purge scope choice pending" \
+    --repo sample >/dev/null || fail "could not register the sibling captain-held task"
+  # The investigation has ended and its own row is gone from the backlog, but
+  # its recorded inventory still names it.
+  printf 'decisions_reviewed=1\ndecision_keys=%s\n' "$id" >> "$home/state/$id.meta"
+  printf 'done: plan written; captain calls held\n' > "$home/state/$id.status"
+  printf '# Sample purge plan\n' > "$home/data/$id/report.md"
+
+  if run_captain "$home" complete "$id" --none > "$home/none.out" 2> "$home/none.err"; then
+    fail "completion accepted an inventory entry that resolves to no task"
+  fi
+  assert_grep "$id" "$home/none.err" "the --none refusal must name the entry it could not resolve"
+  assert_no_grep "captain-held task  is absent" "$home/none.err" \
+    "the --none refusal reported an empty captain-held task id"
+  assert_refusal_names_every_id "$home/none.err" \
+    "the --none refusal rendered a blank where an id belongs"
+
+  if run_captain "$home" complete "$id" sample-purge-execute \
+    > "$home/explicit.out" 2> "$home/explicit.err"; then
+    fail "completion accepted a stale inventory entry alongside an explicit task id"
+  fi
+  assert_grep "$id" "$home/explicit.err" \
+    "the explicit-id refusal must name the entry it could not resolve"
+  assert_no_grep "captain-held task  is absent" "$home/explicit.err" \
+    "the explicit-id refusal reported an empty captain-held task id"
+  assert_refusal_names_every_id "$home/explicit.err" \
+    "the explicit-id refusal rendered a blank where an id belongs"
+
+  if run_captain "$home" verify "$id" > "$home/verify.out" 2> "$home/verify.err"; then
+    fail "verification accepted an inventory entry that resolves to no task"
+  fi
+  assert_grep "$id" "$home/verify.err" "the verify refusal must name the entry it could not resolve"
+  assert_refusal_names_every_id "$home/verify.err" \
+    "the verify refusal rendered a blank where an id belongs"
+
+  # The sibling subcommands share the same id-naming contract.
+  if run_captain "$home" answer '' --decision-file /dev/null \
+    > "$home/answer.out" 2> "$home/answer.err"; then
+    fail "answer accepted an empty task id"
+  fi
+  assert_refusal_names_every_id "$home/answer.err" \
+    "answer rendered a blank where an id belongs"
+  if run_captain "$home" hold '' --title "x" --reason "y" \
+    > "$home/hold.out" 2> "$home/hold.err"; then
+    fail "hold accepted an empty task id"
+  fi
+  assert_refusal_names_every_id "$home/hold.err" \
+    "hold rendered a blank where an id belongs"
+  if run_captain "$home" binding '' > "$home/binding.out" 2> "$home/binding.err"; then
+    fail "binding accepted an empty source id"
+  fi
+  assert_refusal_names_every_id "$home/binding.err" \
+    "binding rendered a blank where an id belongs"
+  pass "an inventory entry that resolves to no task is refused by name, never as a blank"
+}
+
+# The case the blank refusal was blocking: an investigation whose captain calls
+# were answered on a DIFFERENT task. Both invocation forms must attest that
+# inventory, and cleanup of the finished investigation must then proceed.
+test_calls_answered_elsewhere_complete_and_release_cleanup() {
+  local home id answered
+  home=$(make_home answered-elsewhere)
+  id=sample-purge-review
+  answered=sample-purge-execute
+  mkdir -p "$home/data/$id"
+  tasks_in "$home" add "$id" "Plan the sample purge" --kind scout --repo sample --start >/dev/null \
+    || fail "could not create the investigation origin"
+  write_origin_meta "$home" "$id"
+  cat > "$home/state/$id.status" <<'EOF'
+working: surveying both clones
+needs-decision [key=scope]: purge the exports only, or filter content too
+EOF
+  printf '# Sample purge plan\n\nThe captain must choose the purge scope.\n' \
+    > "$home/data/$id/report.md"
+
+  # The captain's call is carried, and answered, by the follow-on work item.
+  run_captain "$home" hold "$answered" \
+    --title "Choose the sample purge scope" --reason "captain purge scope choice pending" \
+    --repo sample --origin "$id" >/dev/null \
+    || fail "could not register the captain-held task that carries the call"
+  printf 'Filter content as well as paths.\n' > "$home/decision.txt"
+  run_captain "$home" answer "$answered" --decision-file "$home/decision.txt" >/dev/null \
+    || fail "could not record the captain answer on the follow-on task"
+
+  FM_STATE_OVERRIDE="$home/state" bash -c '
+    . "$1"
+    fm_wake_status_mark_current "$2" "$3"
+  ' _ "$ROOT/bin/fm-wake-lib.sh" "$home/state" "$home/state/$id.status" \
+    || fail "could not prime the announced decision baseline"
+
+  run_captain "$home" complete "$id" "$answered" > "$home/explicit.out" 2> "$home/explicit.err" \
+    || fail "completion refused an inventory answered elsewhere: $(cat "$home/explicit.err")"
+  assert_grep "decision_keys=$answered" "$home/state/$id.meta" \
+    "the answered task was not recorded as the reviewed inventory"
+
+  # The second invocation form re-verifies the same recorded inventory.
+  run_captain "$home" complete "$id" --none > "$home/none.out" 2> "$home/none.err" \
+    || fail "--none refused an already-attested inventory: $(cat "$home/none.err")"
+  assert_contains "$(cat "$home/none.out")" "$answered" \
+    "--none did not report the inventory it re-verified"
+
+  run_captain "$home" verify "$id" >/dev/null 2> "$home/verify.err" \
+    || fail "verification refused an inventory answered elsewhere: $(cat "$home/verify.err")"
+  run_teardown "$home" "$id" >/dev/null 2> "$home/teardown.err" \
+    || fail "cleanup stayed blocked on calls answered elsewhere: $(cat "$home/teardown.err")"
+  assert_absent "$home/state/$id.meta" "cleanup did not remove the finished investigation record"
+  pass "calls answered on another task complete in both forms and release cleanup"
+}
+
 test_origin_slug_validation_precedes_path_construction() {
   local home
   home=$(make_home slug-validation)
@@ -1170,6 +1305,8 @@ EOF
 
 test_uninventoried_report_decision_refuses_completion
 test_completion_gate_attests_and_transfers
+test_unresolvable_inventory_entry_is_named_not_blanked
+test_calls_answered_elsewhere_complete_and_release_cleanup
 test_answer_records_and_closes
 test_release_frees_held_work
 test_deferral_leaves_captains_call_until_due
