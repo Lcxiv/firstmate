@@ -23,15 +23,17 @@
 #                          firstmate hands it to a no-mistakes validation. A declared
 #                          external-wait pause, a verified captain-held transfer, or
 #                          an authoritative no-mistakes gate park (a run parked at an
-#                          approval or fix-review gate, which advances only on
-#                          firstmate's answer and which the crew may not answer
-#                          itself) is absorbed instead with its own long re-surface
+#                          approval or fix-review gate while the crew's keyed
+#                          decision is still open, so firstmate owes the answer and
+#                          the crew cannot act) is absorbed instead with its own long re-surface
 #                          cadence, never as a wedge, and that recheck reason names
 #                          which human the wait is on. The gate park is read from
 #                          authoritative current state, never from the status log, and
 #                          is admitted only while the endpoint is provably alive, so a
 #                          crew that died at its gate still surfaces on the ordinary
-#                          schedule. Only when no absorb class
+#                          schedule; once the decision is resolved only the crew may
+#                          advance the run, so a run still parked with no open
+#                          decision surfaces as an unresponsive worker. Only when no absorb class
 #                          applies does the log's last line decide:
 #                          terminal (captain-relevant) or non-terminal (no verb),
 #                          both surfaced at once. A provably-working stale past the
@@ -236,6 +238,8 @@ SECONDMATE_WAKE_STALL_SECS=${FM_SECONDMATE_WAKE_STALL_SECS:-60}
 # bounded cadence, while a live or ambiguously read agent still surfaces once; a
 # secondmate earns the cadence on its declaration alone, because its endpoint
 # liveness is deliberately never read (pause_state_class owns that split).
+# An authoritative no-mistakes gate park with an open keyed decision and a live
+# endpoint takes the same cadence with no declaration at all (gate_park_class).
 # These cases re-surface once for a recheck every PAUSE_RESURFACE_SECS - far
 # longer than the wedge threshold, but finite so a forgotten hold cannot rot invisibly.
 PAUSE_RESURFACE_SECS=${FM_PAUSE_RESURFACE_SECS:-$FM_PAUSE_RESURFACE_SECS_DEFAULT}
