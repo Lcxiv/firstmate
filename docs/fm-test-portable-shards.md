@@ -105,13 +105,13 @@ Six shards at ~10.7 min are not the guarantee; the guarantee is that the remaini
 | Bound | Value | What it is |
 |---|---:|---|
 | measured slowest shard | ~10.7 min | current healthy wall |
-| `PORTABLE_SERIAL_SHARD_BUDGET_MS` | 14 min | the chosen budget, enforced by `--enforce-lane-budget` on a shard that completes |
-| ci.yml run step `timeout-minutes` | 15 min | the hang tripwire for a shard that never completes |
+| `PORTABLE_SERIAL_SHARD_BUDGET_MS` | 14 min | the chosen budget, enforced by `--enforce-lane-budget` on a shard that completes before the step bound |
+| ci.yml run step `timeout-minutes` | 15 min | the hang tripwire for a shard that is still running at 15 minutes |
 | ci.yml job `timeout-minutes` | 20 min | last-resort backstop behind both, not expected to be reached |
 
 Each bound owns one case.
-The budget is evaluated after the suite finishes, so a shard whose tests complete anywhere over 14 minutes fails naming that cause and pointing here; the budget cannot catch a hang.
-A shard that hangs or otherwise never completes is stopped by the run step's 15 minute bound, which fails that step with a timeout cause while the timing artifact upload still runs.
+The budget is evaluated after the suite finishes, so a shard whose tests complete between 14 and 15 minutes fails naming that cause and pointing here; the budget cannot catch a hang or a shard that is still running at 15 minutes.
+A shard that hangs or is still running at 15 minutes is stopped by the run step's 15 minute bound, which fails that step with a timeout cause while the timing artifact upload still runs.
 The 20 minute job cap sits behind both and only fires if something outside the run step stalls.
 That ordering is the point of the budget: a cancelled job carries no verdict and reads to every operator as a test failure, which sends people debugging a suite that passed.
 Each shard also runs with `--budget-markdown "$GITHUB_STEP_SUMMARY"`, so its measured wall, budget, and remaining headroom appear on the run page of every build rather than being reconstructed from a stalled PR.
@@ -153,7 +153,7 @@ Portable shards, each portable serial shard, and the Herdr lane upload runner-ge
 | Lane | Bound | Rationale |
 |---|---|---|
 | portable parallel 1/2 | job `timeout-minutes: 10` | The measured shard sums are about three minutes and the timeout is a hang tripwire. |
-| portable serial 1-6 | runner budget 14 min; run step `timeout-minutes: 15`; job `timeout-minutes: 20` backstop | Each balanced shard is about 10.7 minutes of measured script time. The runner's enforced budget fails a completed shard naming its cause, the step bound is the hang tripwire (timing artifacts still upload), and the job cap is a last-resort backstop behind both. |
+| portable serial 1-6 | runner budget 14 min; run step `timeout-minutes: 15`; job `timeout-minutes: 20` backstop | Each balanced shard is about 10.7 minutes of measured script time. The runner's enforced budget fails a shard that completes between 14 and 15 minutes naming its cause, the step bound is the tripwire for a hang or a shard still running at 15 minutes (timing artifacts still upload), and the job cap is a last-resort backstop behind both. |
 | Herdr | family-run step `timeout-minutes: 20`; job `timeout-minutes: 75` backstop | Healthy runs finish around 8 minutes, so the step bound is the hang tripwire (cleanup and timing artifacts still upload) while the job cap stays a last-resort backstop. |
 
 Timeouts are hang tripwires rather than expected healthy durations.
