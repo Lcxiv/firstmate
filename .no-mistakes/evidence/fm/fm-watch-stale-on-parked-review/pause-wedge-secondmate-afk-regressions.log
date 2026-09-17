@@ -1,0 +1,46 @@
+== test_stale_is_terminal_classifier
+ok - stale_is_terminal: terminal status surfaces, non-terminal and no-status are benign
+== test_status_is_paused_classifier
+ok - status_is_paused: only the leading paused verb matches, paused is not captain-relevant, and the two declared-wait verbs stay separable
+== test_crew_is_provably_working_classifier
+ok - crew_is_provably_working: only working+run-step/pane is provable; idle/finished/parked/failed/unknown surface
+== test_terminal_stale_surfaced
+ok - a stale pane sitting on a terminal status is surfaced (queue + exit)
+== test_stale_terminal_status_overridden_by_active_run
+ok - a stale terminal-looking status is overridden and absorbed while a run is actively working, then wedge-escalated
+== test_nonterminal_stale_provably_working_absorbed_then_escalated
+ok - provably-working non-terminal stale is absorbed on first sight, then wedge-escalated past the threshold
+== test_wedge_escalation_marks_demand_deep_inspection_after_threshold
+ok - consecutive wedge escalations on the same pane accumulate and demand deep inspection at the threshold
+== test_busy_declared_pause_is_rechecked_not_wedge_escalated
+ok - a busy pane under a declared pause is rechecked on the long cadence, and lifting the pause restores the wedge escalation
+== test_afk_busy_declared_pause_hands_off_plain_stale
+ok - away mode hands a busy declared pause to the daemon as a plain stale, and lifting the declaration restores the wedge escalation
+== test_afk_busy_declared_pause_ticking_pane_hands_off_once
+ok - away mode wakes the daemon once per declaration for a busy pane whose footer ticks on every capture
+== test_nonterminal_stale_not_working_surfaced
+ok - a not-provably-working non-terminal stale is surfaced immediately (never left to wait out the timer)
+== test_nonterminal_stale_paused_absorbed_then_resurfaced
+ok - a declared pause is absorbed on first sight, then re-surfaced as a recheck past the threshold, never wedge-escalated
+== test_exited_declared_pause_is_bounded_but_live_gate_surfaces
+ok - exited declared-pause and captain-held panes use bounded pause cadence while a live decision gate still surfaces once
+== test_secondmate_paused_resurfaces_in_normal_mode
+ok - a declared paused secondmate re-surfaces on the bounded normal-mode cadence
+== test_secondmate_captain_held_resurfaces_in_normal_mode
+ok - a captain-held secondmate re-surfaces on the bounded normal-mode cadence
+== test_secondmate_nonpaused_stale_remains_suppressed
+ok - a non-paused secondmate retains normal stale suppression
+== test_secondmate_unpause_clears_pause_tracking
+ok - a resumed secondmate clears pause and stale tracking before stale exemption
+== test_nonterminal_stale_pause_transitions_reclassify_unchanged_hash
+ok - unchanged stale hashes reclassify when a crew enters or leaves pause
+== test_nonterminal_paused_rechecks_authoritative_state
+ok - a declared pause is periodically rechecked against authoritative active-run state
+== test_paused_authoritative_working_preserves_wedge_timer
+ok - a paused status overridden by authoritative working preserves its wedge timer and escalates
+== test_nonterminal_stale_repairs_missing_or_corrupt_timer
+ok - matching non-terminal stale suppressors repair missing or corrupt stale-since timers
+== test_beacon_stays_fresh_while_absorbing
+ok - the liveness beacon stays fresh while the watcher absorbs benign wakes (fm-guard never false-alarms)
+== test_afk_paused_changed_pane_hands_off_plain_stale
+ok - AFK changed paused panes hand off plain stale identities for daemon-owned pause triage

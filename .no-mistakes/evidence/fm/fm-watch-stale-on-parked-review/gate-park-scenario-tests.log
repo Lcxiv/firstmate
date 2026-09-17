@@ -1,0 +1,16 @@
+== test_crew_absorb_class_classifier
+ok - crew_absorb_class: working/paused/parked/none from one read; a parked verdict is admitted only from the run step
+== test_gate_parked_stale_absorbed_then_resurfaced
+ok - a crew parked at a gate with an open decision stops looping across pane churn, is recorded, then re-surfaced once per bounded cadence, never wedge-escalated
+== test_gate_parked_open_decision_behind_routine_note_absorbed
+ok - an open decision still admits the gate park when a routine note is the log's last line, because admission reads the durable fold
+== test_gate_parked_dead_endpoint_still_surfaces
+ok - a crew whose endpoint died at a parked gate still surfaces a stale wake on the existing schedule
+== test_gate_park_that_ends_returns_to_the_ordinary_stale_schedule
+ok - a gate park that ends cannot absorb past its bounded reconciliation window; it returns to the ordinary stale schedule
+== test_resolved_but_parked_worker_still_surfaces
+ok - a run still parked after its decision was resolved is the worker's move, so it surfaces on the ordinary stale schedule
+== test_captain_held_dead_crew_at_a_parked_run_keeps_captain_wording
+ok - a captain-held crew whose agent died at a parked run keeps the captain-held wording and the declared-wait cheap path
+== test_superseded_pause_declaration_is_not_absorbed
+ok - a declared external wait superseded by later activity is no longer treated as an active wait

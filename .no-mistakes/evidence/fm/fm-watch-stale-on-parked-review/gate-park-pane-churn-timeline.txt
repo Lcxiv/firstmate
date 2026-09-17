@@ -1,0 +1,25 @@
+t+15s tick=0 pane=61653086 stale-suppressor=61653086 match=yes alive=yes absorbs=4 wakes=0
+t+30s tick=1 pane=ea15f0bb stale-suppressor=ea15f0bb match=yes alive=yes absorbs=5 wakes=0
+t+45s tick=2 pane=a1b18af0 stale-suppressor=a1b18af0 match=yes alive=yes absorbs=8 wakes=0
+t+60s tick=3 pane=5d2bdbf7 stale-suppressor=5d2bdbf7 match=yes alive=yes absorbs=12 wakes=0
+t+75s tick=4 pane=9a06bb68 stale-suppressor=9a06bb68 match=yes alive=yes absorbs=15 wakes=0
+t+90s tick=5 pane=fb13bf2a stale-suppressor=fb13bf2a match=yes alive=yes absorbs=16 wakes=0
+--- triage log
+[2026-09-17T14:54:25-0700] absorbed stale (parked at a validation gate, awaiting firstmate, age 4s): test:fm-churn
+[2026-09-17T14:54:28-0700] absorbed stale (parked at a validation gate, awaiting firstmate, age 7s): test:fm-churn
+[2026-09-17T14:54:32-0700] absorbed stale (parked at a validation gate, awaiting firstmate, age 11s): test:fm-churn
+[2026-09-17T14:54:36-0700] absorbed stale (parked at a validation gate, awaiting firstmate, age 15s): test:fm-churn
+[2026-09-17T14:54:49-0700] absorbed stale (parked at a validation gate, awaiting firstmate, age 28s): test:fm-churn
+[2026-09-17T14:54:52-0700] absorbed stale (parked at a validation gate, awaiting firstmate, age 31s): test:fm-churn
+[2026-09-17T14:55:03-0700] absorbed stale (parked at a validation gate, awaiting firstmate, age 42s): test:fm-churn
+[2026-09-17T14:55:06-0700] absorbed stale (parked at a validation gate, awaiting firstmate, age 45s): test:fm-churn
+[2026-09-17T14:55:13-0700] absorbed stale (parked at a validation gate, awaiting firstmate, age 52s): test:fm-churn
+[2026-09-17T14:55:15-0700] absorbed stale (parked at a validation gate, awaiting firstmate, age 54s): test:fm-churn
+[2026-09-17T14:55:18-0700] absorbed stale (parked at a validation gate, awaiting firstmate, age 57s): test:fm-churn
+[2026-09-17T14:55:20-0700] absorbed stale (parked at a validation gate, awaiting firstmate, age 59s): test:fm-churn
+[2026-09-17T14:55:27-0700] absorbed stale (parked at a validation gate, awaiting firstmate, age 66s): test:fm-churn
+[2026-09-17T14:55:29-0700] absorbed stale (parked at a validation gate, awaiting firstmate, age 68s): test:fm-churn
+[2026-09-17T14:55:33-0700] absorbed stale (parked at a validation gate, awaiting firstmate, age 72s): test:fm-churn
+[2026-09-17T14:55:51-0700] absorbed stale (parked at a validation gate, awaiting firstmate, age 90s): test:fm-churn
+--- watcher stdout:
+--- .paused-test_fm-churn='gate-park'  wedge-timer=absent

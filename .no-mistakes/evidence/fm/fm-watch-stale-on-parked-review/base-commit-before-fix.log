@@ -1,0 +1,7 @@
+ROOT=/tmp/fmtest-80707/base
+== test_gate_parked_stale_absorbed_then_resurfaced
+not ok - a crew parked at a validation gate was not absorbed: stale: test:fm-gateparked
+rc=1
+== test_resolved_but_parked_worker_still_surfaces
+ok - a run still parked after its decision was resolved is the worker's move, so it surfaces on the ordinary stale schedule
+rc=0
