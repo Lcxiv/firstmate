@@ -51,23 +51,31 @@ $ gh repo view --json nameWithOwner
 
 `fm_gh_default_repo_ensure` clears every competing pin before writing origin's for this reason.
 
-## The pin is readable offline and exits 0 either way
+## The pin is readable offline once a host is named
 
 Verified 2026-09-17 against the same release.
-`gh repo set-default --view` needs no network and no valid credential, which is what lets the spawn preflight verify its own pin rather than assume it took.
-It exits 0 whether or not a default is set, and prints nothing on stdout when none is, so the verdict must come from stdout and never from the exit status.
+`gh repo set-default --view` needs no network and no valid credential, but it does need a host before it will read the pin at all.
+With no configured auth host, no `GH_TOKEN`, and no `GH_HOST`, it exits 4 with its login notice before consulting git config, which is the state of a GitHub-hosted CI runner.
+Naming the host through `GH_HOST` clears that gate without a credential, so the library always passes the host it resolves against and the verified command below is that form.
+Given a host, it exits 0 whether or not a default is set, and prints nothing on stdout when none is, so the verdict must come from stdout and never from the exit status.
 
 ```
-$ gh repo set-default --view; echo "exit=$?"          # unpinned
-X No default remote repository has been set. ...
-exit=0
-$ gh repo set-default --view; echo "exit=$?"          # pinned
+$ GH_CONFIG_DIR=$(mktemp -d) gh repo set-default --view; echo "exit=$?"                 # pinned, no auth store
+To get started with GitHub CLI, please run:  gh auth login
+exit=4
+$ GH_CONFIG_DIR=$(mktemp -d) GH_HOST=github.com gh repo set-default --view; echo "exit=$?"   # pinned, no auth store
 Lcxiv/firstmate
+exit=0
+$ GH_HOST=github.com gh repo set-default --view; echo "exit=$?"          # unpinned
+X No default remote repository has been set. ...
 exit=0
 ```
 
 Note that the unpinned reading does not name `upstream`.
 `gh` reports only that no default is set, never the ranking it is about to fall back to, so the wrong target is invisible at this surface.
+
+Because the pin lives in git config, which is what `gh` reads, a probe that cannot answer is not evidence of a wrong answer.
+`fm_gh_default_repo_ensure` therefore proceeds on a probe that is absent or fails, and refuses only when `gh` names a repository other than origin.
 
 ## A linked worktree shares the pin with its primary checkout
 

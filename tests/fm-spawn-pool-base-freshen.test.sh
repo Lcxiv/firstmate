@@ -591,7 +591,7 @@ test_stale_pin_beside_other_dirt_reports_one_verdict() {
 # no network: the spawn still refuses at the fetch, which is exactly what proves
 # the pin was applied ahead of it rather than as a side effect of a launch.
 test_fork_pool_resolves_lookups_to_origin_before_launch() {
-  local rec id out before after
+  local rec id out status before after
   id='pool-fork-default-repo-r6'
   rec=$(make_case fork-default-repo "$id")
   read_case_record "$rec"
@@ -603,7 +603,12 @@ test_fork_pool_resolves_lookups_to_origin_before_launch() {
     fail "the fork pool already resolved to origin before spawn; the fixture proves nothing"
 
   out=$(GH_HOST=github.invalid run_spawn "$id" --mode no-mistakes --yolo off)
-  [ -n "$out" ] || fail "spawn produced no output for the fork pool"
+  status=$?
+  [ "$status" -ne 0 ] || fail "spawn launched from a fork pool whose origin is unreachable"
+  assert_not_contains "$out" "cannot resolve GitHub lookups to origin" \
+    "spawn refused at the pin rather than at the fetch, so the pin did not settle first"
+  assert_contains "$out" "could not fetch origin" \
+    "spawn did not refuse at the fetch, which is what proves the pin ran ahead of it"
 
   after=$(cd "$POOL_DIR" && GH_HOST=github.invalid gh repo set-default --view 2>/dev/null || true)
   [ "$after" != "kunchenguid/firstmate" ] ||

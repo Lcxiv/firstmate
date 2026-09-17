@@ -49,13 +49,16 @@ fm_gh_default_repo_nwo_from_url() {  # <url>
 }
 
 # Echo the repository an unqualified gh lookup from <path> will target.
-# Return 1 when gh is absent or reports no default, which is also what gh prints
-# when it is about to fall back to its own remote ranking: that fallback is
-# exactly the ambiguity this library removes, and gh never names it.
+# Return 1 when gh is absent, cannot answer, or reports no default, which is
+# also what gh prints when it is about to fall back to its own remote ranking:
+# that fallback is exactly the ambiguity this library removes, and gh never
+# names it. The host is passed explicitly because gh refuses to read the pin at
+# all, exiting 4 with its login notice, when no host is configured, named, or
+# implied by a token; naming the host clears that gate without a credential.
 fm_gh_default_repo_resolved() {  # <path>
   local dir=$1 view
   command -v gh >/dev/null 2>&1 || return 1
-  view=$(cd "$dir" 2>/dev/null && gh repo set-default --view 2>/dev/null) || return 1
+  view=$(cd "$dir" 2>/dev/null && GH_HOST="$(fm_gh_default_repo_host)" gh repo set-default --view 2>/dev/null) || return 1
   view=${view%%$'\n'*}
   case $view in
     ?*/?*) printf '%s\n' "$view" ;;
@@ -67,8 +70,10 @@ fm_gh_default_repo_resolved() {  # <path>
 # Idempotent. A checkout with no origin, or an origin on another host, has no
 # GitHub lookup to disambiguate and is reported as an untouched success.
 # Refuse rather than report success when the pin cannot be written or when gh
-# is installed and still resolves somewhere other than origin, because a silent
-# wrong answer is the whole failure this guards.
+# answers that lookups resolve somewhere other than origin, because a silent
+# wrong answer is the whole failure this guards. A probe gh cannot answer is
+# not a wrong answer: the pin is already in git config, which is what gh reads,
+# so it stands on its own and the caller proceeds.
 fm_gh_default_repo_ensure() {  # <path>
   local dir=$1 url nwo remote current resolved
   git -C "$dir" rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
@@ -104,13 +109,10 @@ EOF
   # Verify rather than assume gh agrees. A wrapper assuming it and gh resolve a
   # repository alike is the failure this library exists to stop, so the same
   # assumption is not repeated here. gh reads the pin offline, so this costs no
-  # network. With gh absent there is no gh lookup to be misled and nothing to
-  # verify, so the written pin stands on its own.
-  resolved=$(fm_gh_default_repo_resolved "$dir") || {
-    command -v gh >/dev/null 2>&1 || return 0
-    echo "error: '$dir' still reports no default repository after pinning '$nwo'" >&2
-    return 1
-  }
+  # network. Only a gh that names a different repository contradicts the pin;
+  # a gh that is absent or cannot answer leaves the written pin standing, which
+  # is never worse than the unpinned checkout this replaces.
+  resolved=$(fm_gh_default_repo_resolved "$dir") || return 0
   if [ "$resolved" != "$nwo" ]; then
     echo "error: lookups from '$dir' resolve to '$resolved', not origin '$nwo'" >&2
     return 1

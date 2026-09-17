@@ -11,7 +11,8 @@
 #
 # Every assertion below reads the repository an unqualified lookup actually
 # resolves to, through gh itself, so a test passes only when a real lookup would
-# land on origin.
+# land on origin. The two probe-outcome cases at the end stand a stub in for gh,
+# because a real gh cannot be made to contradict a pin it has just read.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -143,6 +144,71 @@ test_non_github_origin_is_untouched() {
   pass "an origin on another host is left untouched"
 }
 
+# A GitHub-hosted CI runner ships gh with no auth store, no token, and no
+# GH_HOST. In that state gh exits 4 with its login notice before it reads any
+# pin, so a probe that leans on ambient configuration refuses every spawn there.
+test_pin_holds_without_a_gh_auth_store() {
+  local dir="$TMP_ROOT/no-auth-store" cfg="$TMP_ROOT/empty-gh-config" got
+  make_fork_clone "$dir"
+  mkdir -p "$cfg"
+  got=$(
+    unset GH_TOKEN GH_ENTERPRISE_TOKEN GH_HOST
+    export GH_CONFIG_DIR="$cfg"
+    fm_gh_default_repo_ensure "$dir" || fail "pinning origin failed with no gh auth store"
+    resolved_repo "$dir"
+  ) || exit 1
+  [ "$got" = "$ORIGIN_NWO" ] ||
+    fail "with no gh auth store, lookups resolve to '$got', not origin '$ORIGIN_NWO'"
+  pass "pinning holds on a host with no gh auth store, token, or GH_HOST"
+}
+
+# stub_gh <dir> <script-body>: a gh that answers as <script-body> says.
+stub_gh() {
+  local bin="$1/bin"
+  mkdir -p "$bin"
+  printf '#!/bin/sh\n%s\n' "$2" > "$bin/gh"
+  chmod +x "$bin/gh"
+  printf '%s\n' "$bin"
+}
+
+# with_stub_gh <stub-bin> <command...>: run <command> with the stub ahead of the
+# real gh on PATH, restoring PATH afterwards.
+with_stub_gh() {
+  local saved=$PATH rc
+  PATH="$1:$PATH"
+  shift
+  "$@"
+  rc=$?
+  PATH=$saved
+  return "$rc"
+}
+
+test_probe_that_cannot_answer_keeps_the_written_pin() {
+  local dir="$TMP_ROOT/unanswerable" stub got
+  make_fork_clone "$dir"
+  stub=$(stub_gh "$TMP_ROOT/unanswerable-gh" 'echo "To get started with GitHub CLI, please run:  gh auth login" >&2; exit 4')
+  with_stub_gh "$stub" fm_gh_default_repo_ensure "$dir" ||
+    fail "a probe gh could not answer refused the pin instead of leaving it standing"
+  [ "$(git -C "$dir" config --get remote.origin.gh-resolved)" = base ] ||
+    fail "the pin was not written when the probe could not answer"
+  got=$(resolved_repo "$dir")
+  [ "$got" = "$ORIGIN_NWO" ] ||
+    fail "the pin written under an unanswerable probe resolves to '$got', not origin '$ORIGIN_NWO'"
+  pass "a probe gh cannot answer leaves the written pin standing"
+}
+
+test_probe_naming_another_repository_refuses() {
+  local dir="$TMP_ROOT/contradicted" stub err
+  make_fork_clone "$dir"
+  stub=$(stub_gh "$TMP_ROOT/contradicted-gh" "echo $UPSTREAM_NWO")
+  if err=$(with_stub_gh "$stub" fm_gh_default_repo_ensure "$dir" 2>&1); then
+    fail "a gh naming '$UPSTREAM_NWO' after the pin was accepted as origin"
+  fi
+  assert_contains "$err" "$UPSTREAM_NWO" "the refusal does not name the repository gh resolved to"
+  assert_contains "$err" "$ORIGIN_NWO" "the refusal does not name origin"
+  pass "a gh that resolves to another repository after pinning still refuses"
+}
+
 test_remote_url_shapes_resolve_to_the_same_repository() {
   local url got
   for url in \
@@ -173,4 +239,7 @@ test_a_competing_upstream_pin_is_cleared
 test_pinning_is_idempotent
 test_clone_without_origin_is_untouched
 test_non_github_origin_is_untouched
+test_pin_holds_without_a_gh_auth_store
+test_probe_that_cannot_answer_keeps_the_written_pin
+test_probe_naming_another_repository_refuses
 test_remote_url_shapes_resolve_to_the_same_repository

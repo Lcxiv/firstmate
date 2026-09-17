@@ -510,6 +510,28 @@ test_bootstrap_relays_recovered_and_stuck() {
   pass "bootstrap relays recovered: and STUCK: fleet-sync outcomes"
 }
 
+# The default-repository pin is best-effort in fleet-sync and only warns, so the
+# warning has to reach the captain through the same FLEET_SYNC relay as the
+# other outcomes or it is a silent wrong answer. A held config lock makes the
+# pin unwritable; the origin sits on the gh host but an unresolvable one, so the
+# fetch fails fast and nothing leaves the machine.
+test_bootstrap_relays_default_repo_warning() {
+  local home clone out
+  home=$(new_home)
+  clone=$(build_pair "$home" pin-clone)
+  git -C "$clone" remote set-url origin https://github.invalid/Lcxiv/firstmate.git
+  touch "$clone/.git/config.lock"
+
+  out=$(GH_HOST=github.invalid run_sync "$home")
+  assert_contains "$out" "pin-clone: warning: GitHub lookups may not resolve to origin" \
+    "fleet-sync did not warn when the pin could not be written"
+
+  out=$(GH_HOST=github.invalid FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null)
+  assert_contains "$out" "FLEET_SYNC: pin-clone: warning: GitHub lookups may not resolve to origin" \
+    "bootstrap dropped the default-repository warning instead of relaying it"
+  pass "bootstrap relays the default-repository warning as a FLEET_SYNC line"
+}
+
 # --- packed-refs.lock guard tests -------------------------------------------
 
 test_orphaned_stale_packed_refs_lock_recovers() {
@@ -711,6 +733,7 @@ test_single_project_by_projects_relative_name_ignores_cwd_shadow
 test_single_project_unresolvable_name_still_skips
 test_whole_fleet_form
 test_bootstrap_relays_recovered_and_stuck
+test_bootstrap_relays_default_repo_warning
 test_orphaned_stale_packed_refs_lock_recovers
 test_live_packed_refs_lock_is_never_removed
 test_live_git_cwd_in_clone_dir_blocks_removal
