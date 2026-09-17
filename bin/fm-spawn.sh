@@ -135,9 +135,14 @@
 #   Ship/scout spawns refuse to launch unless the resolved task path is a real
 #   git worktree root distinct from the primary project checkout.
 #   Before a fresh ship or scout worker starts, its clean task worktree fetches
-#   origin, resolves the current remote default branch, and resets to its tip.
-#   An unreachable origin, unresolved default branch, or non-clean worktree
-#   refuses the spawn rather than risking a PR based on stale history.
+#   origin, resolves the current remote default branch, resets to its tip, and
+#   pins origin as the worktree's GitHub default repository so the worker's own
+#   unqualified PR lookups cannot answer from a different repository.
+#   The pin runs before the fetch, in both modes below, because it settles
+#   configuration rather than content; a checkout with no origin is left untouched.
+#   An unreachable origin, unresolved default branch, non-clean worktree, or
+#   unpinnable default repository refuses the spawn rather than risking a PR
+#   based on stale history or a worker misled about its own PR.
 #   A project with no remote configured at all is a supported local-only shape,
 #   not an unreachable origin: it skips the fetch and resets to its own local
 #   default branch instead, because that branch is the only authority there is.
@@ -306,6 +311,8 @@ fm_backlog_directory_present "$STATE" "state directory" || {
 . "$SCRIPT_DIR/fm-cursor-lib.sh"
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
+# shellcheck source=bin/fm-gh-default-repo-lib.sh
+. "$SCRIPT_DIR/fm-gh-default-repo-lib.sh"
 # shellcheck source=bin/fm-trace-context-lib.sh
 . "$SCRIPT_DIR/fm-trace-context-lib.sh"
 # shellcheck source=bin/fm-remote-readiness-lib.sh
@@ -1990,6 +1997,18 @@ spawn_worktree_has_no_remote() {  # <worktree>
 
 freshen_spawn_worktree_base() {  # <worktree>
   local worktree=$1 default target
+  # A fresh base is only half of a trustworthy checkout: the worker also has to
+  # be able to look its own PR up. Pin origin as the default repository so an
+  # unqualified lookup cannot answer from a different repository, which on a
+  # fork returns a real, plausible PR of the same number instead of not-found.
+  # This runs before the fetch below because it settles configuration rather
+  # than content, so a worktree this function later refuses is still left
+  # resolving its lookups correctly. A checkout with no origin, or an origin off
+  # the gh host, is left untouched, so the remoteless mode below is unaffected.
+  if ! fm_gh_default_repo_ensure "$worktree"; then
+    echo "error: pooled worktree '$worktree' cannot resolve GitHub lookups to origin; refusing to launch a worker that would be told about the wrong repository" >&2
+    return 1
+  fi
   if spawn_worktree_has_no_remote "$worktree"; then
     default=$(default_branch "$worktree") || {
       echo "error: pooled worktree '$worktree' has no remote configured and no local default branch (expected main or master); refusing to launch from an unknown base" >&2

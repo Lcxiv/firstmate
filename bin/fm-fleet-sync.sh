@@ -11,6 +11,10 @@
 # is left untouched and reported as a quantified, loud "STUCK: ... N commits behind
 # ... - needs attention" warning rather than a quiet drift. Nothing is ever forced,
 # stashed, or discarded.
+# Also converges each synced clone's GitHub default repository on origin, so an
+# unqualified lookup made from it cannot silently answer from a fork parent that
+# shares its history; that pin is best-effort and only warns, because
+# bin/fm-spawn.sh refuses at the point a worker would actually be misled.
 # Still skips (benignly) local-only/no-origin projects, missing remotes/branches,
 # and fetch failures.
 # A candidate under projects/ must be the root of its own work tree: git discovery
@@ -43,6 +47,8 @@ PROJECTS="${FM_PROJECTS_OVERRIDE:-$FM_HOME/projects}"
 # Inert unless FM_TIMING_LOG names a file; only the deferred network stage sets it.
 # shellcheck source=bin/fm-timing-lib.sh
 . "$SCRIPT_DIR/fm-timing-lib.sh"
+# shellcheck source=bin/fm-gh-default-repo-lib.sh
+. "$SCRIPT_DIR/fm-gh-default-repo-lib.sh"
 FM_LOCK_LOG_PREFIX=fleet-sync
 "$FM_ROOT/bin/fm-guard.sh" || true
 
@@ -333,6 +339,15 @@ sync_project() {
   if ! git -C "$PROJ" remote get-url origin >/dev/null 2>&1; then
     echo "$label: skipped: no origin remote"
     return 0
+  fi
+
+  # Converge the clone's GitHub default repository on origin, so an unqualified
+  # lookup made from it cannot answer from a fork parent that shares its
+  # history. Best-effort by design: a clone that cannot be pinned still deserves
+  # its fast-forward, and bin/fm-spawn.sh refuses at the point a worker would
+  # actually be misled.
+  if ! pin_reason=$(fm_gh_default_repo_ensure "$PROJ" 2>&1); then
+    echo "$label: warning: GitHub lookups may not resolve to origin: $(first_line "$pin_reason")"
   fi
 
   if ! fetch_with_packed_refs_lock_guard; then

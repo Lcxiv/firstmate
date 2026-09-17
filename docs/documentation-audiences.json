@@ -433,6 +433,10 @@
       "audience": "maintainer-verification"
     },
     {
+      "path": "docs/verification/github-default-repo.md",
+      "audience": "maintainer-verification"
+    },
+    {
       "path": "docs/verification/muse.md",
       "audience": "maintainer-verification"
     },
