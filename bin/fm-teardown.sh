@@ -169,6 +169,42 @@
 #     root still exists, so the account's healthy LaunchAgent worker and every
 #     live remote secondmate worker are out of scope. Best effort: a sweep
 #     failure never blocks this teardown.
+#   Fix 4 - retire this task's own browser-automation session. A browser driven
+#     through chrome-devtools-axi runs under a detached bridge keyed by SESSION
+#     NAME, in its own process group, with the cwd of whichever task launched it
+#     first - so every later task that reuses that session drives a browser Fix 2
+#     cannot see, and its teardown correctly reports "nothing leaked" while the
+#     whole Chrome tree survives (observed 2026-09-16: browser-using tasks torn
+#     down normally left 49 Chrome-family processes holding 2.96 GB). fm-spawn now
+#     binds a per-task session name and records it as browser_session= in the
+#     task's meta; this step reads that field back and retires exactly that
+#     session through the tool's own `chrome-devtools-axi stop`.
+#     bin/fm-browser-session-lib.sh owns the name derivation, the three-record
+#     ownership proof (meta name, the tool's per-session pid file, and that pid
+#     both running the bridge and listening on the port that same file records),
+#     and the retirement call. Nothing is signalled unless all three agree, so a
+#     stale record, a reused pid, an already-exited browser, the ambient default
+#     session, and another task's session are all left untouched; a repeat
+#     teardown proves no live bridge and is a silent no-op. The task's own
+#     leftover session directory is cleared with it, so binding a session per
+#     task does not trade a process leak for a pile of state directories; a
+#     record whose live owner was refused is preserved instead. Only the bridge
+#     is ever proved, so what it reports is what it measured: the bridge pid is
+#     gone, never that the browser tree was confirmed to have exited; a bridge
+#     still alive after the stop keeps its record so a later cleanup can still
+#     prove it. Unlike Fix 1 and Fix 2 this step runs for EVERY kind,
+#     kind=secondmate included: fm-spawn binds and records a session for all of
+#     them, and a secondmate whose session was never retired leaks exactly the
+#     browser tree this fix exists for. It is keyed by the task's own recorded
+#     session name, not by anything under a task worktree, so it has no stake in
+#     the worktree boundary those two are guarded by. Silent when the task never
+#     recorded a session or never started a bridge. Best effort: an unretired
+#     browser never blocks this teardown. A forced secondmate cleanup runs the
+#     same step per CHILD inside cleanup_firstmate_home_children, immediately
+#     before that child's own meta is removed: that record is the only thing
+#     naming the child's session, so once it is gone the child's bridge could
+#     never be attributed by anything again. That loop recurses, so a nested
+#     secondmate home's children are covered at the same point.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -230,6 +266,8 @@ fm_backlog_directory_present "$STATE" "state directory" || {
 # directly (bin/fm-busy-event.sh is its only writer).
 # shellcheck source=bin/fm-busy-lib.sh
 . "$SCRIPT_DIR/fm-busy-lib.sh"
+# shellcheck source=bin/fm-browser-session-lib.sh
+. "$SCRIPT_DIR/fm-browser-session-lib.sh"
 # Role partition: forced teardown discards work, and the supervision branch
 # never discards anything - only an ordinary landed-work teardown is branch
 # territory (contract: bin/fm-lease-lib.sh).
@@ -887,6 +925,10 @@ PR_URL=$(grep '^pr=' "$META" | tail -1 | cut -d= -f2- || true)
 # tasktmp is recorded by fm-spawn for tasks that set up a per-task temp root
 # (/tmp/fm-<id>/); absent for tasks spawned before that change, so tolerate empty.
 TASK_TMP=$(grep '^tasktmp=' "$META" | cut -d= -f2- || true)
+# browser_session is recorded by fm-spawn for tasks launched with a task-bound
+# chrome-devtools-axi session; absent for tasks spawned before that change and for
+# a spawn whose derivation failed, so tolerate empty (Fix 4 below then does nothing).
+BROWSER_SESSION=$(grep '^browser_session=' "$META" | cut -d= -f2- || true)
 BUSY_GEN=$(fm_meta_get "$META" busy_gen)
 if [ -z "$BUSY_GEN" ]; then
   BUSY_GEN=$(cat "$STATE/$ID.busy-gen" 2>/dev/null || true)
@@ -2701,6 +2743,10 @@ cleanup_firstmate_home_children() {
     fi
     retire_busy_state "$sub_state" "$child_id" "$child_busy_gen" || return 1
     status_retire_presentation_task "$sub_state" "$child_id" || return 1
+    # Fix 4 (see script header) for this child, while its own record still names
+    # the session: the removal below is the last moment that binding exists, and
+    # after it no cleanup anywhere could ever attribute that bridge again.
+    fm_browser_session_stop "$(meta_value "$child_meta" browser_session)" >&2 || true
     fm_backlog_atomic_transition remove "$sub_state/$child_id.meta" "task record" "$sub_state" || return 1
     rm -f "$sub_state/$child_id.turn-ended" \
       "$sub_state/$child_id.pi-ext.ts" \
@@ -2899,6 +2945,14 @@ if [ "$KIND" != secondmate ]; then
   conclude_task_no_mistakes_run "$WT"
   reap_task_worktree_processes worktree "$WT" "$TASK_TMP"
 fi
+# Fix 4 (see script header): retire this task's own browser session. Every kind,
+# secondmate included: fm-spawn binds and records a session for all of them, and
+# the retirement is keyed by the task's own recorded session name rather than by
+# anything in a task worktree, so it has no stake in the worktree boundary above.
+# Runs AFTER the cwd sweep so a browser this task also launched itself is already
+# gone and this is a proven no-op; what it adds is the browser this task drove but
+# did not launch, which no cwd under this worktree can reach.
+fm_browser_session_stop "$BROWSER_SESSION" >&2 || true
 
 # Fix 3 (see script header): sweep remote job workers abandoned by an already
 # pruned code root. Best effort - a sweep failure never blocks this teardown.

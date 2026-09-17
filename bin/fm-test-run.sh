@@ -266,7 +266,8 @@ family_for_basename() {
     fm-sessionstart-hook-live-e2e.test.sh|fm-sessionstart-instruction-refresh-live-e2e.test.sh|\
     fm-quota-array-dispatch-live-e2e.test.sh|fm-send-secondmate-marker-herdr-e2e.test.sh|\
     fm-send-inbox-doorbell-live-e2e.test.sh|\
-    fm-herdr-submit-confirm-live-e2e.test.sh)
+    fm-herdr-submit-confirm-live-e2e.test.sh|\
+    fm-browser-session-live-e2e.test.sh)
       printf '%s\n' live-harness-optin
       ;;
     fm-backend-herdr.test.sh|fm-backend-tmux-smoke.test.sh|fm-backend.test.sh|\
@@ -276,6 +277,7 @@ family_for_basename() {
     fm-send-inbox.test.sh|fm-spawn-batch.test.sh|\
     fm-spawn-dispatch-profile.test.sh|\
     fm-trace-context-spawn.test.sh|fm-spawn-worktree-settle.test.sh|\
+    fm-browser-session.test.sh|\
     fm-teardown-endpoint-safety.test.sh)
       printf '%s\n' backend-dispatch
       ;;
@@ -1167,9 +1169,15 @@ families_for_changed_path() {
       printf '%s\n' __script__:fm-procevent-when.test.sh
       printf '%s\n' __script__:fm-remote-reply.test.sh
       ;;
+    bin/fm-browser-session-lib.sh)
+      printf '%s\n' __script__:fm-browser-session.test.sh
+      printf '%s\n' live-harness-optin
+      ;;
     bin/fm-timeout-lib.sh)
+      printf '%s\n' __script__:fm-browser-session.test.sh
       # The shared hard bound: session start's runtime bound, the fleet/bearings
-      # snapshots, the vendor auth probe, the stow cascade's per-home step, and
+      # snapshots, the vendor auth probe, the browser-session vendor stop bound,
+      # the stow cascade's per-home step, and
       # the wedge detector's worktree write probe all depend on it.
       printf '%s\n' session-bootstrap
       printf '%s\n' snapshot-bearings
@@ -1178,7 +1186,13 @@ families_for_changed_path() {
       printf '%s\n' watcher-wake-lock
       printf '%s\n' "__script__:fm-procevent-quota.test.sh"
       ;;
-    bin/fm-phone-*|bin/fm-pr-*|bin/fm-merge-local.sh|bin/fm-teardown.sh|bin/fm-review-diff.sh|\
+    bin/fm-teardown.sh)
+      printf '%s\n' pr-forge
+      # Teardown owns Fix 4's call site and the browser_session= meta read, which
+      # tests/fm-browser-session.test.sh drives through the real script.
+      printf '%s\n' __script__:fm-browser-session.test.sh
+      ;;
+    bin/fm-phone-*|bin/fm-pr-*|bin/fm-merge-local.sh|bin/fm-review-diff.sh|\
     bin/fm-x-*|bin/fm-check*)
       printf '%s\n' pr-forge
       ;;

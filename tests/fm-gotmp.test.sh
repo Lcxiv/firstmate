@@ -67,6 +67,9 @@ make_fake_root() {
   # fm-busy-lib.sh: teardown sources it to read the armed incarnation generation
   # when migrating a record written before spawn_gen existed.
   ln -s "$ROOT/bin/fm-busy-lib.sh" "$fake/bin/fm-busy-lib.sh"
+  # fm-browser-session-lib.sh: teardown sources it to retire the task's own
+  # browser session; this fixture records none, so it is a no-op here.
+  ln -s "$ROOT/bin/fm-browser-session-lib.sh" "$fake/bin/fm-browser-session-lib.sh"
   # Lifecycle serialization, status presentation retirement, and shared adapter
   # ownership are sourced by teardown.
   ln -s "$ROOT/bin/fm-control-lib.sh" "$fake/bin/fm-control-lib.sh"
@@ -165,6 +168,9 @@ test_teardown_skips_gracefully_without_tasktmp() {
   # fm-busy-lib.sh: teardown sources it to read the armed incarnation generation
   # when migrating a record written before spawn_gen existed.
   ln -s "$ROOT/bin/fm-busy-lib.sh" "$fake/bin/fm-busy-lib.sh"
+  # fm-browser-session-lib.sh: teardown sources it to retire the task's own
+  # browser session; this fixture records none, so it is a no-op here.
+  ln -s "$ROOT/bin/fm-browser-session-lib.sh" "$fake/bin/fm-browser-session-lib.sh"
   ln -s "$ROOT/bin/fm-control-lib.sh" "$fake/bin/fm-control-lib.sh"
   ln -s "$ROOT/bin/fm-classify-lib.sh" "$fake/bin/fm-classify-lib.sh"
   # fm-timeout-lib.sh: the shared hard bound fm-classify-lib.sh sources for the

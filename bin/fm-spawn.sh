@@ -310,6 +310,8 @@ fm_backlog_directory_present "$STATE" "state directory" || {
 . "$SCRIPT_DIR/fm-trace-context-lib.sh"
 # shellcheck source=bin/fm-remote-readiness-lib.sh
 . "$SCRIPT_DIR/fm-remote-readiness-lib.sh"
+# shellcheck source=bin/fm-browser-session-lib.sh
+. "$SCRIPT_DIR/fm-browser-session-lib.sh"
 # Fail closed before any fleet mutation: a no-mistakes gate agent must never spawn
 # a direct report (see bin/fm-gate-refuse-lib.sh).
 fm_refuse_if_gate_agent
@@ -2609,6 +2611,14 @@ fi
 TASK_TMP="/tmp/fm-$ID"
 mkdir -p "$TASK_TMP/gotmp"
 
+# Per-task browser-automation session. chrome-devtools-axi keys its detached bridge
+# (and the Chrome tree under it) by session name, so an unbound task shares one
+# ambient bridge with every other task and nothing at cleanup can attribute that
+# browser to the task that used it. Scoped by the owning home so two firstmate
+# homes holding the same task id never resolve to one session. Derivation, the ownership
+# proof, and retirement all live in bin/fm-browser-session-lib.sh.
+BROWSER_SESSION=$(fm_browser_session_name "$ID" "$FM_HOME") || BROWSER_SESSION=
+
 # Per-harness turn-end hook where enabled: a file that touches
 # state/<id>.turn-ended when the agent finishes a turn. Worktree-resident hooks
 # and token pointers stay out of git's view so they never block teardown's dirty
@@ -2989,7 +2999,7 @@ SPAWN_META_PATH=$SPAWN_META_TMP
 preserve_relaunch_meta() {
   awk -F= '
     BEGIN {
-      split("window endpoint_task_id worktree project harness kind mode yolo tasktmp model effort busy_gen spawn_gen traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx", keys, " ")
+      split("window endpoint_task_id worktree project harness kind mode yolo tasktmp browser_session model effort busy_gen spawn_gen traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx", keys, " ")
       for (i in keys) owned[keys[i]] = 1
     }
     !($1 in owned)
@@ -3005,6 +3015,7 @@ preserve_relaunch_meta() {
   [ -z "$MODE" ] || echo "mode=$MODE"
   [ -z "$YOLO" ] || echo "yolo=$YOLO"
   echo "tasktmp=$TASK_TMP"
+  [ -z "$BROWSER_SESSION" ] || echo "browser_session=$BROWSER_SESSION"
   echo "model=${MODEL:-default}"
   echo "effort=${EFFORT:-default}"
   [ -z "${BUSY_GEN:-}" ] || echo "busy_gen=$BUSY_GEN"
@@ -3186,6 +3197,13 @@ spawn_record_traceparent() {
 # process (go build, go test, ...) inherit it. Sent before the launch command so
 # the env is set when the agent starts; the brief sleep lets the export land.
 spawn_send_text_line "$T" "export GOTMPDIR=$TASK_TMP/gotmp"
+# Same channel, same reason: every backend and harness must see the task's own
+# browser session before the agent runs its first chrome-devtools-axi command, or
+# that command resolves the ambient default session and its browser becomes
+# unattributable at cleanup. An export that does not land degrades to today's
+# behavior - teardown then proves no owned bridge and touches nothing.
+[ -z "$BROWSER_SESSION" ] \
+  || spawn_send_text_line "$T" "export CHROME_DEVTOOLS_AXI_SESSION=$BROWSER_SESSION"
 # Send through the exact channel that already ships GOTMPDIR, so every backend
 # and harness - ship, scout, and secondmate - gets it before launch. Skipped
 # entirely when trace context is off.

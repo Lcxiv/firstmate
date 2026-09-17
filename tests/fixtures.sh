@@ -100,11 +100,18 @@ fm_test_fake_gh_axi() {
 # The pane path defaults to empty when FM_FAKE_PANE_PATH is unset. Window
 # cleanup and option operations are no-ops. Launch logging is env-gated, so
 # suites that do not set FM_FAKE_LAUNCH_LOG keep a silent send-keys.
+# FM_FAKE_LAUNCH_LOG records only `send-keys -l` payloads (the launch command).
+# FM_FAKE_TMUX_CALL_LOG, when set, records EVERY invocation verbatim, which is how
+# a suite observes pane-environment exports: those go out as `send-keys <text>
+# Enter`, with no -l, so the launch log never sees them.
 fm_test_fake_tmux_spawn() {
   local fakebin=$1
   cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
+if [ -n "${FM_FAKE_TMUX_CALL_LOG:-}" ]; then
+  printf '%s\n' "$*" >> "$FM_FAKE_TMUX_CALL_LOG"
+fi
 case "$*" in
   *"#{pane_current_path}"*) printf '%s\n' "${FM_FAKE_PANE_PATH:-}"; exit 0 ;;
 esac
