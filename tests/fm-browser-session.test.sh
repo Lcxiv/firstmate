@@ -203,6 +203,24 @@ run_stop() {  # <fake-root> <session> -> stdout+stderr on fd 1, exit code preser
     bash -c '. "$1"; fm_browser_session_stop "$2"' _ "$LIB" "$name" 2>&1
 }
 
+# no_lsof_path: a PATH holding only the externals the ownership proof needs, with
+# lsof deliberately absent, so `command -v lsof` really fails for the code under
+# test instead of the test pretending it did.
+NO_LSOF_BIN="$TMP_ROOT/no-lsof-bin"
+no_lsof_path() {
+  local tool src
+  if [ ! -d "$NO_LSOF_BIN" ]; then
+    mkdir -p "$NO_LSOF_BIN"
+    for tool in cat ps sed head rm sleep dirname basename mkdir; do
+      src=$(command -v "$tool") || fail "no-lsof fixture needs $tool"
+      ln -sf "$src" "$NO_LSOF_BIN/$tool"
+    done
+  fi
+  command -v lsof >/dev/null 2>&1 \
+    && [ ! -e "$NO_LSOF_BIN/lsof" ] || fail "the no-lsof fixture PATH still resolves lsof"
+  printf '%s' "$NO_LSOF_BIN"
+}
+
 # --- name derivation --------------------------------------------------------
 
 test_name_is_task_scoped_and_never_default() {
@@ -520,6 +538,42 @@ test_default_session_is_never_retired() {
   pass "the ambient default browser session is never retired"
 }
 
+test_missing_lsof_refuses_and_says_why() {
+  # lsof-less hosts are supported (fm-teardown.sh has its own fallback there). The
+  # listen check cannot run at all on such a host, so ownership is unproven - but
+  # "we could not look" is a different fact from "we looked and it is not there",
+  # and reporting the latter both misdirects the operator and claims a measurement
+  # that never happened.
+  local b pid tree fake out session=fm-nolsof-7f7f7f7f
+  b=$(start_bridge "$session"); pid=${b%% *}
+  tree=$(bridge_tree "$pid")
+  fake=$(make_fake_root br-nolsof "$session" "$TMP_ROOT/stop-nolsof.log")
+  out=$(PATH="$(no_lsof_path):$fake/fakebin" \
+    FM_BROWSER_SESSION_STATE_ROOT="$STATE_ROOT" \
+    /bin/bash -c '. "$1"; fm_browser_session_stop "$2"' _ "$LIB" "$session" 2>&1) \
+    || fail "an unprovable session must not fail cleanup: $out"
+  sleep 1
+  [ "$(tree_alive_count "$tree")" -eq 2 ] \
+    || fail "a bridge whose ownership could not be proven was signalled anyway"
+  [ ! -f "$TMP_ROOT/stop-nolsof.log" ] \
+    || fail "retirement was invoked without a completed ownership proof"
+  [ -f "$STATE_ROOT/sessions/$session/bridge.pid" ] \
+    || fail "the only ownership record of a possibly-live bridge was cleared"
+  case "$out" in
+    *"is not listening on"*)
+      fail "cleanup asserted an unmeasured negative when lsof was unavailable: $out" ;;
+  esac
+  case "$out" in
+    *"lsof is unavailable"*) ;;
+    *) fail "cleanup did not name the missing tool as the reason: $out" ;;
+  esac
+  case "$out" in
+    *"$session"*"nothing was retired"*) ;;
+    *) fail "cleanup did not report the session it left alone: $out" ;;
+  esac
+  pass "a host without lsof reports ownership as unprovable, retires nothing, and keeps the record"
+}
+
 # --- stale, absent, and already-exited records ------------------------------
 
 test_stale_and_absent_records_are_no_ops() {
@@ -578,4 +632,5 @@ test_alive_bridge_that_released_its_port_is_reported_and_kept
 test_pid_reuse_is_refused
 test_port_identity_mismatch_is_refused
 test_default_session_is_never_retired
+test_missing_lsof_refuses_and_says_why
 test_stale_and_absent_records_are_no_ops

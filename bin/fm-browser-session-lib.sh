@@ -41,6 +41,9 @@
 #      on the port the same pid file records. The listen check is `lsof -p <pid>`
 #      scoped to one pid and one port - never a scan for browsers on ambient ports -
 #      and it is what defeats pid reuse: a recycled pid is not listening there.
+#      A host without lsof cannot run that check at all. That is reported as what it
+#      is - ownership unprovable here, nothing retired - and never as the different,
+#      unmeasured claim that the pid is not listening.
 # Any disagreement returns non-zero with a reason on stdout, and the caller leaves
 # the process alone. Ambiguity never escalates to a signal.
 #
@@ -187,7 +190,7 @@ fm_browser_session_valid_name() {
 # leftover state directory to be cleared; 2 preserves it, because a live stranger
 # still owns that record. Read-only: signals nothing.
 fm_browser_session_bridge_pid() {
-  local name=${1:-} dir pidfile raw pid port cmd
+  local name=${1:-} dir pidfile raw pid port cmd listen_rc
   if ! fm_browser_session_valid_name "$name"; then
     printf 'recorded browser session name is absent or not task-scoped\n'
     return 1
@@ -227,7 +230,13 @@ fm_browser_session_bridge_pid() {
       return 2
       ;;
   esac
-  if ! fm_browser_session_pid_listens_on "$pid" "$port"; then
+  fm_browser_session_pid_listens_on "$pid" "$port" && listen_rc=0 || listen_rc=$?
+  if [ "$listen_rc" -eq 2 ]; then
+    printf 'browser session %s has a live recorded bridge (pid %s) but ownership cannot be proven on this host: lsof is unavailable, so pid %s was never checked against port %s; nothing was retired\n' \
+      "$name" "$pid" "$pid" "$port"
+    return 2
+  fi
+  if [ "$listen_rc" -ne 0 ]; then
     printf 'pid %s is not listening on browser session %s port %s; leaving it alone\n' \
       "$pid" "$name" "$port"
     return 2
@@ -251,10 +260,15 @@ fm_browser_session_json_number() {
 
 # fm_browser_session_pid_listens_on <pid> <port>
 # One pid, one port. Never an ambient scan for whatever happens to be listening.
-# lsof missing means the binding cannot be proven, so ownership stays unproven.
+# Three distinct outcomes, because "we looked and it is not there" and "we could
+# not look" are different facts and the caller reports them differently:
+#   0 - measured: that pid is listening on that port.
+#   1 - measured: it is not.
+#   2 - not measurable here, because lsof is absent.
+# Both non-zero results leave ownership unproven, so neither ever leads to a signal.
 fm_browser_session_pid_listens_on() {
   local pid=$1 port=$2
-  command -v lsof >/dev/null 2>&1 || return 1
+  command -v lsof >/dev/null 2>&1 || return 2
   lsof -nP -a -p "$pid" -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1
 }
 
