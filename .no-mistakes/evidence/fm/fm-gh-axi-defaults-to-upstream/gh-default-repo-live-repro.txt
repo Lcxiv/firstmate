@@ -1,0 +1,43 @@
+== gh version
+gh version 2.100.0 (2026-09-03)
+== origin only:
+X No default remote repository has been set. To learn more about the default repository, run: gh repo set-default --help
+(exit 0)
+== origin + upstream, unpinned (the bug):
+X No default remote repository has been set. To learn more about the default repository, run: gh repo set-default --help
+(exit 0)
+-- live gh pr view 11 from unpinned clone:
+{"headRefName":"docs/full-pr-urls","state":"MERGED","url":"https://github.com/kunchenguid/firstmate/pull/11"}
+== poison: pin left on upstream (naive fix would be useless):
+kunchenguid/firstmate
+== fm_gh_default_repo_ensure on the clone:
+(exit 0)
+-- git config after:
+remote.origin.gh-resolved base
+-- gh repo set-default --view after:
+Lcxiv/firstmate
+-- live gh pr view 11 from pinned clone:
+{"headRefName":"fm/fm-preflight-headroom-model-blind","state":"MERGED","url":"https://github.com/Lcxiv/firstmate/pull/11"}
+== linked worktree shares the pin:
+Lcxiv/firstmate
+count: 1
+pull_requests[1]{number,title,state,author,draft,review}:
+  21,"fix(bin): retire each task's own browser session at cleanup",open,Lcxiv,no,none
+help[2]:
+== primary checkout, same:
+Lcxiv/firstmate
+== adversarial: pin contradicts origin (config points to upstream=other, origin unpinned) -> forced contradiction via GH_REPO-free path
+(exit 0)
+== adversarial: origin absent -> no-op success
+(exit 0)
+(no pin, exit 1)
+== adversarial: non-GitHub origin -> untouched
+(exit 0)
+(no pin, exit 1)
+== adversarial: credential-less host, pin still written and probe degrades
+(exit 0)
+base
+To get started with GitHub CLI, please run:  gh auth login
+Alternatively, populate the GH_TOKEN environment variable with a GitHub API authentication token.
+(bare view exit 4)
+Lcxiv/firstmate

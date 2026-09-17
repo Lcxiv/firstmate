@@ -1,0 +1,24 @@
+--- tests/fm-gh-default-repo.test.sh
+ok - a clone with no origin remote is left untouched
+ok - an origin on another host is left untouched
+ok - pinning holds on a host with no gh auth store, token, or GH_HOST
+ok - a probe gh cannot answer leaves the written pin standing
+ok - a gh that resolves to another repository after pinning still refuses
+ok - every origin URL shape resolves to the same repository
+(exit )
+--- tests/fm-spawn-pool-base-freshen.test.sh
+ok - an unpushed submodule commit keeps the uncommitted-work refusal and survives it
+ok - work inside a submodule is still refused as uncommitted work, not called stale
+ok - a stale pin carrying real work is refused conservatively, never called stale
+ok - a stale pin beside other dirt yields the conservative refusal alone, with no stale-pin line
+ok - a fork pooled worktree resolves unqualified lookups to origin, not the upstream parent
+# all fm-spawn-pool-base-freshen tests passed
+(exit )
+--- tests/fm-fleet-sync.test.sh
+ok - a live process holding the clone worktree dir blocks lock removal (clone-dir liveness)
+ok - a transient packed-refs.lock that self-clears is retried without a force-remove
+ok - a non-packed-refs.lock fetch failure keeps today's behavior (no retry)
+ok - a non-repo directory under projects/ never fast-forwards the enclosing repo
+ok - the single-project form also refuses a directory that is not its own clone root
+ok - the clone-root guard accepts a symlinked clone directory
+(exit )

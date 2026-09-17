@@ -1,0 +1,10 @@
+== adversarial: gh positively names a DIFFERENT repo than origin -> hard refusal
+error: lookups from '/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.kCI8W5ER1p/c' resolve to 'kunchenguid/firstmate', not origin 'Lcxiv/firstmate'
+(exit 1)
+== adversarial: gh absent -> pin written, success
+(exit 0)
+base
+== adversarial: SSH-form origin URL parses
+Lcxiv/firstmate
+Lcxiv/firstmate
+Lcxiv/firstmate
