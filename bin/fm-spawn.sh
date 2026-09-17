@@ -138,6 +138,13 @@
 #   origin, resolves the current remote default branch, and resets to its tip.
 #   An unreachable origin, unresolved default branch, or non-clean worktree
 #   refuses the spawn rather than risking a PR based on stale history.
+#   A project with no remote configured at all is a supported local-only shape,
+#   not an unreachable origin: it skips the fetch and resets to its own local
+#   default branch instead, because that branch is the only authority there is.
+#   That local branch is the shared default_branch resolution, so a remoteless
+#   project whose trunk is neither main nor master is refused with an unknown-base
+#   diagnostic rather than launched from a guess; every other refusal, including
+#   the dirty-worktree and post-reset verification ones, is identical in both modes.
 #   A slot whose only deviation is a stale submodule gitlink is refused by that
 #   same clean check, but is reported as a stale checkout naming each submodule
 #   and both pins; nothing is converged or removed, and no remedy is suggested.
@@ -1928,25 +1935,11 @@ EOF
   printf '%s' "$lines" >&2
 }
 
-freshen_spawn_worktree_base() {  # <worktree>
-  local worktree=$1 default target expected actual status
-  if ! git -C "$worktree" fetch --quiet origin; then
-    echo "error: could not fetch origin for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
-    return 1
-  fi
-  if ! git -C "$worktree" remote set-head origin --auto >/dev/null 2>&1; then
-    echo "error: could not resolve origin's current default branch for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
-    return 1
-  fi
-  default=$(default_branch "$worktree") || {
-    echo "error: could not determine origin's default branch for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
-    return 1
-  }
-  target="origin/$default"
-  if ! git -C "$worktree" fetch --quiet origin "+refs/heads/$default:refs/remotes/origin/$default"; then
-    echo "error: could not fetch '$target' for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
-    return 1
-  fi
+# Reset a clean pooled worktree onto an already-resolved base, or refuse.
+# Shared by both base modes below so the "never discard uncommitted work, and
+# prove we landed on the base" contract has exactly one implementation.
+reset_spawn_worktree_to_base() {  # <worktree> <target>
+  local worktree=$1 target=$2 expected actual status
   expected=$(git -C "$worktree" rev-parse --verify --quiet "$target^{commit}" 2>/dev/null) || {
     echo "error: '$target' is not a commit for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
     return 1
@@ -1972,6 +1965,57 @@ freshen_spawn_worktree_base() {  # <worktree>
     echo "error: pooled worktree '$worktree' is at '${actual:-unknown}', not current '$target' ('$expected'); refusing to launch" >&2
     return 1
   fi
+}
+
+# A project with NO remote configured at all is a supported shape here, not a
+# degraded one: a `local-only` project (AGENTS.md section 7) whose work lands
+# through bin/fm-merge-local.sh never has an origin, and one may legitimately
+# stay remoteless for its whole life. For such a project the LOCAL default
+# branch IS the authority, so there is nothing staler to fetch and refusing the
+# spawn would make a supported configuration undispatchable. Freshen onto that
+# local branch instead - a pooled slot allocated before the last local landing
+# is still stale, so the reset below is what this guard is for, only against the
+# authority that actually exists. Do NOT "restore" the unconditional fetch.
+#
+# This is decided from the configured remotes, deliberately, and never inferred
+# from a failed fetch: a fetch fails for a dead network, a revoked credential, a
+# renamed branch, or a deleted repository just as readily as for an absent
+# remote. Collapsing those into "assume local" would silently turn the guard off
+# on exactly the networked projects it protects, which is the stale-base launch
+# it exists to prevent. A configured-but-unreachable remote therefore keeps the
+# strict path and its refusal, unchanged.
+spawn_worktree_has_no_remote() {  # <worktree>
+  [ -z "$(git -C "$1" remote 2>/dev/null)" ]
+}
+
+freshen_spawn_worktree_base() {  # <worktree>
+  local worktree=$1 default target
+  if spawn_worktree_has_no_remote "$worktree"; then
+    default=$(default_branch "$worktree") || {
+      echo "error: pooled worktree '$worktree' has no remote configured and no local default branch (expected main or master); refusing to launch from an unknown base" >&2
+      return 1
+    }
+    reset_spawn_worktree_to_base "$worktree" "refs/heads/$default"
+    return
+  fi
+  if ! git -C "$worktree" fetch --quiet origin; then
+    echo "error: could not fetch origin for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
+    return 1
+  fi
+  if ! git -C "$worktree" remote set-head origin --auto >/dev/null 2>&1; then
+    echo "error: could not resolve origin's current default branch for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
+    return 1
+  fi
+  default=$(default_branch "$worktree") || {
+    echo "error: could not determine origin's default branch for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
+    return 1
+  }
+  target="origin/$default"
+  if ! git -C "$worktree" fetch --quiet origin "+refs/heads/$default:refs/remotes/origin/$default"; then
+    echo "error: could not fetch '$target' for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
+    return 1
+  fi
+  reset_spawn_worktree_to_base "$worktree" "$target"
 }
 
 herdr_projection_meta_field_exact() {  # <meta> <key>
