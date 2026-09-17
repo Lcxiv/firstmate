@@ -52,6 +52,15 @@ This touches only the firstmate repo and its own worktrees, never anything under
    For example: "Captain, firstmate and both second mates are now on the latest."
    Surface any skipped target whose reason needs the captain's attention - for instance a home with its own un-landed changes (diverged) or local edits (dirty), which were left untouched on purpose.
 
+## It may already have happened
+
+A merged firstmate pull request triggers this same guarded update automatically, in whichever home observed the merge.
+So a run of this skill often reports `already current` everywhere, and that is the expected healthy result, not a failure to pull.
+Run it anyway whenever the captain asks, when a home was skipped earlier and its reason has been cleared, or when a home observed no merge of its own.
+
+`bin/fm-update.sh`'s header owns the automatic path's rules: which merges it acts on, when it waits for in-flight work, and what it records to finish later.
+When that path updates the running firstmate's own instructions, it says so through an ordinary notification asking for a re-read - handle it as step 2 above.
+
 ## Safety
 
 - **Fast-forward only.**
@@ -62,3 +71,7 @@ This touches only the firstmate repo and its own worktrees, never anything under
 - **Secondmates are never disrupted.**
   A local or remote secondmate gets a tracked-files fast-forward only when its own checkout is safe to advance, plus a gentle re-read nudge when it changed.
   It is never torn down, interrupted, or forced.
+  The nudge is a durable steering record, so a secondmate whose agent is mid-turn still receives it rather than losing it.
+- **`data/` is never carried.**
+  Every home's `data/` is gitignored and therefore not tracked, so no fast-forward can move it between homes, manually or automatically.
+  Propagating shared captain material between homes is a separate, explicit path owned by `secondmate-provisioning`.
