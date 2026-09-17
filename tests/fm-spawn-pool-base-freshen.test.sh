@@ -582,6 +582,45 @@ test_stale_pin_beside_other_dirt_reports_one_verdict() {
   pass "a stale pin beside other dirt yields the conservative refusal alone, with no stale-pin line"
 }
 
+# A fork checkout carries both origin (the fork) and upstream (the parent it was
+# forked from). With nothing pinned, gh ranks remotes by name and answers every
+# unqualified lookup from upstream, and because a fork inherits its parent's
+# history the same PR numbers exist in both, so the worker is shown a real,
+# plausible PR instead of its own. The spawn path must settle that before a
+# worker starts. The remotes below are on an unresolvable host so the case needs
+# no network: the spawn still refuses at the fetch, which is exactly what proves
+# the pin was applied ahead of it rather than as a side effect of a launch.
+test_fork_pool_resolves_lookups_to_origin_before_launch() {
+  local rec id out status before after
+  id='pool-fork-default-repo-r6'
+  rec=$(make_case fork-default-repo "$id")
+  read_case_record "$rec"
+  git -C "$POOL_DIR" remote set-url origin https://github.invalid/Lcxiv/firstmate.git
+  git -C "$POOL_DIR" remote add upstream https://github.invalid/kunchenguid/firstmate.git
+
+  before=$(cd "$POOL_DIR" && GH_HOST=github.invalid gh repo set-default --view 2>/dev/null || true)
+  [ "$before" != "Lcxiv/firstmate" ] ||
+    fail "the fork pool already resolved to origin before spawn; the fixture proves nothing"
+
+  out=$(GH_HOST=github.invalid run_spawn "$id" --mode no-mistakes --yolo off)
+  status=$?
+  [ "$status" -ne 0 ] || fail "spawn launched from a fork pool whose origin is unreachable"
+  assert_not_contains "$out" "cannot resolve GitHub lookups to origin" \
+    "spawn refused at the pin rather than at the fetch, so the pin did not settle first"
+  assert_contains "$out" "could not fetch origin" \
+    "spawn did not refuse at the fetch, which is what proves the pin ran ahead of it"
+
+  after=$(cd "$POOL_DIR" && GH_HOST=github.invalid gh repo set-default --view 2>/dev/null || true)
+  [ "$after" != "kunchenguid/firstmate" ] ||
+    fail "spawn left the worker's local copy resolving lookups to the upstream parent"
+  [ "$after" = "Lcxiv/firstmate" ] ||
+    fail "spawn left the worker's local copy resolving lookups to '${after:-nothing}', not origin"
+  if [ "${FM_TEST_EVIDENCE:-0}" = 1 ]; then
+    printf '# observed fork pool resolution: before=%s after=%s\n' "${before:-unset}" "$after"
+  fi
+  pass "a fork pooled worktree resolves unqualified lookups to origin, not the upstream parent"
+}
+
 test_stale_pool_base_refreshes_before_branching
 test_non_main_default_branch_refreshes_before_branching
 test_direct_pr_and_scout_refresh_before_launch
@@ -598,5 +637,6 @@ test_unpushed_submodule_commit_is_still_uncommitted_work
 test_work_inside_submodule_is_still_uncommitted_work
 test_stale_pin_carrying_real_work_is_not_called_stale
 test_stale_pin_beside_other_dirt_reports_one_verdict
+test_fork_pool_resolves_lookups_to_origin_before_launch
 
 echo "# all fm-spawn-pool-base-freshen tests passed"

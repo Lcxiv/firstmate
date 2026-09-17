@@ -403,7 +403,8 @@ An absent or too-old `quota-axi` reports `MISSING: quota-axi (install: npm insta
 Bootstrap also reports a `TANGLE:` line when `FM_ROOT` is on a named non-default branch; follow the printed checkout remediation rather than treating it as an installable tool problem.
 In a read-only session that did not get the fleet lock, the same line is advisory and omits the checkout command.
 The locked session-start deferred network stage runs bootstrap's best-effort project clone refresh through `fm-fleet-sync.sh`; [`fm-bootstrap.sh`'s header](../bin/fm-bootstrap.sh) owns the exact clone-refresh overlap, liveness-before-convergence, per-mate concurrency, ordered diagnostic replay, and sequential-fallback contract.
-It emits `FLEET_SYNC:` for skipped refreshes that may matter, recovered self-heals, and `STUCK:` alarms.
+It emits `FLEET_SYNC:` for skipped refreshes that may matter, recovered self-heals, `STUCK:` alarms, and `warning:` lines for a clone whose best-effort GitHub default-repository pin could not be settled on origin.
+A `warning:` never blocks the sync: the clone is still fast-forwarded, only its unqualified GitHub lookups stay suspect until the quoted cause is cleared, and `fm-spawn.sh` refuses at the point a worker would actually be misled.
 Normal completed runs keep local-only and no-origin skips silent.
 If bootstrap kills a timed-out refresh, it replays any completed `fm-fleet-sync.sh` output before the aggregate timeout skip so no finished result is lost.
 A killed refresh (or a teardown process kill) can leave an orphaned `.git/packed-refs.lock` in a clone, which makes the next refresh's fetch fail with Git's `Unable to create '...packed-refs.lock': File exists`.

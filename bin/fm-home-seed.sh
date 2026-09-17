@@ -49,6 +49,8 @@ SUB_HOME_PARENT_MARKER=".fm-secondmate-parent"
 . "$SCRIPT_DIR/fm-secondmate-charter-lib.sh"
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
+# shellcheck source=bin/fm-gh-default-repo-lib.sh
+. "$SCRIPT_DIR/fm-gh-default-repo-lib.sh"
 
 usage() {
   echo "usage: fm-home-seed.sh <id> <home|-> {<project>...|--no-projects}" >&2
@@ -481,7 +483,10 @@ EOF
     return 0
   fi
   url=$(source_origin_url "$project" "$mode" "$src") || return 1
-  git clone --quiet "$url" "$dst"
+  git clone --quiet "$url" "$dst" || return 1
+  # Pin origin before anyone works in the clone, so an unqualified GitHub
+  # lookup from it can never answer from a fork parent that shares its history.
+  fm_gh_default_repo_ensure "$dst"
 }
 
 validate_seed_project() {

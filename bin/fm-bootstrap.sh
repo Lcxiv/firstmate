@@ -312,6 +312,7 @@ fleet_sync_relay_filtered_output() {
       *': skipped:'*) echo "FLEET_SYNC: $line" ;;
       *': STUCK:'*) echo "FLEET_SYNC: $line" ;;
       *': recovered:'*) echo "FLEET_SYNC: $line" ;;
+      *': warning:'*) echo "FLEET_SYNC: $line" ;;
     esac
   done < "$tmp"
 }
