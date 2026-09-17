@@ -985,46 +985,53 @@ gate_park_endpoint_alive() {  # <window>
 # recovered only for a confidently dead ordinary crew, or for a secondmate, whose
 # endpoint liveness this function deliberately never reads.
 #
-# The gate-park arm is the no-declaration case. A crew whose no-mistakes run is
-# parked at an approval or fix-review gate is idle for a reason firstmate itself
-# owns, and it is forbidden to answer its own gate, so its endpoint can sit
-# untouched for hours; but its status log carries no declared-wait verb at that
-# moment, because the log records wake EVENTS and its last event is whatever the
-# crew or firstmate appended last - a needs-decision escalation, a routine note, or
-# the resolved line firstmate writes at answer time. The park is therefore read
-# from authoritative current state only, never from the log, which is what keeps a
-# gate that has since been answered from staying absorbed on a line nothing
-# retracts. Two bounds keep the absorb honest: it is admitted only while the
-# endpoint is provably alive, so a crew that died at its gate still surfaces; and
-# the class token's own freshness caps the cheap path at STALE_ESCALATE_SECS, after
-# which the authoritative read runs again. A kind=secondmate crew never reaches
-# this arm - the stale loop admits a mate only on a declared wait, and a mate's
-# state is read from its status log, so crew_absorb_class cannot report a run-step
-# park for one.
+# The gate-park arm is the no-declaration case, shared by both stale branches
+# through gate_park_class below. A crew whose no-mistakes run is parked at an
+# approval or fix-review gate waits on ONE of two actors, and the absorb follows
+# whichever owes the next move. While the crew's keyed decision is still open
+# (status_open_decisions, the durable fold, never a last-line read) firstmate owes
+# the answer, so the crew is idle for a reason it cannot act on and its endpoint
+# can sit untouched for hours. Once the resolved line closes the key only the crew
+# may invoke the run's respond, so a run still parked with no open decision is an
+# unresponsive worker and must alarm on the ordinary schedule. The status log's
+# LAST line decides neither case, because the log records wake EVENTS and its
+# last event is whatever was appended last. Two more bounds keep the absorb
+# honest: it is admitted only while the endpoint is provably alive, so a crew
+# that died at its gate still surfaces; and the class token's own freshness caps
+# the cheap path at STALE_ESCALATE_SECS, after which the authoritative read runs
+# again. A kind=secondmate crew never reaches this arm - the stale loop admits a
+# mate only on a declared wait, and a mate's state is read from its status log,
+# so crew_absorb_class cannot report a run-step park for one.
+gate_park_class() {  # <window> <task>
+  local win=$1 task=$2 key recheck_file class
+  key=$(window_key "$win")
+  recheck_file="$STATE/.paused-rechecked-$key"
+  if pause_flag_is_gate_park "$key" && [ "$(age_of "$recheck_file")" -lt "$STALE_ESCALATE_SECS" ] \
+     && [ -n "$(status_open_decisions "$STATE/$task.status")" ]; then
+    printf 'parked'
+    return
+  fi
+  rm -f "$recheck_file"
+  class=$(crew_absorb_class "$task")
+  if [ "$class" = parked ]; then
+    if [ -n "$(status_open_decisions "$STATE/$task.status")" ] && gate_park_endpoint_alive "$win"; then
+      date +%s > "$recheck_file"
+      printf 'parked'
+      return
+    fi
+    class=none
+  fi
+  clear_gate_park_flag "$key"
+  printf '%s' "$class"
+}
+
 pause_state_class() {  # <window> <task>
   local win=$1 task=$2 key last recheck_file class agent_alive kind
   key=$(window_key "$win")
   last=$(last_status_line "$STATE/$task.status")
   recheck_file="$STATE/.paused-rechecked-$key"
   if ! status_is_paused_or_captain_held "$last"; then
-    if pause_flag_is_gate_park "$key" && [ "$(age_of "$recheck_file")" -lt "$STALE_ESCALATE_SECS" ]; then
-      printf 'parked'
-      return
-    fi
-    rm -f "$recheck_file"
-    class=$(crew_absorb_class "$task")
-    if [ "$class" = parked ]; then
-      if gate_park_endpoint_alive "$win"; then
-        date +%s > "$recheck_file"
-        printf 'parked'
-        return
-      fi
-      clear_gate_park_flag "$key"
-      printf 'none'
-      return
-    fi
-    clear_gate_park_flag "$key"
-    printf '%s' "$class"
+    gate_park_class "$win" "$task"
     return
   fi
   clear_gate_park_flag "$key"
@@ -1066,12 +1073,29 @@ pause_state_class() {  # <window> <task>
   # captain hold - which has no current-state mapping and so arrives as `none` -
   # would be silenced by every caller rather than taking the bounded re-surface
   # cadence, and a forgotten hold would rot invisibly.
-  [ "$class" = none ] && class=paused
+  case "$class" in none|parked) class=paused ;; esac
   case "$class" in
     paused) date +%s > "$recheck_file" ;;
     *) rm -f "$recheck_file" ;;
   esac
   printf '%s' "$class"
+}
+
+surface_terminal_stale() {  # <window> <hash>
+  local win=$1 h=$2 key statusf record end ident
+  key=$(window_key "$win")
+  fm_wake_append stale "$win" "stale: $win" || exit 1
+  printf '%s' "$h" > "$STATE/.stale-$key"
+  rm -f "$STATE/.stale-since-$key"
+  clear_write_tracking "$key"
+  statusf="$STATE/$(window_to_task "$win" "$STATE").status"
+  record=$(status_span_first_actionable_record "$statusf" 0)
+  case $? in
+    0|1) end=${record%%$'\t'*}; ident=${record#*$'\t'}; ident=${ident%%$'\t'*} ;;
+    *) end=''; ident='' ;;
+  esac
+  mark_surfaced "$statusf" "$end" "$ident"
+  wake "stale: $win"
 }
 
 surface_nonterminal_stale() {  # <window> <hash>
@@ -1997,26 +2021,44 @@ EOF
           # line. On a NEW hash, give an active run/busy pane (the same
           # authoritative source fm-crew-state.sh itself already prioritizes
           # over the log) a chance to override before trusting the log.
+          # A run-step park with an OPEN keyed decision takes the gate-park
+          # cadence here too: needs-decision is the status verb that raises the
+          # decision, so this shape always lands in this branch, and surfacing
+          # it on every new pane hash was the repeated false stale wake this
+          # triage exists to stop. gate_park_class owns the admission and its
+          # bounds; the same-hash recheck below lets that absorb expire and
+          # re-surface on the shared cadences instead of outliving the park.
           if [ "$(cat "$sf" 2>/dev/null || true)" != "$h" ]; then
-            if crew_is_provably_working "$(window_to_task "$w" "$STATE")"; then
-              printf '%s' "$h" > "$sf"
-              date +%s > "$ssf"
-              clear_write_tracking "$key"
-              triage_log "absorbed stale (provably working, overriding a stale captain-relevant status): $w"
-            else
-              fm_wake_append stale "$w" "stale: $w" || exit 1
-              printf '%s' "$h" > "$sf"
-              rm -f "$ssf"
-              clear_write_tracking "$key"
-              stale_status="$STATE/$(window_to_task "$w" "$STATE").status"
-              stale_record=$(status_span_first_actionable_record "$stale_status" 0)
-              case $? in
-                0|1) stale_end=${stale_record%%$'\t'*}; stale_rest=${stale_record#*$'\t'}; stale_ident=${stale_rest%%$'\t'*} ;;
-                *) stale_end=''; stale_ident='' ;;
-              esac
-              mark_surfaced "$stale_status" "$stale_end" "$stale_ident"
-              wake "stale: $w"
-            fi
+            case "$(gate_park_class "$w" "$task")" in
+              working)
+                printf '%s' "$h" > "$sf"
+                date +%s > "$ssf"
+                clear_write_tracking "$key"
+                triage_log "absorbed stale (provably working, overriding a stale captain-relevant status): $w"
+                ;;
+              parked)
+                handle_paused_stale "$w" "$task" "$h" gate-park
+                ;;
+              *)
+                surface_terminal_stale "$w" "$h"
+                ;;
+            esac
+          elif pause_flag_is_gate_park "$key"; then
+            case "$(gate_park_class "$w" "$task")" in
+              parked)
+                handle_paused_stale "$w" "$task" "$h" gate-park
+                ;;
+              working)
+                clear_pause_state "$key"
+                printf '%s' "$h" > "$sf"
+                date +%s > "$ssf"
+                clear_write_tracking "$key"
+                triage_log "absorbed stale (provably working, overriding a stale captain-relevant status): $w"
+                ;;
+              *)
+                surface_terminal_stale "$w" "$h"
+                ;;
+            esac
           elif [ -e "$ssf" ]; then
             # This exact hash was already overridden as provably-working (a
             # wedge timer is running for it) - keep treating it that way

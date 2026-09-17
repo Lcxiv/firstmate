@@ -1590,9 +1590,10 @@ status_span_has_actionable() {  # <status-file> <start-offset>
 #             pause (paused:), which is EXPECTED to idle;
 #   parked  - the crew's authoritative current state is a no-mistakes gate park
 #             attributed from the RUN STEP (state: parked with source: run-step):
-#             the pipeline is holding at an approval or fix-review gate and can
-#             advance only on a response the crew is forbidden to produce itself,
-#             so its endpoint is EXPECTED to idle for as long as the gate is open.
+#             the pipeline is holding at an approval or fix-review gate. Whether
+#             that idle is EXPECTED depends on who owes the next move, which the
+#             caller reads from the durable open-decision fold: firstmate while the
+#             crew's keyed decision is open, the crew once it is resolved.
 #             A parked verdict from any other source is deliberately excluded. In
 #             particular `source: status-log` parked is derived from the log's last
 #             line, and that line is an event record, not current state; trusting it
