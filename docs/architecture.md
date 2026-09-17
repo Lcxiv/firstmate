@@ -195,6 +195,7 @@ Crewmates never intentionally touch your project clone; [treehouse](https://gith
 For ship and scout work, `fm-spawn.sh` refuses to launch unless the resolved task path is a real git worktree root that is distinct from the project primary checkout.
 `fm-spawn.sh` also owns the base-freshness boundary for every fresh ship and scout: no worker starts until its clean task worktree matches the tip of the project's current default branch, and any unsafe or unverifiable base stops the spawn.
 That tip is origin's resolved default branch for a project with a remote, and the local default branch for a project with no remote configured at all, which is the supported `local-only` shape rather than an unreachable remote.
+The same preflight pins origin as the worktree's GitHub default repository through `fm-gh-default-repo-lib.sh`, so a worker's unqualified `gh` lookups cannot answer from a fork parent that shares its history, and a pin that `gh` contradicts stops the spawn too; [verification/github-default-repo.md](verification/github-default-repo.md) owns the vendor evidence.
 Its header owns the exact refusal mechanics, while `tests/fm-spawn-pool-base-freshen.test.sh` owns the portable regression coverage.
 
 The firstmate repo has one extra exposure because it can dispatch crewmates to work on itself.
