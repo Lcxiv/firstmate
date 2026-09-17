@@ -52,10 +52,13 @@
 #      arrives whenever the forge says so. This mode therefore refuses to update
 #      while a live worker is still building in a worktree of THIS repo (see
 #      firstmate_work_in_flight for why that case, and only that case, blocks
-#      it), prints "after-merge: deferred", and records the pending notification
+#      it), prints "after-merge: deferred", and leaves the pending notification
 #      in state/.auto-update-pending so --retry-after-merge can finish it once
 #      that worker is gone. Deferring costs no network: both preconditions are
-#      read from local state before any fetch.
+#      read from local state before any fetch. The same record is written
+#      BEFORE the fetch on every attempt, so a run killed at its caller's time
+#      bound (a fetch hanging on an unreachable origin) leaves the notification
+#      behind for the retry instead of losing it.
 #   3. It sends the reread nudge to each advanced live secondmate itself, since
 #      no reader is there to send it, and prints reread-firstmate so its caller
 #      can queue the running firstmate's own re-read.
@@ -102,9 +105,14 @@ esac
 
 # --- notification preconditions --------------------------------------------
 
-# A pending record is one line: the canonical merged PR URL. It is written only
-# on a deferral and removed as soon as the notification is resolved either way,
-# so it can never re-trigger an update the home has already taken.
+# A pending record is the canonical merged PR URL on its first line and
+# `attempts=<n>` on its second: how many times this home has started the sweep
+# for that notification without completing it. It is written once the
+# notification is confirmed to be this repo's own, before anything that could
+# hang, and removed as soon as the notification is resolved either way, so it
+# can never re-trigger an update the home has already taken. The attempt count
+# is what lets the watcher tell one unlucky fetch from an update that keeps
+# failing.
 pending_read() {
   local line
   [ -f "$PENDING" ] && [ ! -L "$PENDING" ] || return 1
@@ -112,12 +120,22 @@ pending_read() {
   printf '%s\n' "$line"
 }
 
-pending_write() {  # <url>
+pending_attempts() {  # <url> -> attempts recorded for exactly that url, else 0
+  local url line n=0
+  [ -f "$PENDING" ] && [ ! -L "$PENDING" ] || { echo 0; return 0; }
+  { IFS= read -r url && IFS= read -r line; } < "$PENDING" || { echo 0; return 0; }
+  [ "$url" = "$1" ] || { echo 0; return 0; }
+  case "$line" in attempts=*) n=${line#attempts=} ;; esac
+  case "$n" in ''|*[!0-9]*) n=0 ;; esac
+  echo "$n"
+}
+
+pending_write() {  # <url> <attempts>
   local tmp
   [ -d "$STATE" ] && [ ! -L "$STATE" ] || return 1
   [ ! -L "$PENDING" ] || return 1
   tmp=$(umask 077; mktemp "$STATE/.auto-update-pending.XXXXXX") || return 1
-  printf '%s\n' "$1" > "$tmp" || { rm -f -- "$tmp"; return 1; }
+  printf '%s\nattempts=%s\n' "$1" "$2" > "$tmp" || { rm -f -- "$tmp"; return 1; }
   mv -f -- "$tmp" "$PENDING" || { rm -f -- "$tmp"; return 1; }
 }
 
@@ -147,8 +165,9 @@ repo_object_store() {  # <dir>
   git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null
 }
 
-# Live ordinary tasks working in a SIBLING WORKTREE OF THIS SAME REPO, printed
-# as a comma list; returns 1 when there are none.
+# Live ordinary tasks working in a SIBLING WORKTREE OF THIS SAME REPO, other
+# than the task whose PR <merged-url> is, printed as a comma list; returns 1
+# when there are none.
 #
 # Not every live worker blocks this update, because a tracked-files
 # fast-forward provably does not reach most of them: it leaves the gitignored
@@ -164,13 +183,22 @@ repo_object_store() {  # <dir>
 # bin/fm-fleet-sync.sh's packed-refs recovery exists for). A person invoking
 # /updatefirstmate picks a moment past that; a merged-PR notification arrives
 # whenever the forge says so, so this path waits instead.
-firstmate_work_in_flight() {
-  local meta id window target backend worktree store self_store live=""
+#
+# The task whose own PR just merged is not work in flight either, even though
+# its meta and window usually still exist when the notification arrives: its
+# work has landed, this home is fast-forwarding to the very commit it produced,
+# and it is about to be torn down. bin/fm-pr-check.sh records the canonical PR
+# URL as pr= in its meta, so that task is recognized by URL and excluded;
+# otherwise the ordinary single-task merge would defer every time and the
+# update would only ever land through the retry.
+firstmate_work_in_flight() {  # <merged-url>
+  local merged=$1 meta id window target backend worktree store self_store live=""
   [ -d "$STATE" ] || return 1
   self_store=$(repo_object_store "$FM_ROOT") || return 1
   for meta in "$STATE"/*.meta; do
     [ -f "$meta" ] || continue
     grep -q '^kind=secondmate$' "$meta" 2>/dev/null && continue
+    [ "$(fm_meta_get "$meta" pr)" != "$merged" ] || continue
     id=$(basename "$meta" .meta)
     worktree=$(fm_meta_get "$meta" worktree)
     [ -n "$worktree" ] && [ -d "$worktree" ] || continue
@@ -233,14 +261,17 @@ if [ "$MODE" = after-merge ]; then
     exit 0
   fi
 
-  if BUSY=$(firstmate_work_in_flight); then
-    if pending_write "$MERGED_URL"; then
+  ATTEMPTS=$(pending_attempts "$MERGED_URL")
+  if BUSY=$(firstmate_work_in_flight "$MERGED_URL"); then
+    if pending_write "$MERGED_URL" "$ATTEMPTS"; then
       echo "after-merge: deferred: firstmate work still in flight here ($BUSY)"
     else
       echo "after-merge: deferred: firstmate work still in flight here ($BUSY); pending record could not be written" >&2
     fi
     exit 0
   fi
+  pending_write "$MERGED_URL" $((ATTEMPTS + 1)) \
+    || echo "after-merge: pending record could not be written; a run cut short here is not retried" >&2
 fi
 
 # --- main firstmate repo ---------------------------------------------------
@@ -333,16 +364,19 @@ if [ "$MODE" = after-merge ]; then
     [ -n "$home" ] || home=$(secondmate_registry_field "$SECONDMATES_MD" "$id" home || true)
     commit=
     [ -z "$home" ] || commit=$(git -C "$home" rev-parse HEAD 2>/dev/null || true)
+    retry_marker=0
     if [ -n "$home" ] && [ -n "$commit" ]; then
       fm_secondmate_nudge_write "$STATE" "$id" "$home" "$commit" "" \
-        "$FM_SECOND_MATE_NUDGE_MESSAGE" 0 || true
+        "$FM_SECOND_MATE_NUDGE_MESSAGE" 0 && retry_marker=1
     fi
     if FM_HOME="$FM_HOME" FM_ROOT_OVERRIDE="$FM_ROOT" FM_STATE_OVERRIDE="$STATE" \
       "$SCRIPT_DIR/fm-send.sh" "$selector" "$FM_SECOND_MATE_NUDGE_MESSAGE" >/dev/null 2>&1; then
       marker=$(fm_secondmate_nudge_marker_path "$STATE" "$id") && rm -f -- "$marker"
       echo "after-merge: nudged $selector"
-    else
+    elif [ "$retry_marker" -eq 1 ]; then
       echo "after-merge: nudge to $selector could not be delivered; it is retried at the next session start" >&2
+    else
+      echo "after-merge: nudge to $selector could not be delivered and is not retried: its home is not a local checkout this home can validate a retry against" >&2
     fi
   done
   echo "after-merge: completed"

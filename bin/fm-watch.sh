@@ -171,6 +171,7 @@ HEARTBEAT_MAX=${FM_HEARTBEAT_MAX:-7200}  # heartbeat backoff cap
 CHECK_INTERVAL=${FM_CHECK_INTERVAL:-300}  # seconds between *.check.sh sweeps
 CHECK_TIMEOUT=${FM_CHECK_TIMEOUT:-30}     # seconds allowed per *.check.sh
 AUTO_UPDATE_TIMEOUT=${FM_AUTO_UPDATE_TIMEOUT:-120}  # seconds allowed per self-update sweep
+AUTO_UPDATE_FAIL_ALERT=${FM_AUTO_UPDATE_FAIL_ALERT:-3}  # failed attempts before firstmate is told
 HOME_SUMMARY_INTERVAL=${FM_HOME_SUMMARY_INTERVAL:-300}
 case "$HOME_SUMMARY_INTERVAL" in
   ''|*[!0-9]*|0) HOME_SUMMARY_INTERVAL=300 ;;
@@ -1473,7 +1474,22 @@ retire_merged_pr_poll() {  # <id>
 # it differently: the merged-PR path is already about to deliver its own merge
 # wake, while the deferred-retry path has no wake of its own and must deliver
 # this one itself. AUTO_UPDATE_WAKE_REASON carries that decision back.
+#
+# A run that fails or hits its time bound leaves fm-update.sh's pending record
+# behind, so the retry sweep picks the notification up again; nothing is lost.
+# What must not stay quiet is an update that keeps failing, so once the record's
+# attempt count reaches AUTO_UPDATE_FAIL_ALERT one durable wake tells firstmate.
+# The count only ever grows within one episode and resets with the record, so
+# the wake is queued exactly once per episode, not on every attempt.
 AUTO_UPDATE_WAKE_REASON=""
+auto_update_failing_alert() {  # <what happened>
+  local attempts
+  attempts=$(sed -n '2s/^attempts=//p' "$STATE/.auto-update-pending" 2>/dev/null)
+  case "$attempts" in ''|*[!0-9]*) return 0 ;; esac
+  [ "$attempts" -eq "$AUTO_UPDATE_FAIL_ALERT" ] || return 0
+  AUTO_UPDATE_WAKE_REASON="check: firstmate self-update after a merge keeps failing ($attempts attempts, last: $1); it retries on the check sweep until it completes"
+  fm_wake_append check firstmate-self-update-failing "$AUTO_UPDATE_WAKE_REASON"
+}
 auto_update_after_merge() {  # <pr-url>|--retry-after-merge
   local out rc=0 skipped skipped_count
   AUTO_UPDATE_WAKE_REASON=""
@@ -1486,26 +1502,36 @@ auto_update_after_merge() {  # <pr-url>|--retry-after-merge
     fm_run_timed "$AUTO_UPDATE_TIMEOUT" "$FM_ROOT/bin/fm-update.sh" "$@" 2>&1) || rc=$?
   if [ "$rc" -eq 124 ]; then
     triage_log "self-update after merge hit its time bound"
+    auto_update_failing_alert "hit its ${AUTO_UPDATE_TIMEOUT}s time bound" || return 1
     return 0
   fi
   if [ "$rc" -ne 0 ]; then
     triage_log "self-update after merge failed (rc=$rc)"
+    auto_update_failing_alert "failed (rc=$rc)" || return 1
     return 0
   fi
   case "$out" in
     *"after-merge: completed"*) ;;
+    *"after-merge: deferred"*)
+      triage_log "self-update after merge deferred until the home is quiet"
+      return 0
+      ;;
+    *"after-merge: skipped"*|*"after-merge: no pending update"*) return 0 ;;
     *)
       triage_log "self-update after merge did not complete: $(printf '%s' "$out" | tr '\n' ' ')"
+      auto_update_failing_alert "did not complete" || return 1
       return 0
       ;;
   esac
   # A home that could not be advanced safely is a normal outcome, but it is one
   # only firstmate can act on (its own un-landed work, its own local edits), so
   # it is surfaced by name and reason rather than left in this log. The list is
-  # bounded because a large fleet must not turn one wake into a wall of text.
-  skipped=$(printf '%s\n' "$out" | grep ': skipped: ' | head -3 | tr '\n' ';')
+  # bounded because a large fleet must not turn one wake into a wall of text. A
+  # remote secondmate's skip names the host it was skipped on, so both shapes
+  # are matched.
+  skipped=$(printf '%s\n' "$out" | grep -E ': skipped( on [^:]+)?: ' | head -3 | tr '\n' ';')
   if [ -n "$skipped" ]; then
-    skipped_count=$(printf '%s\n' "$out" | grep -c ': skipped: ')
+    skipped_count=$(printf '%s\n' "$out" | grep -Ec ': skipped( on [^:]+)?: ')
     skipped=${skipped%;}
     if [ "$skipped_count" -gt 3 ]; then
       skipped="$skipped; and $((skipped_count - 3)) more"

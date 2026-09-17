@@ -697,6 +697,222 @@ test_foreign_merge_preserves_pending_update() {
   pass "T22 a merge in another project leaves a deferred firstmate update owed"
 }
 
+# --- T23: the merged task itself is not work in flight ---------------------
+# When the poll for task X reports the firstmate PR merged, X's meta and window
+# still exist: only its poll was retired, and teardown follows firstmate's
+# handling of the wake. X's work has landed and this home is fast-forwarding to
+# the very commit X produced, so X must not defer the update - otherwise the
+# ordinary single-task merge would defer every time and criterion 1 would hold
+# only through the retry. An UNRELATED live task in a worktree of this repo
+# still defers it, so the exclusion cannot silently widen into "never defer".
+test_after_merge_excludes_merged_task_from_in_flight() {
+  local w out before
+  w=$(new_world t23)
+  name_origin_as_github "$w"
+  git -C "$w/main" worktree add -q -b fm/landed "$w/landed" main
+  add_task "$w" landed "$w/landed"
+  printf 'pr=%s\n' "$FM_PR_URL_SELF" >> "$w/home/state/landed.meta"
+  bump_origin "$w" instr
+
+  out=$(FM_FAKE_LIVE_PANES="main:fm-landed" run_after_merge "$w" "$FM_PR_URL_SELF")
+
+  assert_not_contains "$out" "after-merge: deferred" "the merged task's own live window deferred its own update"
+  assert_contains "$out" "after-merge: completed" "the first notification did not complete the update"
+  [ "$(git -C "$w/main" rev-parse HEAD)" = "$(git -C "$w/main" rev-parse origin/main)" ] \
+    || fail "the update did not land on the first notification"
+  [ ! -f "$w/home/state/.auto-update-pending" ] \
+    || fail "a completed first notification left its pending record behind"
+
+  # Same world, next merge: an unrelated task of this repo is live, and it is
+  # not the one whose PR merged, so the deferral still holds.
+  git -C "$w/main" worktree add -q -b fm/other "$w/other" main
+  add_task "$w" other "$w/other"
+  printf 'pr=%s\n' "https://github.com/acme/firstmate/pull/8" >> "$w/home/state/other.meta"
+  bump_origin "$w" readme
+  before=$(git -C "$w/main" rev-parse HEAD)
+
+  out=$(FM_FAKE_LIVE_PANES="main:fm-landed main:fm-other" run_after_merge "$w" "$FM_PR_URL_SELF")
+
+  assert_contains "$out" "after-merge: deferred" "an unrelated live task of this repo no longer defers the update"
+  assert_contains "$out" "other" "the deferral does not name the unrelated live task"
+  assert_not_contains "$out" "landed" "the deferral blamed the merged task it should have excluded"
+  [ "$(git -C "$w/main" rev-parse HEAD)" = "$before" ] \
+    || fail "the home was fast-forwarded past an unrelated live task"
+  pass "T23 the merged PR's own task never defers; an unrelated live task of this repo still does"
+}
+
+# --- T24: an attempt cut short leaves the notification for the retry -------
+# The watcher bounds the sweep because a fetch can hang on an unreachable
+# origin. A notification that dies with that bound must not die silently: the
+# pending record is written before the fetch, so the retry still lands it.
+#
+# The git stand-in hangs only on fetch, and only while FM_FAKE_HANG_FETCH is
+# set, so the same world can be retried once the origin is "reachable" again.
+fake_git_hang_on_fetch() {
+  local fakebin=$1 real_git
+  real_git=$(command -v git)
+  cat > "$fakebin/git" <<SH
+#!/usr/bin/env bash
+if [ -n "\${FM_FAKE_HANG_FETCH:-}" ]; then
+  for a in "\$@"; do
+    [ "\$a" = fetch ] && exec sleep 600
+  done
+fi
+exec "$real_git" "\$@"
+SH
+  chmod +x "$fakebin/git"
+}
+
+test_after_merge_cut_short_leaves_pending_record() {
+  local w out before fakebin rc=0
+  w=$(new_world t24)
+  name_origin_as_github "$w"
+  bump_origin "$w" instr
+  before=$(git -C "$w/main" rev-parse HEAD)
+  fakebin=$(fm_fakebin "$w")
+  fake_tmux_liveness "$fakebin"
+  fake_git_hang_on_fetch "$fakebin"
+  # shellcheck source=bin/fm-timeout-lib.sh
+  . "$ROOT/bin/fm-timeout-lib.sh"
+
+  out=$(PATH="$fakebin:$PATH" FM_FAKE_HANG_FETCH=1 FM_ROOT_OVERRIDE="$w/main" FM_HOME="$w/home" \
+    fm_run_timed 2 "$UPDATE" --after-merge "$FM_PR_URL_SELF" 2>&1) || rc=$?
+
+  [ "$rc" -eq 124 ] || fail "the hanging fetch was not cut short by the bound (rc=$rc, output: $out)"
+  [ "$(git -C "$w/main" rev-parse HEAD)" = "$before" ] \
+    || fail "a run cut short mid-fetch somehow moved the home"
+  [ -f "$w/home/state/.auto-update-pending" ] \
+    || fail "the notification was lost when the attempt was cut short"
+  [ "$(sed -n 1p "$w/home/state/.auto-update-pending")" = "$FM_PR_URL_SELF" ] \
+    || fail "the pending record does not carry the merged PR URL"
+  [ "$(sed -n 2p "$w/home/state/.auto-update-pending")" = "attempts=1" ] \
+    || fail "the cut-short attempt was not counted (record: $(cat "$w/home/state/.auto-update-pending"))"
+
+  out=$(run_retry_after_merge "$w")
+
+  assert_contains "$out" "after-merge: completed" "the retry did not complete the update the cut-short run left owed"
+  [ "$(git -C "$w/main" rev-parse HEAD)" = "$(git -C "$w/main" rev-parse origin/main)" ] \
+    || fail "the retry did not land the update"
+  [ ! -f "$w/home/state/.auto-update-pending" ] \
+    || fail "the completed retry left the pending record behind"
+  pass "T24 an attempt cut short leaves the notification behind and the retry lands it"
+}
+
+# --- T25: an update that keeps failing is reported exactly once -----------
+# The record keeps the retry alive, but a home whose origin stays unreachable
+# would otherwise fail quietly forever in the watcher's own log. Once the
+# attempt count reaches the alert threshold, one durable wake reaches
+# firstmate; further attempts add no more.
+watcher_pending_attempts() {
+  sed -n '2s/^attempts=//p' "$1/home/state/.auto-update-pending" 2>/dev/null
+}
+
+test_watcher_reports_repeated_failure_once() {
+  local w fakebin out pid i=0 queue
+  w=$(new_world_with_real_bin t25)
+  name_origin_as_github "$w"
+  fakebin=$(fm_fakebin "$w")
+  fake_tmux_liveness "$fakebin"
+  fake_git_hang_on_fetch "$fakebin"
+  printf '%s\n' "$FM_PR_URL_SELF" > "$w/home/state/.auto-update-pending"
+  bump_origin "$w" instr
+
+  out="$w/watch.out"
+  PATH="$fakebin:$PATH" FM_FAKE_HANG_FETCH=1 FM_STATE_OVERRIDE="$w/home/state" FM_HOME="$w/home" \
+    FM_ROOT_OVERRIDE="$w/main" FM_POLL=1 FM_CHECK_INTERVAL=1 FM_HEARTBEAT=999999 \
+    FM_SIGNAL_GRACE=1 FM_AUTO_UPDATE_TIMEOUT=1 FM_AUTO_UPDATE_FAIL_ALERT=2 \
+    "$w/main/bin/fm-watch.sh" > "$out" 2>"$w/watch.err" &
+  pid=$!
+  while [ "$i" -lt 600 ] && kill -0 "$pid" 2>/dev/null; do
+    sleep 0.1
+    i=$((i + 1))
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    kill "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+    fail "the watcher never reported the failing self-update (output: $(cat "$out"); err: $(cat "$w/watch.err"))"
+  fi
+  wait "$pid" 2>/dev/null || true
+
+  queue="$w/home/state/.wake-queue"
+  [ "$(grep -c 'keeps failing' "$queue" 2>/dev/null)" = 1 ] \
+    || fail "expected exactly one failing-update wake (queue: $(cat "$queue" 2>/dev/null))"
+  grep -q 'keeps failing' "$out" \
+    || fail "the failing-update wake was queued but never delivered"
+  [ "$(watcher_pending_attempts "$w")" = 2 ] \
+    || fail "the alert did not fire at the threshold (record: $(cat "$w/home/state/.auto-update-pending"))"
+
+  # The successor watcher (handling that wake, so it announces no resurface of
+  # its own) keeps retrying and keeps failing: still one wake.
+  i=0
+  PATH="$fakebin:$PATH" FM_FAKE_HANG_FETCH=1 FM_STATE_OVERRIDE="$w/home/state" FM_HOME="$w/home" \
+    FM_ROOT_OVERRIDE="$w/main" FM_POLL=1 FM_CHECK_INTERVAL=1 FM_HEARTBEAT=999999 \
+    FM_SIGNAL_GRACE=1 FM_AUTO_UPDATE_TIMEOUT=1 FM_AUTO_UPDATE_FAIL_ALERT=2 \
+    FM_WATCH_HANDLING_SUCCESSOR=1 \
+    "$w/main/bin/fm-watch.sh" >> "$out" 2>>"$w/watch.err" &
+  pid=$!
+  while [ "$i" -lt 600 ] && kill -0 "$pid" 2>/dev/null \
+    && [ "$(watcher_pending_attempts "$w" || echo 0)" -lt 4 ]; do
+    sleep 0.1
+    i=$((i + 1))
+  done
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  [ "$(watcher_pending_attempts "$w")" -ge 4 ] \
+    || fail "the watcher did not keep retrying past the threshold (record: $(cat "$w/home/state/.auto-update-pending"))"
+  [ "$(grep -c 'keeps failing' "$queue" 2>/dev/null)" = 1 ] \
+    || fail "a failed attempt past the threshold queued another wake (queue: $(cat "$queue"))"
+  [ "$(git -C "$w/main" rev-parse HEAD)" != "$(git -C "$w/origin.git" rev-parse main)" ] \
+    || fail "the home was updated while its fetch was hanging"
+  pass "T25 an update that keeps failing reaches firstmate exactly once per episode"
+}
+
+# --- T26: a skipped REMOTE secondmate reaches firstmate too ---------------
+# A remote home's skip names the host it was skipped on, so a report that only
+# recognized the local skip shape would strand it silently.
+test_watcher_reports_skipped_remote_secondmate() {
+  local w fakebin out pid i=0 queue
+  w=$(new_world_with_real_bin t26)
+  name_origin_as_github "$w"
+  fakebin=$(fm_fakebin "$w")
+  fake_tmux_liveness "$fakebin"
+  cat > "$fakebin/ssh" <<'SH'
+#!/usr/bin/env bash
+echo "remote home has a dirty working tree" >&2
+exit 1
+SH
+  chmod +x "$fakebin/ssh"
+  printf -- '- rem1 - remote mate (host: rhost; root: /opt/fm; home: /opt/fm-home; scope: all; projects: none; added 2026-09-17)\n' \
+    > "$w/home/data/secondmates.md"
+  printf '%s\n' "$FM_PR_URL_SELF" > "$w/home/state/.auto-update-pending"
+  bump_origin "$w" instr
+
+  out="$w/watch.out"
+  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$w/home/state" FM_HOME="$w/home" \
+    FM_ROOT_OVERRIDE="$w/main" FM_POLL=1 FM_CHECK_INTERVAL=1 FM_HEARTBEAT=999999 \
+    FM_SIGNAL_GRACE=1 "$w/main/bin/fm-watch.sh" > "$out" 2>"$w/watch.err" &
+  pid=$!
+  while [ "$i" -lt 600 ] && kill -0 "$pid" 2>/dev/null; do
+    sleep 0.1
+    i=$((i + 1))
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    kill "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+    fail "the watcher never reported the skipped remote home (output: $(cat "$out"); err: $(cat "$w/watch.err"))"
+  fi
+  wait "$pid" 2>/dev/null || true
+
+  queue="$w/home/state/.wake-queue"
+  grep -q 'left targets as-is' "$queue" 2>/dev/null \
+    || fail "the skipped remote home was not queued for firstmate (queue: $(cat "$queue" 2>/dev/null))"
+  grep -q 'remote secondmate rem1' "$queue" 2>/dev/null \
+    || fail "the queued report does not name the skipped remote home"
+  grep -q 'dirty working tree' "$queue" 2>/dev/null \
+    || fail "the queued report does not carry the remote skip reason"
+  pass "T26 a skipped remote secondmate is reported to firstmate by name and reason"
+}
+
 test_updates_main_and_secondmate
 test_reread_gate_is_instruction_only
 test_dirty_secondmate_skipped
@@ -717,5 +933,9 @@ test_after_merge_updates_leased_secondmate_home
 test_watcher_completes_deferred_update
 test_foreign_merge_preserves_pending_update
 test_watcher_reports_skipped_home
+test_after_merge_excludes_merged_task_from_in_flight
+test_after_merge_cut_short_leaves_pending_record
+test_watcher_reports_repeated_failure_once
+test_watcher_reports_skipped_remote_secondmate
 
 echo "# all fm-update tests passed"
