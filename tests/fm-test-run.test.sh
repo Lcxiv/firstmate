@@ -1068,7 +1068,7 @@ SH
 # recurring while it stays strictly below the cap AND the workflow actually
 # applies it, so both couplings are asserted rather than assumed.
 test_serial_ci_shards_run_under_an_enforced_budget() {
-  local tmp repo runner shard_lane budget json cap flags
+  local tmp repo runner shard_lane budget json cap step_cap script stub_repo argv summary
   command -v ruby >/dev/null 2>&1 \
     || fail "ruby is required to parse .github/workflows/ci.yml as YAML"
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-ci-budget.XXXXXX")
@@ -1094,33 +1094,51 @@ step = job.fetch("steps").find { |s|
   s.is_a?(Hash) && s["name"].to_s.start_with?("Run portable serial shard")
 }
 raise "missing serial run step" if step.nil?
-# Comments inside the run block mention these flags too, and matching one would
-# make the assertion vacuous: keep only the executable lines.
-commands = step.fetch("run").lines.reject { |l| l.strip.start_with?("#") }.join
 puts JSON.generate(
   "cap" => job.fetch("timeout-minutes"),
-  "run" => commands
+  "step_cap" => step.fetch("timeout-minutes"),
+  "run" => step.fetch("run")
 )
 ' "$ROOT/.github/workflows/ci.yml") \
     || fail "could not parse tests-portable-serial from ci.yml"
   cap=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["cap"])' <<<"$json") \
     || fail "could not read the serial job cap from parsed workflow"
-  flags=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["run"])' <<<"$json") \
-    || fail "could not read the serial run step from parsed workflow"
+  step_cap=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["step_cap"])' <<<"$json") \
+    || fail "could not read the serial run step bound from parsed workflow"
+  script="$tmp/step-run.sh"
+  python3 -c 'import json,sys; sys.stdout.write(json.load(sys.stdin)["run"])' <<<"$json" >"$script" \
+    || fail "could not read the serial run step script from parsed workflow"
 
-  [ "$budget" -lt $((cap * 60 * 1000)) ] \
-    || fail "the shard budget ($budget ms) must fire before the ${cap}-minute job cap cancels it"
-  case "$flags" in
-    *--enforce-lane-budget*) ;;
-    *) fail "the serial CI shard step no longer applies the lane budget" ;;
-  esac
-  case "$flags" in
-    *--budget-markdown*) ;;
-    *) fail "the serial CI shard step no longer publishes its remaining margin" ;;
-  esac
+  [ "$budget" -lt $((step_cap * 60 * 1000)) ] \
+    || fail "the shard budget ($budget ms) must fire before the ${step_cap}-minute step bound kills a completed shard"
+  [ "$step_cap" -lt "$cap" ] \
+    || fail "the serial step bound (${step_cap} min) must be below the ${cap}-minute job cap so a hang fails the step, not the job"
+
+  # Execute the step's own script against a stub runner that records its argv,
+  # so the assertion is about what CI invokes rather than what the YAML says.
+  stub_repo="$tmp/stub-repo"
+  argv="$tmp/argv"
+  summary="$tmp/step-summary.md"
+  mkdir -p "$stub_repo/bin" "$tmp/runner-temp"
+  cat >"$stub_repo/bin/fm-test-run.sh" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$@" >"$argv"
+SH
+  chmod +x "$stub_repo/bin/fm-test-run.sh"
+  (cd "$stub_repo" && FM_SERIAL_LANE="$shard_lane" FM_SERIAL_SHARD=1 \
+    RUNNER_TEMP="$tmp/runner-temp" GITHUB_STEP_SUMMARY="$summary" \
+    bash "$script") >"$tmp/step.out" 2>&1 \
+    || fail "the serial run step script must complete against a stub runner: $(cat "$tmp/step.out")"
+  [ -s "$argv" ] || fail "the serial run step never invoked bin/fm-test-run.sh"
+  grep -qx -- '--enforce-lane-budget' "$argv" \
+    || fail "the serial CI shard step no longer applies the lane budget: $(tr '\n' ' ' <"$argv")"
+  awk -v want="$shard_lane" '$0 == "--lane" { getline; if ($0 == want) found = 1 } END { exit found ? 0 : 1 }' "$argv" \
+    || fail "the serial CI shard step must run the lane named by FM_SERIAL_LANE: $(tr '\n' ' ' <"$argv")"
+  awk -v want="$summary" '$0 == "--budget-markdown" { getline; if ($0 == want) found = 1 } END { exit found ? 0 : 1 }' "$argv" \
+    || fail "the serial CI shard step no longer publishes its remaining margin to GITHUB_STEP_SUMMARY: $(tr '\n' ' ' <"$argv")"
 
   rm -rf "$tmp"
-  pass "CI serial shards run under a budget that fires before the job cap can cancel them"
+  pass "CI serial shards run under a budget below the step bound, which sits below the job cap, and the step invokes both flags"
 }
 
 test_jobs_parallel_scheduler_and_failure_propagation() {

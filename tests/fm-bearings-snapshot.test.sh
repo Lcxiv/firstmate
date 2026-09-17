@@ -1072,6 +1072,14 @@ test_cancelled_checks_are_not_reported_as_failing() {
     .candidate_prs | any(.[]; .num == "9" and .checks == "failing")
   ' >/dev/null || fail "a genuine failure must outrank a cancellation: $json"
 
+  # A cancelled carry-over record beside an in-flight rerun means wait, not
+  # rerun again: pending outranks cancelled.
+  json=$(FAKE_GH_ROLLUP='[{"conclusion":"CANCELLED","status":"COMPLETED"},{"status":"IN_PROGRESS"}]' \
+    run "$home" "$fakebin" --include-prs --json)
+  printf '%s' "$json" | jq -e '
+    .candidate_prs | any(.[]; .num == "9" and .checks == "pending")
+  ' >/dev/null || fail "an in-flight rerun beside a cancelled record must report pending: $json"
+
   # A cancellation must not be laundered into "passing" either.
   json=$(FAKE_GH_ROLLUP='[{"conclusion":"SUCCESS","status":"COMPLETED"}]' \
     run "$home" "$fakebin" --include-prs --json)

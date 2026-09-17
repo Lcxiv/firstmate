@@ -255,13 +255,17 @@ EOF
           # reported as "failing": the two call for opposite responses, rerun
           # versus debug, and collapsing them sends readers hunting a test
           # failure in a suite that passed. A genuine failure still outranks a
-          # cancellation when both are present.
+          # cancellation when both are present, and pending outranks cancelled:
+          # when only one job is rerun, the other checks keep carry-over records
+          # from the previous attempt, so a cancelled record beside an in-flight
+          # rerun is the normal shape. Reporting it as cancelled would tell the
+          # reader to rerun while a rerun is already running, so "pending" wins.
           checks:(
             (.statusCheckRollup // []) as $c
             | if ($c|length) == 0 then "none"
               elif any($c[]; (.conclusion // .state // "") as $s | ($s=="FAILURE" or $s=="ERROR" or $s=="ACTION_REQUIRED")) then "failing"
-              elif any($c[]; (.conclusion // .state // "") as $s | ($s=="CANCELLED" or $s=="TIMED_OUT")) then "cancelled"
               elif any($c[]; ((.status // "") != "COMPLETED") and ((.state // "") != "SUCCESS")) then "pending"
+              elif any($c[]; (.conclusion // .state // "") as $s | ($s=="CANCELLED" or $s=="TIMED_OUT")) then "cancelled"
               else "passing" end)
         } ] as $rows | {returned:($rows | length), rows:$rows[:$limit]}') || { nwarn=$((nwarn + 1)); continue; }
       returned=$(printf '%s' "$repo_result" | jq '.returned')

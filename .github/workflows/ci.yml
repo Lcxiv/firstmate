@@ -132,10 +132,13 @@ jobs:
     runs-on: ubuntu-latest
     # Measured on 2026-09-17 across runs 35252117354 and 35276790325: the whole
     # remainder is ~64 min of serial work, which six balanced shards turn into
-    # ~10.7 min each. This cap is a hang tripwire with roughly 1.9x margin, not
-    # the expected healthy end of the lane, and it is deliberately NOT the thing
-    # that catches creep: the run step's own lane budget fires first, naming the
-    # cause, so a shard can never again be killed here without a verdict.
+    # ~10.7 min each. Three strictly ordered bounds each own one case: the
+    # runner's 14 min lane budget catches a shard whose tests complete over
+    # budget and fails naming that cause (it is evaluated after the suite, so
+    # it cannot catch a hang); the run step's 15 min timeout-minutes catches a
+    # shard that hangs or never completes, failing that step with a timeout
+    # cause while the timing artifact still uploads; this 20 min job cap is the
+    # last-resort backstop behind both and is not expected to be reached.
     # docs/fm-test-portable-shards.md owns the measured evidence and the refresh
     # procedure; bin/fm-test-run.sh owns the shard count and the budget.
     timeout-minutes: 20
@@ -178,11 +181,15 @@ jobs:
           # leaving a shard of the required lane unrun.
           FM_SERIAL_LANE: portable-serial-${{ matrix.shard }}of${{ strategy.job-total }}
           FM_SERIAL_SHARD: ${{ matrix.shard }}
+        # Above the 14 min lane budget and below the 20 min job cap: a hang
+        # fails this step with a timeout cause so the timing artifact upload
+        # below still runs.
+        timeout-minutes: 15
         run: |
           set -eu
           mkdir -p "$RUNNER_TEMP/fm-test"
           # --enforce-lane-budget applies the runner's own chosen per-shard
-          # budget, well under this job's cap, and --budget-markdown puts the
+          # budget to a shard that completes, and --budget-markdown puts the
           # remaining headroom on the run page so the margin is watched rather
           # than rediscovered from a cancelled PR.
           bin/fm-test-run.sh --lane "$FM_SERIAL_LANE" \
