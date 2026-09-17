@@ -1015,6 +1015,13 @@ SH
   grep -Fq "| \`lane=$shard_lane\` | $duration ms | $budget ms | $headroom ms |" "$tmp/summary.md" \
     || fail "the budget markdown did not record the measured margin: $(cat "$tmp/summary.md")"
 
+  # The equals spelling every other path flag accepts writes the same row.
+  (cd "$repo" && "$runner" --lane "$shard_lane" --enforce-lane-budget \
+    "--budget-markdown=$tmp/summary-eq.md") >"$tmp/ok-eq" 2>"$tmp/ok-eq.err" \
+    || fail "the equals spelling of --budget-markdown must run the shard: $(cat "$tmp/ok-eq.err")"
+  grep -Eq "^\| \`lane=$shard_lane\` \| [0-9]+ ms \| $budget ms \| [0-9]+ ms \| [0-9]+% \|\$" "$tmp/summary-eq.md" \
+    || fail "--budget-markdown=<path> did not record the measured margin: $(cat "$tmp/summary-eq.md" 2>/dev/null)"
+
   # The budget has one owner: a caller may apply it, never widen it.
   set +e
   (cd "$repo" && "$runner" --lane "$shard_lane" --enforce-lane-budget \

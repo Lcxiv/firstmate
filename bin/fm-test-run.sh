@@ -71,9 +71,12 @@
 #                   (PORTABLE_SERIAL_SHARD_BUDGET_MS). Refused on any other
 #                   selection, and refused alongside --max-wall-ms, so the
 #                   budget has exactly one owner and a caller cannot widen it.
-#                   A shard that outgrows the budget fails naming that cause,
-#                   which arrives before the CI job cap would cancel it without
-#                   a verdict.
+#                   The budget is checked after the suite, so it owns a shard
+#                   whose tests COMPLETE between 14 and 15 min and fails it
+#                   naming that cause. A hang or a shard still running at
+#                   15 min never reaches this check: the ci.yml run step's
+#                   15 min bound owns that case, and the 20 min job cap is the
+#                   backstop behind both.
 #   --budget-markdown <path>
 #                   append one markdown row (lane, measured, budget, headroom,
 #                   percent used) to <path> after the run. CI points this at
@@ -172,7 +175,8 @@ CHANGED_DEFAULT_TIMEOUT_SECS=900
 # One owner: CI lane names carry this count and are refused when they disagree.
 # Chosen against measured work, not guessed: the whole remainder is about 64 min
 # of serial script time, so six shards land near 10.7 min each and leave the
-# 20-minute ci.yml job cap as an actual hang tripwire rather than a coin flip.
+# ci.yml run step's 15-minute bound as an actual hang tripwire rather than a
+# coin flip.
 PORTABLE_SERIAL_SHARDS=6
 
 # Balance hint for a portable-serial script with no measured duration, close to
@@ -180,14 +184,15 @@ PORTABLE_SERIAL_SHARDS=6
 # overloads the shard it lands in.
 PORTABLE_SERIAL_DEFAULT_WEIGHT_MS=26000
 
-# The deliberately chosen wall budget for one portable serial CI shard, stated
-# against the 20-minute ci.yml job cap it is chosen from. Measured shards sit at
-# about 10.7 min, so this leaves roughly 3.3 min of growth room before the
-# budget fires and a further 6 min of runner-speed spread before the provider
-# would cancel the job. --enforce-lane-budget turns that margin into a named
-# failure that arrives BEFORE a verdictless cancellation, which is the whole
-# point: a shard silently creeping toward the cap over weeks is the failure,
-# not any single slow test. Refresh procedure and the measured evidence live in
+# The deliberately chosen wall budget for one portable serial CI shard. Measured
+# shards sit at about 10.7 min, so this leaves roughly 3.3 min of growth room
+# before the budget fires. It is checked after the suite, so it owns a shard
+# whose tests complete between 14 and 15 min and fails it naming the cause; a
+# hang or a shard still running at 15 min is stopped by the ci.yml run step's
+# 15 min bound and never reaches this check, and the 20 min job cap is the
+# backstop behind both. The point of the named failure is that a shard silently
+# creeping toward its bound over weeks is the failure, not any single slow
+# test. Refresh procedure and the measured evidence live in
 # docs/fm-test-portable-shards.md.
 PORTABLE_SERIAL_SHARD_BUDGET_MS=840000
 
