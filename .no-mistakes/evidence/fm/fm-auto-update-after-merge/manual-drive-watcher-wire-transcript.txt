@@ -1,0 +1,45 @@
+
+===== S11 real watcher: merged FIRSTMATE PR poll fires the fleet fast-forward (merged task t1 is live and must not defer) =====
+-- arm the merge poll for task t1 (https://github.com/acme/firstmate/pull/7):
+  armed: state/t1.check.sh
+  t1.meta pr= line: pr=https://github.com/acme/firstmate/pull/7
+before:
+  main   HEAD=494ccb8
+  sm1    HEAD=494ccb8
+  origin main=90ab609
+watcher stdout:
+  | check: /var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T//fm-update-wire.LadQzD/s11/home/state/t1.check.sh: merged
+wake queue:
+  | 1789685624	1	check	merged-t1-https://github.com/acme/firstmate/pull/7	check: merge landed: t1 https://github.com/acme/firstmate/pull/7
+  | 1789685627	2	check	firstmate-self-update	check: firstmate updated itself to the latest after a merge - re-read AGENTS.md
+triage log (state/.watch-triage.log):
+  (end of triage log)
+after:
+  main   HEAD=90ab609
+  sm1    HEAD=90ab609
+  origin main=90ab609
+  pending record: (absent)
+  AGENTS.md main=v2 sm1=v2
+  sm1 inbox: please re-read your AGENTS.md to pick up the new instructions
+
+===== S12 real watcher: merged poll for a NON-firstmate project leaves every home as-is =====
+-- arm the merge poll for task t1 (https://github.com/acme/some-project/pull/9):
+  armed: state/t1.check.sh
+  t1.meta pr= line: pr=https://github.com/acme/some-project/pull/9
+before:
+  main   HEAD=8946e7e
+  sm1    HEAD=8946e7e
+  origin main=e8c66cc
+watcher stdout:
+  | check: /var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T//fm-update-wire.LadQzD/s12/home/state/t1.check.sh: merged
+wake queue:
+  | 1789685631	1	check	merged-t1-https://github.com/acme/some-project/pull/9	check: merge landed: t1 https://github.com/acme/some-project/pull/9
+triage log (state/.watch-triage.log):
+  (end of triage log)
+after:
+  main   HEAD=8946e7e
+  sm1    HEAD=8946e7e
+  origin main=e8c66cc
+  pending record: (absent)
+  AGENTS.md main=v1 sm1=v1
+  sm1 inbox: 

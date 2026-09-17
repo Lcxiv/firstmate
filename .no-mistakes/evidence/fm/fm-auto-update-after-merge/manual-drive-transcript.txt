@@ -1,0 +1,130 @@
+
+===== S1 happy path: merged firstmate PR fast-forwards this home + secondmate, nudges, no pending record left =====
+before:
+  main   HEAD=84a44ad  origin/main=84a44ad
+  sm1    HEAD=84a44ad  origin/main=84a44ad
+firstmate: updated 84a44ad..94a6558 (instructions changed: AGENTS.md)
+secondmate sm1: updated 84a44ad..94a6558 (instructions changed: AGENTS.md)
+reread-firstmate: yes
+nudge-secondmates: fm-sm1
+after-merge: nudged fm-sm1
+after-merge: completed
+  [exit=0]
+after:
+  main   HEAD=94a6558  origin/main=94a6558
+  sm1    HEAD=94a6558  origin/main=94a6558
+  pending record: (absent)
+  AGENTS.md in main: v2  in sm1: v2
+  sm1 inbox record:
+    schema=fm-task-inbox.v1
+    at=2026-09-17T22:51:25Z
+    --
+    [fm-from-firstmate]⁣corr=f97b7a8e57f720cc firstmate was updated to the latest - please re-read your AGENTS.md to pick up the new instructions.  main branch parents of HEAD: 2 (2 = single-parent, not a merge commit)
+
+===== S2 foreign project merge: no-op, and a deferred firstmate update already owed is preserved =====
+before:
+  main   HEAD=cab9133  origin/main=cab9133
+  sm1    HEAD=cab9133  origin/main=cab9133
+  pending record: https://github.com/acme/firstmate/pull/7|attempts=0|
+after-merge: skipped: https://github.com/acme/some-project/pull/7 is not the firstmate repository (github.com/acme/firstmate)
+  [exit=0]
+after:
+  main   HEAD=cab9133  origin/main=cab9133
+  sm1    HEAD=cab9133  origin/main=cab9133
+  pending record: https://github.com/acme/firstmate/pull/7|attempts=0|
+
+===== S3 dirty secondmate home: skipped and reported, local edit preserved, never stashed/reset =====
+firstmate: updated cb6cced..b8c935b (instructions changed: AGENTS.md)
+secondmate sm1: skipped: dirty working tree
+reread-firstmate: yes
+nudge-secondmates: none
+after-merge: completed
+  [exit=0]
+  main   HEAD=b8c935b  origin/main=b8c935b
+  sm1    HEAD=cb6cced  origin/main=b8c935b
+  sm1 README tail: LOCAL EDIT
+  main   stash entries=0  reflog reset/rebase entries=0
+  sm1    stash entries=0  reflog reset/rebase entries=0
+
+===== S4 diverged secondmate home: skipped and reported, unlanded commit preserved =====
+firstmate: updated f18e7d4..51fd332 (instructions changed: AGENTS.md)
+secondmate sm1: skipped: diverged from origin/main
+reread-firstmate: yes
+nudge-secondmates: none
+after-merge: completed
+  [exit=0]
+  main   HEAD=51fd332  origin/main=51fd332
+  sm1    HEAD=e4364c7  origin/main=51fd332
+  sm1 HEAD still the unlanded commit e4364c7: yes
+  main   stash entries=0  reflog reset/rebase entries=0
+  sm1    stash entries=0  reflog reset/rebase entries=0
+
+===== S5 unrelated live task in a worktree of THIS repo defers; retry lands it once quiet =====
+-- notification while task 'other' is live:
+after-merge: deferred: firstmate work still in flight here (other)
+  [exit=0]
+  main   HEAD=45fe06d  origin/main=45fe06d
+  pending record: https://github.com/acme/firstmate/pull/7|attempts=0|
+-- retry while still live (attempts must not grow):
+after-merge: deferred: firstmate work still in flight here (other)
+  [exit=0]
+  pending record: https://github.com/acme/firstmate/pull/7|attempts=0|
+-- retry after the task is gone:
+firstmate: updated 45fe06d..475a24c (instructions changed: AGENTS.md)
+reread-firstmate: yes
+nudge-secondmates: none
+after-merge: completed
+  [exit=0]
+  main   HEAD=475a24c  origin/main=475a24c
+  pending record: (absent)
+
+===== S6 (adversarial) the merged PR's OWN task being live must NOT defer =====
+firstmate: updated 4897821..af99827 (instructions changed: AGENTS.md)
+reread-firstmate: yes
+nudge-secondmates: none
+after-merge: completed
+  [exit=0]
+  main   HEAD=af99827  origin/main=af99827
+  pending record: (absent)
+
+===== S7 (adversarial) live worker in an UNRELATED repository does not defer =====
+firstmate: updated 4897821..ecc6fc4 (instructions changed: AGENTS.md)
+reread-firstmate: yes
+nudge-secondmates: none
+after-merge: completed
+  [exit=0]
+  main   HEAD=ecc6fc4  origin/main=ecc6fc4
+  pending record: (absent)
+
+===== S8 (adversarial) fetch hangs: run killed at the time bound leaves the pending record with attempts=1 =====
+  [exit=124 ; 124 = time bound]
+  pending record: https://github.com/acme/firstmate/pull/7|attempts=1|
+  main   HEAD=1be9bb0  origin/main=1be9bb0
+-- retry with a working git lands it:
+nudge-secondmates: none
+after-merge: completed
+  [exit=0]
+  pending record: (absent)
+  main   HEAD=11fd095  origin/main=11fd095
+
+===== S9 home leased as a secondmate (detached HEAD + marker) updates itself =====
+before: detached HEAD
+  main   HEAD=8709c36  origin/main=8709c36
+firstmate: updated 8709c36..66f4f0c (instructions changed: AGENTS.md)
+reread-firstmate: yes
+nudge-secondmates: none
+after-merge: completed
+  [exit=0]
+  main   HEAD=66f4f0c  origin/main=66f4f0c
+
+===== S10 real watcher: retries a pending record on its check sweep, wakes firstmate to re-read =====
+before:
+  main   HEAD=e14cd7c  origin/main=e14cd7c
+  pending record: https://github.com/acme/firstmate/pull/7|attempts=0|
+watcher stdout:
+  | check: firstmate updated itself to the latest after a merge - re-read AGENTS.md
+wake queue:
+  | 1789685503	1	check	firstmate-self-update	check: firstmate updated itself to the latest after a merge - re-read AGENTS.md
+after:
+  main   HEAD=1e46a48  origin/main=1e46a48
+  pending record: (absent)
