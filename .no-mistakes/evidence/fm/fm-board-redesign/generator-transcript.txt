@@ -1,0 +1,9 @@
+## date gate, composer reason has no date; snapshot reason is cut short
+["Waits until 2026-10-01: after the quarterly release is out","Start: dispatch a worker"]
+["Waits on fm-phone-discord-golive","Waits until 2026-11-05","Start: dispatch a worker"]
+["Waits until 2026-10-01: the full hold reason from the task record","Start: dispatch a worker"]
+## any ellipsis anywhere in generated steps?
+0
+## live snapshot gate rows carry structured until / blocker_ids
+{"id":"fm-secondmates-per-project","until":null,"blocker_ids":[]}
+{"id":"jt-db-cutover","until":null,"blocker_ids":[]}

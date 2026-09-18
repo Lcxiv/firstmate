@@ -1,0 +1,12 @@
+const { chromium } = require("/Users/louiscondevaux/.hermes/hermes-agent/node_modules/playwright-core");
+(async () => { const b = await chromium.launch({ headless: true, executablePath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" });
+ const p = await b.newPage({ viewport: { width: 1280, height: 900 } });
+ await p.addInitScript(() => { window.__q = []; window.__sent = 0; window.lavish = { queuePrompt: (t, o) => window.__q.push({ text: t, data: o.data }), send: () => window.__sent++ }; });
+ await p.goto("file://" + __dirname + "/board-live.html");
+ const cards = p.locator(".bb-item--call");
+ const c1 = cards.nth(0); await c1.locator("textarea, input[type=text]").first().fill("but only the first two joins"); await c1.locator(".bb-opt").first().click();
+ const c2 = cards.nth(1); await c2.locator("textarea, input[type=text]").first().fill("ask me again on Monday");
+ const btns = await c2.locator("button").allTextContents();
+ await c2.locator("button", { hasText: /typed|note|answer/i }).last().click();
+ console.log(JSON.stringify({ buttons: btns, queued: await p.evaluate(() => window.__q), sent: await p.evaluate(() => window.__sent) }, null, 1));
+ await b.close(); })().catch(e => { console.error(e); process.exit(1); });

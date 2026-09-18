@@ -1,0 +1,25 @@
+{
+ "buttons": [
+  "2 steps",
+  "Yes, go aheadrec",
+  "No, leave it",
+  "Queue typed answer"
+ ],
+ "queued": [
+  {
+   "text": "Captain's Call answer - Adjudicate the four candidate identity joins that block ranking in the canonical funder da: yes - but only the first two joins",
+   "data": {
+    "question": "grant-canonical-identity-adjudication",
+    "answer": "yes - but only the first two joins"
+   }
+  },
+  {
+   "text": "Captain's Call answer - Stakeholder note on the September 2026 windows: ask me again on Monday",
+   "data": {
+    "question": "grant-september-cycle-stakeholder-note",
+    "answer": "ask me again on Monday"
+   }
+  }
+ ],
+ "sent": 0
+}

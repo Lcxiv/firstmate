@@ -1,0 +1,276 @@
+{
+ "390": {
+  "errors": [],
+  "initial": {
+   "count": 27,
+   "ranks": "1:call 2:call 3:call 4:underway 5:underway 6:underway 7:underway 8:queued 9:queued 10:queued 11:queued 12:queued 13:queued 14:queued 15:queued 16:queued 17:queued 18:queued 19:queued 20:queued 21:queued 22:queued 23:queued 24:queued 25:queued 26:queued 27:queued",
+   "allHaveToggle": true,
+   "allCollapsed": true,
+   "optsVisibleWhileCollapsed": true,
+   "summaries": [
+    "0 of 2 done · now: Your call: Adjudicate the four candidate identity joins that block ranking in the canonical funder da",
+    "0 of 2 done · now: Your call: Stakeholder note on the September 2026 windows",
+    "0 of 2 done · now: Your call: Does the filing-route filter defer to the GRANT_WORKFLOW.md Calendar anchor?",
+    "4 of 6 done · now: Your merge word"
+   ],
+   "pips": [
+    2,
+    2,
+    2,
+    6
+   ],
+   "firstCall": "Adjudicate the four candidate identity joins that block rank",
+   "links": [
+    "holds up #19: Ignore the removed benefits form filename so it can neve -> #bb-item-19",
+    "waits on your call #1 -> #bb-item-1"
+   ],
+   "ellipsisStyled": 0,
+   "textEllipsis": false,
+   "scrollW": 390,
+   "clientW": 390,
+   "landedHidden": true
+  },
+  "expanded": [
+   {
+    "rank": "1",
+    "aria": "true",
+    "steps": [
+     "current | Your call: Adjudicate the four candidate identity joins that block ranking in the canonical funder dayou",
+     "todo | Firstmate acts on your answer"
+    ]
+   },
+   {
+    "rank": "4",
+    "aria": "true",
+    "steps": [
+     "done | Instructions written, worker started",
+     "done | Build the change",
+     "done | Validate: review, tests, docs, CI",
+     "done | PR open with checks green",
+     "current | Your merge wordyou",
+     "todo | Merge and clean up"
+    ]
+   },
+   {
+    "rank": "19",
+    "aria": "true",
+    "steps": [
+     "blocked | Waits on your call: Adjudicate the four candidate identity joins that block ranking in the canonical funder dayou",
+     "todo | Start: dispatch a worker"
+    ]
+   }
+  ],
+  "scrollWExpanded": 390,
+  "reclosed": true,
+  "afterOneClick": {
+   "queued": [
+    {
+     "text": "Captain's Call answer - Adjudicate the four candidate identity joins that block ranking in the canonical funder da: yes",
+     "tag": "choice",
+     "data": {
+      "question": "grant-canonical-identity-adjudication",
+      "answer": "yes"
+     }
+    }
+   ],
+   "sent": 0,
+   "cardQueued": true,
+   "note": "queued for review: yes"
+  },
+  "bulkStaged": {
+   "stageVisible": true,
+   "list": [
+    "Stakeholder note on the September 2026 windows → yes",
+    "Does the filing-route filter defer to the GRANT_WORKFLOW.md Calendar anchor? → y"
+   ],
+   "queuedCount": 1
+  },
+  "bulkCancelled": {
+   "stageHidden": true,
+   "queuedCount": 1
+  },
+  "bulkConfirmed": {
+   "queued": [
+    {
+     "question": "grant-canonical-identity-adjudication",
+     "answer": "yes"
+    },
+    {
+     "question": "grant-september-cycle-stakeholder-note",
+     "answer": "yes"
+    },
+    {
+     "question": "grant-filing-route-calendar-anchor-scope",
+     "answer": "yes"
+    }
+   ],
+   "sent": 0
+  },
+  "longList": {
+   "queuedRows": 20,
+   "lastInView": true,
+   "barInView": true,
+   "barText": "1 picked to start now",
+   "scrollY": 6006
+  },
+  "dispatch": {
+   "last": {
+    "text": "Dispatch order - start this queued work now: fm-teardown-squash-false-refusal",
+    "tag": "choice",
+    "data": {
+     "question": "dispatch.charted",
+     "answer": "fm-teardown-squash-false-refusal"
+    }
+   },
+   "sent": 0
+  },
+  "landed": {
+   "hidden": false,
+   "prs": [
+    "https://github.com/Lcxiv/firstmate/pull/25",
+    "https://github.com/Lcxiv/firstmate/pull/25",
+    "https://github.com/Lcxiv/firstmate/pull/25",
+    "https://github.com/Lcxiv/firstmate/pull/25",
+    "https://github.com/Lcxiv/firstmate/pull/25",
+    "https://github.com/Lcxiv/firstmate/pull/25"
+   ]
+  }
+ },
+ "1280": {
+  "errors": [],
+  "initial": {
+   "count": 27,
+   "ranks": "1:call 2:call 3:call 4:underway 5:underway 6:underway 7:underway 8:queued 9:queued 10:queued 11:queued 12:queued 13:queued 14:queued 15:queued 16:queued 17:queued 18:queued 19:queued 20:queued 21:queued 22:queued 23:queued 24:queued 25:queued 26:queued 27:queued",
+   "allHaveToggle": true,
+   "allCollapsed": true,
+   "optsVisibleWhileCollapsed": true,
+   "summaries": [
+    "0 of 2 done · now: Your call: Adjudicate the four candidate identity joins that block ranking in the canonical funder da",
+    "0 of 2 done · now: Your call: Stakeholder note on the September 2026 windows",
+    "0 of 2 done · now: Your call: Does the filing-route filter defer to the GRANT_WORKFLOW.md Calendar anchor?",
+    "4 of 6 done · now: Your merge word"
+   ],
+   "pips": [
+    2,
+    2,
+    2,
+    6
+   ],
+   "firstCall": "Adjudicate the four candidate identity joins that block rank",
+   "links": [
+    "holds up #19: Ignore the removed benefits form filename so it can neve -> #bb-item-19",
+    "waits on your call #1 -> #bb-item-1"
+   ],
+   "ellipsisStyled": 0,
+   "textEllipsis": false,
+   "scrollW": 1280,
+   "clientW": 1280,
+   "landedHidden": true
+  },
+  "expanded": [
+   {
+    "rank": "1",
+    "aria": "true",
+    "steps": [
+     "current | Your call: Adjudicate the four candidate identity joins that block ranking in the canonical funder dayou",
+     "todo | Firstmate acts on your answer"
+    ]
+   },
+   {
+    "rank": "4",
+    "aria": "true",
+    "steps": [
+     "done | Instructions written, worker started",
+     "done | Build the change",
+     "done | Validate: review, tests, docs, CI",
+     "done | PR open with checks green",
+     "current | Your merge wordyou",
+     "todo | Merge and clean up"
+    ]
+   },
+   {
+    "rank": "19",
+    "aria": "true",
+    "steps": [
+     "blocked | Waits on your call: Adjudicate the four candidate identity joins that block ranking in the canonical funder dayou",
+     "todo | Start: dispatch a worker"
+    ]
+   }
+  ],
+  "scrollWExpanded": 1280,
+  "reclosed": true,
+  "afterOneClick": {
+   "queued": [
+    {
+     "text": "Captain's Call answer - Adjudicate the four candidate identity joins that block ranking in the canonical funder da: yes",
+     "tag": "choice",
+     "data": {
+      "question": "grant-canonical-identity-adjudication",
+      "answer": "yes"
+     }
+    }
+   ],
+   "sent": 0,
+   "cardQueued": true,
+   "note": "queued for review: yes"
+  },
+  "bulkStaged": {
+   "stageVisible": true,
+   "list": [
+    "Stakeholder note on the September 2026 windows → yes",
+    "Does the filing-route filter defer to the GRANT_WORKFLOW.md Calendar anchor? → y"
+   ],
+   "queuedCount": 1
+  },
+  "bulkCancelled": {
+   "stageHidden": true,
+   "queuedCount": 1
+  },
+  "bulkConfirmed": {
+   "queued": [
+    {
+     "question": "grant-canonical-identity-adjudication",
+     "answer": "yes"
+    },
+    {
+     "question": "grant-september-cycle-stakeholder-note",
+     "answer": "yes"
+    },
+    {
+     "question": "grant-filing-route-calendar-anchor-scope",
+     "answer": "yes"
+    }
+   ],
+   "sent": 0
+  },
+  "longList": {
+   "queuedRows": 20,
+   "lastInView": true,
+   "barInView": true,
+   "barText": "1 picked to start now",
+   "scrollY": 2990
+  },
+  "dispatch": {
+   "last": {
+    "text": "Dispatch order - start this queued work now: fm-teardown-squash-false-refusal",
+    "tag": "choice",
+    "data": {
+     "question": "dispatch.charted",
+     "answer": "fm-teardown-squash-false-refusal"
+    }
+   },
+   "sent": 0
+  },
+  "landed": {
+   "hidden": false,
+   "prs": [
+    "https://github.com/Lcxiv/firstmate/pull/25",
+    "https://github.com/Lcxiv/firstmate/pull/25",
+    "https://github.com/Lcxiv/firstmate/pull/25",
+    "https://github.com/Lcxiv/firstmate/pull/25",
+    "https://github.com/Lcxiv/firstmate/pull/25",
+    "https://github.com/Lcxiv/firstmate/pull/25"
+   ]
+  }
+ }
+}

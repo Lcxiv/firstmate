@@ -1,0 +1,1052 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Bearings - fleet board</title>
+<style>
+/* ============================================================
+   Bearings board - Firstmate Design System, inlined for portability.
+   Tokens copied verbatim from myfirstmate priv/static/assets/app.css
+   (the compiled adoption of .agents/skills/firstmate-design).
+   ============================================================ */
+@import url("https://fonts.googleapis.com/css2?family=Chango&family=Jost:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap");
+
+:root {
+  --rust-700: #8f2f17; --rust-600: #a93a1f; --rust-500: #c0452a;
+  --rust-400: #d35f3f; --rust-300: #e08365; --rust-100: #f4d8c9; --rust-050: #fbece3;
+  --navy-700: #1a2238; --navy-600: #222c49; --navy-500: #2a3656;
+  --navy-300: #6c7796; --navy-100: #d9deea;
+  --gold-600: #b5791c; --gold-500: #e0a52e; --gold-300: #f0d38c; --gold-100: #f8ecc9;
+  --ocean-600: #2f6688; --ocean-500: #3c7ea6; --ocean-200: #b6d4e2; --ocean-050: #e8f1f5;
+  --sea-700: #234e3a; --sea-500: #2f6b4f; --sea-200: #b9d4c5; --sea-050: #e9f2ec;
+  --paper-000: #fbf4e2; --paper-100: #f6ecd3; --paper-200: #f0e3c4; --paper-300: #e7d6ae;
+  --cream-line: #ddc89c;
+  --ink-900: #241c14; --ink-700: #3f3224; --ink-500: #6f5e46; --ink-300: #9c8a6c;
+  --white: #fffdf7;
+  --bg-page: var(--paper-100);
+  --surface-card: var(--white);
+  --surface-card-warm: var(--paper-000);
+  --text-strong: var(--ink-900); --text-body: var(--ink-700);
+  --text-muted: var(--ink-500); --text-faint: var(--ink-300);
+  --border-default: var(--cream-line); --border-soft: var(--paper-300);
+  --status-online: var(--sea-500); --status-online-soft: var(--sea-050);
+  --status-warn: var(--gold-600); --status-warn-soft: var(--gold-100);
+  --status-danger: var(--rust-600); --status-danger-soft: var(--rust-050);
+  --status-info: var(--ocean-500); --status-info-soft: var(--ocean-050);
+  --font-display: "Chango", "Cooper Black", Rockwell, Georgia, serif;
+  --font-sans: "Jost", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --fs-h3: 1.4rem; --fs-h4: 1.15rem; --fs-base: 1rem; --fs-sm: 0.9375rem;
+  --fs-xs: 0.8125rem; --fs-2xs: 0.6875rem;
+  --ls-caps: 0.16em;
+  --radius-xs: 6px; --radius-sm: 9px; --radius-md: 12px; --radius-banner: 7px;
+  --radius-lg: 18px; --radius-pill: 999px;
+  --shadow-sm: 0 1px 2px rgba(36, 28, 20, 0.06), 0 4px 10px rgba(36, 28, 20, 0.06);
+  --shadow-hard: 4px 4px 0 var(--ink-900);
+  --shadow-hard-sm: 3px 3px 0 var(--ink-900);
+  --texture-paper: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.045'/%3E%3C/svg%3E");
+  --focus-ring: 0 0 0 3px var(--gold-300);
+  --container-app: 1180px;
+}
+
+* { box-sizing: border-box; }
+/* Every board chrome class below sets an explicit `display`, which outranks the
+   user-agent `[hidden] { display: none }` rule. Without this the renderer's
+   `hidden = true` is silently ignored and the captain sees empty scaffolding -
+   an Effort Maps heading with no band under it, a dead dispatch bar, stack
+   arrows with no cards. */
+[hidden] { display: none !important; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: var(--font-sans);
+  color: var(--text-body);
+  background: var(--bg-page);
+  background-image: var(--texture-paper);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: inherit; text-decoration: none; }
+
+/* ---- fm-badge (enamel sign-pin), verbatim contract ---- */
+.fm-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: var(--fs-2xs); font-weight: 800; line-height: 1;
+  padding: 5px 9px 4px; text-transform: uppercase; letter-spacing: 0.07em;
+  border-radius: var(--radius-xs); border: 1.5px solid var(--ink-900);
+  box-shadow: 2px 2px 0 var(--ink-900); white-space: nowrap;
+}
+.fm-badge--online  { background: var(--sea-500);  color: var(--paper-000); }
+.fm-badge--warn    { background: var(--gold-500); color: var(--navy-700); }
+.fm-badge--danger  { background: var(--rust-600); color: var(--paper-000); }
+.fm-badge--info    { background: var(--ocean-500); color: var(--paper-000); }
+.fm-badge--neutral { background: var(--paper-000); color: var(--ink-900); }
+.fm-badge--solid   { background: var(--rust-500); color: var(--paper-000); }
+
+/* ---- fm-btn ---- */
+.fm-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  font-family: var(--font-sans); font-weight: 800; line-height: 1; white-space: nowrap;
+  border: 2px solid transparent; border-radius: var(--radius-banner); cursor: pointer;
+  text-decoration: none; transition: background 120ms, border-color 120ms, transform 120ms, box-shadow 120ms;
+}
+.fm-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.fm-btn:active { transform: translateY(1px); }
+.fm-btn--sm { font-size: var(--fs-xs); padding: 8px 16px; }
+.fm-btn--primary { background: var(--rust-500); color: var(--white); border-color: var(--ink-900); box-shadow: var(--shadow-hard-sm); }
+.fm-btn--primary:hover { background: var(--rust-600); }
+.fm-btn--gold { background: var(--gold-500); color: var(--navy-700); border-color: var(--ink-900); box-shadow: var(--shadow-hard-sm); }
+.fm-btn--gold:hover { background: var(--gold-600); color: var(--white); }
+.fm-btn[disabled] { opacity: 0.5; cursor: not-allowed; }
+
+/* ---- fm-card ---- */
+.fm-card {
+  background: var(--surface-card); border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); overflow: hidden;
+}
+.fm-card--poster { border: 2px solid var(--ink-900); box-shadow: var(--shadow-hard); border-radius: var(--radius-md); }
+.fm-card--warm { background: var(--surface-card-warm); }
+
+/* ---- fm-sign (eyebrow section label) ---- */
+.fm-sign {
+  display: inline-flex; align-items: center; gap: 8px; font-weight: 800;
+  text-transform: uppercase; letter-spacing: var(--ls-caps); font-size: var(--fs-xs);
+  line-height: 1; white-space: nowrap;
+}
+.fm-sign--eyebrow { color: var(--rust-500); }
+.fm-sign--muted { color: var(--ink-500); }
+.fm-sign svg { width: 14px; height: 14px; }
+.fm-ico { width: 1.15em; height: 1.15em; flex: none; vertical-align: -0.18em; }
+
+/* ============================================================
+   Board chrome (bb-*) - built on the same tokens.
+   The board is ONE prioritized todo list read top to bottom: the captain's
+   calls, then what firstmate is doing, then what is queued. Every item carries
+   an ordered step list that starts collapsed behind one toggle, so the list
+   stays scannable and the detail is one click away. Nothing on the board is
+   truncated: long text wraps, and long lists grow the page, which scrolls.
+   ============================================================ */
+.bb-nav {
+  position: sticky; top: 0; z-index: 20;
+  background: color-mix(in srgb, var(--paper-100) 88%, transparent);
+  backdrop-filter: saturate(150%) blur(10px);
+  border-bottom: 1px solid var(--border-default);
+}
+.bb-nav__inner {
+  max-width: var(--container-todo); margin: 0 auto; padding: 10px 24px;
+  display: flex; align-items: center; justify-content: space-between; gap: 10px 16px; flex-wrap: wrap;
+}
+.bb-brand { display: inline-flex; align-items: center; gap: 12px; }
+.bb-brand__disc {
+  display: grid; place-items: center; width: 32px; height: 32px; flex: none;
+  border-radius: 999px; background: var(--rust-500); color: var(--paper-000);
+  border: 2px solid var(--ink-900); box-shadow: var(--shadow-hard-sm);
+}
+.bb-brand__disc svg { width: 60%; height: 60%; }
+.bb-brand__wm { font-family: var(--font-display); font-size: 22px; color: var(--text-strong); line-height: 1; }
+.bb-meta-mono { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-faint); overflow-wrap: anywhere; }
+
+/* the tally: one line that says how much of the list is whose */
+.bb-stats { display: flex; flex-wrap: wrap; gap: 6px; }
+.bb-stat {
+  display: inline-flex; align-items: baseline; gap: 5px; padding: 4px 10px;
+  background: var(--surface-card-warm); border: 1px solid var(--border-soft); border-radius: var(--radius-pill);
+}
+.bb-stat--call { background: var(--rust-050); border: 1.5px solid var(--rust-500); }
+.bb-stat__num { font-family: var(--font-mono); font-size: var(--fs-sm); font-weight: 700; color: var(--text-strong); }
+.bb-stat--call .bb-stat__num { color: var(--rust-600); }
+.bb-stat__label { font-size: var(--fs-2xs); font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
+
+.bb-main {
+  max-width: var(--container-todo); margin: 0 auto;
+  padding: 22px 24px 72px; display: flex; flex-direction: column; gap: 26px;
+}
+:root { --container-todo: 880px; }
+
+/* ---- priority bands ---- */
+.bb-band { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.bb-band__head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.bb-band__num {
+  display: inline-grid; place-items: center; width: 26px; height: 26px; flex: none; align-self: center;
+  font-family: var(--font-mono); font-size: var(--fs-xs); font-weight: 700;
+  border: 2px solid var(--ink-900); border-radius: 999px; background: var(--paper-000); color: var(--ink-900);
+}
+.bb-band--call .bb-band__num { background: var(--rust-500); color: var(--paper-000); }
+.bb-band__title { margin: 0; font-size: var(--fs-h4); font-weight: 800; color: var(--text-strong); line-height: 1.2; }
+.bb-band__sub { font-size: var(--fs-xs); color: var(--text-muted); }
+.bb-list { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.bb-empty { padding: 14px 16px; font-size: var(--fs-sm); color: var(--text-muted);
+  background: var(--surface-card-warm); border: 1px dashed var(--border-default); border-radius: var(--radius-md); }
+
+/* ---- one todo item ---- */
+.bb-item {
+  background: var(--surface-card); border: 1px solid var(--border-default);
+  border-radius: var(--radius-md); box-shadow: var(--shadow-sm); min-width: 0;
+}
+.bb-item--call { border: 2px solid var(--ink-900); box-shadow: var(--shadow-hard-sm); }
+.bb-item--warning { border-left: 4px solid var(--rust-600); }
+.bb-item.is-queued { border-color: var(--sea-500); }
+.bb-item__head { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; min-width: 0; }
+.bb-item__rank {
+  flex: none; min-width: 22px; padding-top: 1px; text-align: right;
+  font-family: var(--font-mono); font-size: var(--fs-xs); font-weight: 700; color: var(--text-faint);
+}
+.bb-item__main { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.bb-item__title { margin: 0; font-size: var(--fs-base); font-weight: 700; color: var(--text-strong); line-height: 1.3; overflow-wrap: anywhere; }
+.bb-item--call .bb-item__title { font-size: var(--fs-h4); font-weight: 800; }
+.bb-item__meta { display: flex; align-items: center; gap: 6px 10px; flex-wrap: wrap; font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.35; }
+.bb-item__repo { font-family: var(--font-mono); font-size: var(--fs-2xs); color: var(--text-faint); overflow-wrap: anywhere; }
+.bb-item__now { color: var(--text-body); overflow-wrap: anywhere; }
+.bb-item__now b { font-weight: 700; color: var(--text-strong); }
+.bb-item__side { flex: none; display: flex; align-items: center; gap: 8px; }
+.bb-held { font-size: var(--fs-xs); font-weight: 700; color: var(--rust-600); overflow-wrap: anywhere; }
+a.bb-held { text-decoration: underline; }
+.bb-item { scroll-margin-top: 80px; }
+
+/* progress pips: the collapsed item's at-a-glance step summary */
+.bb-pips { display: inline-flex; flex-wrap: wrap; gap: 3px; align-items: center; }
+.bb-pip { width: 9px; height: 9px; border-radius: 999px; border: 1.5px solid var(--ink-300); background: transparent; }
+.bb-pip--done { background: var(--sea-500); border-color: var(--sea-500); }
+.bb-pip--current { background: var(--gold-500); border-color: var(--ink-900); }
+.bb-pip--blocked { background: var(--rust-500); border-color: var(--ink-900); }
+
+/* the expand control */
+.bb-toggle {
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer; flex: none;
+  font-family: var(--font-sans); font-size: var(--fs-xs); font-weight: 800; color: var(--text-body);
+  background: var(--paper-000); border: 1.5px solid var(--border-default); border-radius: var(--radius-sm);
+  padding: 5px 9px;
+}
+.bb-toggle:hover { border-color: var(--ink-500); }
+.bb-toggle:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.bb-toggle svg { width: 13px; height: 13px; transition: transform 120ms; }
+.bb-toggle[aria-expanded="true"] svg { transform: rotate(90deg); }
+
+/* the step list */
+.bb-steps { list-style: none; margin: 0; padding: 4px 14px 14px 46px; display: flex; flex-direction: column; gap: 2px; }
+.bb-step { display: flex; align-items: flex-start; gap: 9px; padding: 5px 0; font-size: var(--fs-sm); color: var(--text-body); line-height: 1.4; min-width: 0; }
+.bb-step__mark {
+  flex: none; width: 18px; height: 18px; margin-top: 1px; border-radius: 999px; display: grid; place-items: center;
+  border: 1.5px solid var(--ink-300); background: var(--surface-card); color: var(--paper-000);
+}
+.bb-step__mark svg { width: 11px; height: 11px; }
+.bb-step__text { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.bb-step--done .bb-step__text { color: var(--text-muted); text-decoration: line-through; text-decoration-color: var(--ink-300); }
+.bb-step--done .bb-step__mark { background: var(--sea-500); border-color: var(--sea-500); }
+.bb-step--current .bb-step__mark { background: var(--gold-500); border-color: var(--ink-900); color: var(--ink-900); }
+.bb-step--current .bb-step__text { font-weight: 700; color: var(--text-strong); }
+.bb-step--blocked .bb-step__mark { background: var(--rust-500); border-color: var(--ink-900); }
+.bb-step--blocked .bb-step__text { font-weight: 700; color: var(--rust-700); }
+.bb-step__who { flex: none; font-size: var(--fs-2xs); font-weight: 800; text-transform: uppercase; letter-spacing: 0.07em;
+  color: var(--navy-700); background: var(--gold-300); border: 1px solid var(--gold-600); border-radius: var(--radius-xs); padding: 2px 6px 1px; }
+
+/* ---- a call's answer area: always visible, never behind the toggle ---- */
+.bb-call-body { padding: 0 14px 14px 46px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.bb-ctx { display: flex; flex-direction: column; gap: 4px; }
+.bb-ctx__row { display: grid; grid-template-columns: 64px minmax(0,1fr); gap: 8px; align-items: baseline; }
+.bb-ctx__k { font-family: var(--font-mono); font-size: var(--fs-2xs); letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--text-faint); }
+.bb-ctx__v { font-size: var(--fs-sm); color: var(--text-muted); line-height: 1.4; min-width: 0; overflow-wrap: anywhere; }
+.bb-decision__link { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--ocean-600); font-weight: 600; overflow-wrap: anywhere; }
+.bb-decision__link:hover { text-decoration: underline; }
+.bb-answer { display: flex; flex-direction: column; gap: 8px; margin: 0; }
+/* one click on an option queues that answer for review; nothing sends */
+.bb-opts { display: flex; flex-wrap: wrap; gap: 7px; }
+.bb-opt {
+  display: inline-flex; flex-direction: column; align-items: flex-start; gap: 1px; max-width: 100%;
+  padding: 7px 12px; cursor: pointer; text-align: left; font-family: var(--font-sans);
+  background: var(--surface-card-warm); border: 1.5px solid var(--border-default); border-radius: var(--radius-sm);
+  transition: border-color 120ms, background 120ms;
+}
+.bb-opt:hover { border-color: var(--ink-500); background: var(--paper-000); }
+.bb-opt:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.bb-opt--rec { border-color: var(--ink-900); box-shadow: 2px 2px 0 var(--ink-900); }
+.bb-opt.is-picked { border-color: var(--sea-500); background: var(--sea-050); box-shadow: inset 0 0 0 1px var(--sea-500); }
+.bb-opt__label { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-sm); font-weight: 700; color: var(--text-strong); line-height: 1.3; overflow-wrap: anywhere; }
+.bb-opt__hint { display: block; font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.3; overflow-wrap: anywhere; }
+.bb-opt__rec { flex: none; font-size: var(--fs-2xs); font-weight: 800; text-transform: uppercase;
+  letter-spacing: 0.07em; color: var(--navy-700); background: var(--gold-300);
+  border: 1px solid var(--gold-600); border-radius: var(--radius-xs); padding: 2px 6px 1px; }
+.bb-opt-none { font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.4;
+  border: 1.5px dashed var(--border-default); border-radius: var(--radius-sm); padding: 8px 12px; }
+.bb-ff { display: flex; gap: 8px; flex-wrap: wrap; }
+.bb-freeform { flex: 1 1 220px; min-width: 0; font-family: var(--font-sans); font-size: var(--fs-sm); color: var(--text-strong);
+  background: var(--surface-card); border: 1.5px solid var(--border-default); border-radius: var(--radius-sm); padding: 7px 11px; }
+.bb-freeform:focus { outline: none; border-color: var(--rust-400); box-shadow: var(--focus-ring); }
+.bb-decision__foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.bb-decision__foot:empty { display: none; }
+.bb-queued {
+  display: none; align-items: center; gap: 6px; max-width: 100%;
+  font-size: var(--fs-xs); font-weight: 700; color: var(--sea-700); background: var(--sea-050);
+  border: 1.5px solid var(--sea-200); border-radius: var(--radius-xs); padding: 4px 9px; overflow-wrap: anywhere;
+}
+.is-queued .bb-queued { display: inline-flex; }
+.bb-limit { display: none; font-size: var(--fs-xs); font-weight: 700; color: var(--status-danger); }
+.bb-limit.is-visible { display: inline; }
+
+/* ---- bulk staging of recommended answers: two steps, never sends ---- */
+.bb-bulk { display: flex; flex-direction: column; gap: 10px; }
+.bb-bulk__head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.bb-bulk__count { flex: 1 1 auto; font-size: var(--fs-xs); font-weight: 700; color: var(--text-muted); }
+.bb-bulk__stage { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px;
+  background: var(--surface-card-warm); border: 1.5px solid var(--ink-900);
+  border-radius: var(--radius-sm); box-shadow: var(--shadow-hard-sm); }
+.bb-bulk__lead { font-size: var(--fs-xs); font-weight: 700; color: var(--text-strong); line-height: 1.4; }
+.bb-bulk__list { display: flex; flex-direction: column; gap: 5px; margin: 0; padding: 0; list-style: none; }
+.bb-bulk__item { font-size: var(--fs-xs); color: var(--text-body); line-height: 1.35; min-width: 0; overflow-wrap: anywhere; }
+.bb-bulk__title { font-weight: 700; color: var(--text-strong); }
+.bb-bulk__answer { font-family: var(--font-mono); font-weight: 700; color: var(--rust-600); }
+.bb-bulk__acts { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.bb-bulk__cancel { font-family: var(--font-sans); font-size: var(--fs-xs); font-weight: 800; cursor: pointer;
+  color: var(--text-muted); background: none; border: none; padding: 6px 2px; text-decoration: underline; }
+.bb-bulk__cancel:hover { color: var(--status-danger); }
+.bb-bulk__cancel:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.bb-bulk__note { margin: 0; font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.4; }
+
+/* ---- queued: dispatch picker ---- */
+.bb-pick { accent-color: var(--rust-500); width: 16px; height: 16px; flex: none; cursor: pointer; margin: 3px 0 0; }
+.bb-pick-spacer { width: 16px; flex: none; }
+/* the dispatch bar rides the bottom of the viewport while the queue scrolls
+   past, so a pick made far down a long queue is still one click from queued */
+.bb-dispatch {
+  position: sticky; bottom: 12px; z-index: 5;
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 14px;
+  background: var(--paper-000); border: 2px solid var(--ink-900); border-radius: var(--radius-sm); box-shadow: var(--shadow-hard-sm);
+}
+.bb-dispatch__count { flex: 1 1 auto; font-size: var(--fs-xs); font-weight: 800; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.07em; }
+.bb-morechip {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: var(--fs-xs); font-weight: 800; color: var(--text-muted);
+  border: 1.5px dashed var(--ink-300); border-radius: var(--radius-pill); padding: 5px 12px; width: fit-content;
+}
+
+/* ---- recently landed: not a todo, so it folds away under its own toggle ---- */
+.bb-landed-row { display: flex; align-items: flex-start; gap: 10px; padding: 9px 14px; border-top: 1px solid var(--border-soft); min-width: 0; }
+.bb-landed-row:first-child { border-top: none; }
+.bb-landed-row__main { flex: 1 1 auto; min-width: 0; }
+.bb-landed-row__what { font-size: var(--fs-sm); font-weight: 700; color: var(--text-strong); line-height: 1.3; overflow-wrap: anywhere; }
+.bb-landed-row__sub { font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.3; overflow-wrap: anywhere; }
+.bb-row__pr { font-family: var(--font-mono); font-size: var(--fs-xs); font-weight: 600; color: var(--ocean-600); overflow-wrap: anywhere; }
+.bb-row__pr:hover { text-decoration: underline; }
+.bb-row__check { width: 22px; height: 22px; border-radius: var(--radius-sm); display: grid; place-items: center; flex: none;
+  background: var(--status-online-soft); color: var(--status-online); border: 1.5px solid var(--sea-200); }
+.bb-row__check svg { width: 13px; height: 13px; }
+
+/* ---- Effort maps ---- */
+.bb-maps { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 10px; }
+.bb-map { border-left: 3px solid var(--ocean-500); padding: 12px 16px; min-width: 0; background: var(--surface-card); border-radius: var(--radius-sm); }
+.bb-map__title { font-size: var(--fs-sm); font-weight: 700; color: var(--text-strong); line-height: 1.3; overflow-wrap: anywhere; }
+.bb-map__dest { font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.4; margin-top: 4px; overflow-wrap: anywhere; }
+.bb-map__badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.bb-map__note { font-size: var(--fs-2xs); color: var(--text-faint); line-height: 1.4; margin-top: 6px; overflow-wrap: anywhere; }
+
+.bb-foot { display: flex; justify-content: flex-end; border-top: 1px solid var(--border-default); padding-top: 14px; }
+
+@media (max-width: 640px) {
+  .bb-nav__inner, .bb-main { padding-left: 16px; padding-right: 16px; }
+  .bb-item__head { flex-wrap: wrap; }
+  .bb-item__side { width: 100%; padding-left: 32px; }
+  .bb-steps, .bb-call-body { padding-left: 14px; }
+}
+</style>
+</head>
+<body>
+
+<header class="bb-nav">
+  <div class="bb-nav__inner">
+    <span class="bb-brand">
+      <span class="bb-brand__disc">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 6v16"/><path d="m19 13 2-1a9 9 0 0 1-18 0l2 1"/><path d="M9 11h6"/><circle cx="12" cy="4" r="2"/>
+        </svg>
+      </span>
+      <span class="bb-brand__wm">bearings</span>
+    </span>
+    <div class="bb-stats" id="bb-stats"></div>
+  </div>
+</header>
+
+<main class="bb-main">
+
+  <section class="bb-band bb-band--call" aria-labelledby="bb-call-title">
+    <div class="bb-band__head">
+      <span class="bb-band__num">1</span>
+      <h2 class="bb-band__title" id="bb-call-title">Your calls</h2>
+      <span class="bb-band__sub" id="bb-call-sub"></span>
+    </div>
+    <div class="bb-list" id="bb-call"></div>
+    <div class="bb-bulk" id="bb-bulk" hidden>
+      <div class="bb-bulk__head">
+        <span class="bb-bulk__count" id="bb-bulk-count"></span>
+        <button type="button" class="fm-btn fm-btn--sm fm-btn--gold" id="bb-bulk-btn">Queue all recommended</button>
+      </div>
+      <div class="bb-bulk__stage" id="bb-bulk-stage" hidden>
+        <span class="bb-bulk__lead" id="bb-bulk-lead"></span>
+        <ul class="bb-bulk__list" id="bb-bulk-list"></ul>
+        <div class="bb-bulk__acts">
+          <button type="button" class="fm-btn fm-btn--sm fm-btn--primary" id="bb-bulk-confirm">Queue these answers</button>
+          <button type="button" class="bb-bulk__cancel" id="bb-bulk-cancel">Cancel - queue nothing</button>
+        </div>
+      </div>
+      <p class="bb-bulk__note" id="bb-bulk-note" hidden></p>
+    </div>
+  </section>
+
+  <section class="bb-band bb-band--underway" aria-labelledby="bb-underway-title">
+    <div class="bb-band__head">
+      <span class="bb-band__num">2</span>
+      <h2 class="bb-band__title" id="bb-underway-title">Firstmate is on it</h2>
+      <span class="bb-band__sub" id="bb-underway-sub"></span>
+    </div>
+    <div class="bb-list" id="bb-underway"></div>
+  </section>
+
+  <section class="bb-band bb-band--charted" aria-labelledby="bb-charted-title">
+    <div class="bb-band__head">
+      <span class="bb-band__num">3</span>
+      <h2 class="bb-band__title" id="bb-charted-title">Queued next</h2>
+      <span class="bb-band__sub" id="bb-charted-sub"></span>
+    </div>
+    <div class="bb-list" id="bb-charted"></div>
+    <div class="bb-dispatch" id="bb-dispatch" hidden>
+      <span class="bb-dispatch__count" id="bb-dispatch-count">nothing picked</span>
+      <span class="bb-queued" id="bb-dispatch-queued">queued for review</span>
+      <button type="button" class="fm-btn fm-btn--sm fm-btn--gold" id="bb-dispatch-btn">Queue dispatch order</button>
+    </div>
+  </section>
+
+  <section class="bb-band bb-band--landed" aria-labelledby="bb-landed-title">
+    <div class="bb-band__head">
+      <h2 class="bb-band__title" id="bb-landed-title">Recently landed</h2>
+      <span class="bb-band__sub" id="bb-landed-sub"></span>
+      <button type="button" class="bb-toggle" id="bb-landed-toggle" aria-expanded="false" aria-controls="bb-landed">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+        <span id="bb-landed-toggle-text">Show</span>
+      </button>
+    </div>
+    <div class="bb-item" id="bb-landed" hidden></div>
+  </section>
+
+  <section class="bb-band" id="bb-maps-section" hidden>
+    <div class="bb-band__head">
+      <h2 class="bb-band__title">Effort maps</h2>
+      <span class="bb-band__sub" id="bb-maps-sub"></span>
+    </div>
+    <div class="bb-maps" id="bb-maps"></div>
+  </section>
+
+  <footer class="bb-foot">
+    <span class="bb-meta-mono" id="bb-provenance">-</span>
+  </footer>
+
+</main>
+
+<!-- ONE SLOT. bin/fm-bearings-board.sh build injects the fresh
+     fm-bearings-board.v1 payload in place of the placeholder below; everything
+     above and below is the shipped template and is never regenerated per run. -->
+<script id="bearings-data" type="application/json">
+{"schema":"fm-bearings-board.v1","home":"louiscondevaux/firstmate","generated":"2026-09-18T17:02:29Z","prs_live":false,"captains_call":[{"key":"grant-september-cycle-stakeholder-note","type":"decision","repo":"firstmate","title":"Stakeholder note on the September 2026 windows","about":"Stakeholder note on the September 2026 windows: the captain's wording: The 2026-09-16 deci","options":[{"value":"yes","label":"Yes, go ahead","recommended":true},{"value":"no","label":"No, leave it"}],"recommend_value":"yes","allow_freeform":true,"todos":[{"text":"Your call: Stakeholder note on the September 2026 windows","state":"current","by":"captain"},{"text":"Firstmate acts on your answer","state":"todo","by":"firstmate"}]},{"key":"grant-canonical-identity-adjudication","type":"decision","repo":"firstmate","title":"Adjudicate the four candidate identity joins that block ranking in the canonical funder da","about":"Adjudicate the four candidate identity joins that block ranking in the canonical funder da","options":[{"value":"yes","label":"Yes, go ahead","recommended":true},{"value":"no","label":"No, leave it"}],"recommend_value":"yes","allow_freeform":true,"todos":[{"text":"Your call: Adjudicate the four candidate identity joins that block ranking in the canonical funder da","state":"current","by":"captain"},{"text":"Firstmate acts on your answer","state":"todo","by":"firstmate"}],"blocks":["jt-gitignore-removed-form"]},{"key":"grant-filing-route-calendar-anchor-scope","type":"decision","repo":"firstmate","title":"Does the filing-route filter defer to the GRANT_WORKFLOW.md Calendar anchor?","about":"Does the filing-route filter defer to the GRANT_WORKFLOW.md Calendar anchor?: Blind review","options":[{"value":"yes","label":"Yes, go ahead","recommended":true},{"value":"no","label":"No, leave it"}],"recommend_value":"yes","allow_freeform":true,"todos":[{"text":"Your call: Does the filing-route filter defer to the GRANT_WORKFLOW.md Calendar anchor?","state":"current","by":"captain"},{"text":"Firstmate acts on your answer","state":"todo","by":"firstmate"}]}],"underway":[{"id":"jt-personal-data-purge-execute","repo":"firstmate","kind":"ship","state":"done","doing":"closed, landed the docs pointer on live master as fb21c39 (.gitignore, AGENTS.md, README.m","title":"jt personal data purge execute","todos":[{"text":"Instructions written, worker started","state":"done","by":"firstmate"},{"text":"Build the change","state":"done","by":"worker"},{"text":"Validate: review, tests, docs, CI","state":"done","by":"worker"},{"text":"PR open with checks green","state":"done","by":"worker"},{"text":"Your merge word","state":"current","by":"captain"},{"text":"Merge and clean up","state":"todo","by":"firstmate"}]},{"id":"jt-personal-data-purge-plan","repo":"firstmate","kind":"scout","state":"unknown","doing":"harness state unavailable (unknown missing)","title":"jt personal data purge plan","todos":[{"text":"Instructions written, worker started","state":"done","by":"firstmate"},{"text":"Investigate: harness state unavailable (unknown missing)","state":"blocked","by":"worker"},{"text":"Report written","state":"todo","by":"worker"},{"text":"Findings relayed to you","state":"todo","by":"firstmate"}]},{"id":"streaming-pc-bsod","repo":"firstmate","kind":"scout","state":"done","doing":"dism.log rules out its own error noise but establishes nothing about the crash; report.md","title":"streaming pc bsod","todos":[{"text":"Instructions written, worker started","state":"done","by":"firstmate"},{"text":"Investigate","state":"done","by":"worker"},{"text":"Report written","state":"done","by":"worker"},{"text":"Findings relayed to you","state":"current","by":"firstmate"}]},{"id":"fm-second","repo":"firstmate","kind":"secondmate","state":"active_child_work","doing":"fm-local-only-routing-rule: validating (running); fm-secondmate-jobs-tracker: validating (","title":"fm second","todos":[{"text":"Second mate working: fm-local-only-routing-rule: validating (running); fm-secondmate-jobs-tracker: validating (","state":"current","by":"worker"}]}],"landed":[{"id":"jt-db-cutover-live","repo":"firstmate","what":"Run the live database cutover with the captain from the landed runbook","owner":"(main)","pr_url":"https://github.com/Lcxiv/firstmate/pull/25"},{"id":"fm-watch-stale-on-parked-review","repo":"firstmate","what":"Watcher keeps surfacing stale wakes every ~80s for a worker parked at …","owner":"fm-second","pr_url":"https://github.com/Lcxiv/firstmate/pull/25"},{"id":"jt-board-no-password-review-opus","repo":"firstmate","what":"Blind review (opus) of the board no-password opt-out","owner":"(main)","pr_url":"https://github.com/Lcxiv/firstmate/pull/25"},{"id":"fm-ci-serial-lane-at-ceiling","repo":"firstmate","what":"The serial CI lane runs at 16-19 minutes against a 20-minute ceiling, …","owner":"fm-second","pr_url":"https://github.com/Lcxiv/firstmate/pull/25"},{"id":"jt-board-no-password-review-codex","repo":"firstmate","what":"Blind review (codex) of the board no-password opt-out","owner":"(main)","pr_url":"https://github.com/Lcxiv/firstmate/pull/25"},{"id":"fm-captain-hold-complete-empty-id","repo":"firstmate","what":"captain-hold complete reads an empty held-task id and refuses every ga…","owner":"fm-second","pr_url":"https://github.com/Lcxiv/firstmate/pull/25"}],"charted":[{"id":"fm-secondmates-per-project","repo":"firstmate","title":"Plan: a dedicated second mate per large project","reason":"Per-project second mates","dispatchable":true,"todos":[{"text":"Held: Per-project second mates","state":"blocked","by":"firstmate"},{"text":"Start: dispatch a worker","state":"todo","by":"firstmate"}]},{"id":"jt-db-cutover","repo":"firstmate","title":"jobs-tracker: cut the live job_tracker.db over to the versio","reason":"Captain word to land branch fm/jt-db-cut","dispatchable":true,"todos":[{"text":"Held: Captain word to land branch fm/jt-db-cut","state":"blocked","by":"firstmate"},{"text":"Start: dispatch a worker","state":"todo","by":"firstmate"}]},{"id":"fm-phone-discord-polls","repo":"firstmate","title":"Discord phone channel: offer captain decisions as tappable D","reason":"-","dispatchable":true,"todos":[{"text":"Waits on fm-phone-discord-golive","state":"blocked","by":"firstmate"},{"text":"Start: dispatch a worker","state":"todo","by":"firstmate"}]},{"id":"win-forensics-plan","repo":"firstmate","title":"Windows gaming forensics framework: iterate the gameplan wit","reason":"until 2026-10-01: Captain 2026-09-17 on","dispatchable":true,"todos":[{"text":"Waits until 2026-10-01: until 2026-10-01: Captain 2026-09-17 on","state":"blocked","by":"firstmate"},{"text":"Start: dispatch a worker","state":"todo","by":"firstmate"}]},{"id":"fm-upstream-catchup","repo":"firstmate","title":"firstmate: catch the fork up to upstream latest (93 upstream","reason":"-","dispatchable":true,"todos":[{"text":"Waits on fm-upstream-merge","state":"blocked","by":"firstmate"},{"text":"Start: dispatch a worker","state":"todo","by":"firstmate"}]},{"id":"fm-hermes-review-seats-return-2026-09-30","repo":"firstmate","title":"Restore Hermes blind-review seats","reason":"until 2026-09-30: Hermes is unavailable","dispatchable":true,"todos":[{"text":"Waits until 2026-09-30: until 2026-09-30: Hermes is unavailable","state":"blocked","by":"firstmate"},{"text":"Start: dispatch a worker","state":"todo","by":"firstmate"}]},{"id":"jt-applications-per-day","repo":"firstmate","title":"Show applications per day alongside the job cards, verified","reason":"-","dispatchable":true,"todos":[{"text":"Waits on buddy-jobs-tracker-trial-decision-history-rewrite-personal-data","state":"blocked","by":"firstmate"},{"text":"Start: dispatch a worker","state":"todo","by":"firstmate"}]},{"id":"grant-fiscal-year-end","repo":"firstmate","title":"Set the first fiscal year end, or lose the April 2027 door","reason":"until 2026-11-01: Captain 2026-09-16: \"d","dispatchable":true,"todos":[{"text":"Waits until 2026-11-01: until 2026-11-01: Captain 2026-09-16: \"d","state":"blocked","by":"firstmate"},{"text":"Start: dispatch a worker","state":"todo","by":"firstmate"}]},{"id":"fm-secondmate-seat-restore","repo":"firstmate","title":"Restore the secondmate orchestrator seat to Codex once its a","reason":"until 2026-09-21: until 2026-09-21: wait","dispatchable":true,"todos":[{"text":"Waits until 2026-09-21: until 2026-09-21: until 2026-09-21: wait","state":"blocked","by":"firstmate"},{"text":"Start: dispatch a worker","state":"todo","by":"firstmate"}]},{"id":"fm-secondmates-rollout","repo":"firstmate","title":"Roll out a second mate per large project, starting with the","reason":"-","dispatchable":true,"todos":[{"text":"Start: dispatch a worker","state":"todo","by":"firstmate"}]},{"id":"fm-secondmate-sniper","repo":"firstmate","title":"Second mate for Sniper: change registry mode to direct-PR +y","reason":"-","dispatchable":true,"todos":[{"text":"Start: dispatch a worker","state":"todo","by":"firstmate"}]},{"id":"jt-gitignore-removed-form","repo":"firstmate","title":"Ignore the removed benefits form filename so it can never be","reason":"-","dispatchable":true,"todos":[{"text":"Waits on your call: Adjudicate the four candidate identity joins that block ranking in the canonical funder da","state":"blocked","by":"captain"},{"text":"Start: dispatch a worker","state":"todo","by":"firstmate"}]},{"id":"jt-clone-realign","repo":"firstmate","title":"Re-point the firstmate jobs-tracker clone at the purged live","reason":"-","dispatchable":true,"todos":[{"text":"Start: dispatch a worker","state":"todo","by":"firstmate"}]},{"id":"jt-pool-recreate","repo":"firstmate","title":"Re-create the jobs-tracker worktree pool against the purged","reason":"-","dispatchable":true,"todos":[{"text":"Waits on Re-point the firstmate jobs-tracker clone at the purged live","state":"blocked","by":"firstmate"},{"text":"Start: dispatch a worker","state":"todo","by":"firstmate"}]},{"id":"fm-afk-no-pane-silent-wedge","repo":"firstmate","title":"Away mode accepts a start it cannot deliver from, then silen","reason":"-","dispatchable":true,"todos":[{"text":"Start: dispatch a worker","state":"todo","by":"firstmate"}]},{"id":"fm-send-silent-unsubmitted-steer","repo":"firstmate","title":"A steer can sit unsubmitted in a codex/herdr composer while","reason":"-","dispatchable":true,"todos":[{"text":"Start: dispatch a worker","state":"todo","by":"firstmate"}]},{"id":"fm-crew-state-trusts-wrong-green","repo":"firstmate","title":"Task state reconciliation prefers the pipeline's run-step ve","reason":"-","dispatchable":true,"todos":[{"text":"Start: dispatch a worker","state":"todo","by":"firstmate"}]},{"id":"fm-notes-cleanup-backlog","repo":"firstmate","title":"Apply the staleness-sweep backlog corrections S6-S17: retitl","reason":"-","dispatchable":true,"todos":[{"text":"Start: dispatch a worker","state":"todo","by":"firstmate"}]},{"id":"fm-repeat-to-adapter-rule","repo":"firstmate","title":"Add the repeat-to-adapter promotion rule paragraph to firstm","reason":"-","dispatchable":true,"todos":[{"text":"Start: dispatch a worker","state":"todo","by":"firstmate"}]},{"id":"fm-teardown-squash-false-refusal","repo":"firstmate","title":"Teardown refuses a fully landed branch when its PR was squas","reason":"-","dispatchable":true,"todos":[{"text":"Start: dispatch a worker","state":"todo","by":"firstmate"}]}]}
+</script>
+
+<script>
+(function () {
+  "use strict";
+
+  /* Fail closed: a board with unreadable or wrong-schema data says so plainly
+     instead of rendering an empty page that looks like an empty fleet. */
+  function renderBoardError(msg) {
+    var main = document.querySelector(".bb-main");
+    main.innerHTML = "";
+    var card = document.createElement("div");
+    card.className = "bb-item bb-item--call";
+    var pad = document.createElement("div");
+    pad.className = "bb-item__head";
+    var h = document.createElement("h3");
+    h.className = "bb-item__title";
+    h.textContent = "This board could not load";
+    var d = document.createElement("p");
+    d.className = "bb-item__meta";
+    d.textContent = msg + " - ask firstmate to rebuild the board.";
+    pad.appendChild(h);
+    pad.appendChild(d);
+    card.appendChild(pad);
+    main.appendChild(card);
+  }
+
+  var data;
+  try {
+    data = JSON.parse(document.getElementById("bearings-data").textContent);
+  } catch (e) {
+    renderBoardError("The board data is not valid JSON");
+    return;
+  }
+  if (!data || data.schema !== "fm-bearings-board.v1") {
+    renderBoardError("Unsupported board data schema: " + (data && data.schema ? data.schema : "(none)"));
+    return;
+  }
+  var fleetLists = [data.captains_call, data.underway, data.landed, data.charted];
+  var callItemsValid = Array.isArray(data.captains_call) && data.captains_call.every(function (item) {
+    return item && typeof item === "object" &&
+      typeof item.key === "string" && item.key.length > 0 &&
+      typeof item.type === "string" && item.type.length > 0 &&
+      typeof item.title === "string" && item.title.length > 0 &&
+      Array.isArray(item.options);
+  });
+  if (!fleetLists.every(Array.isArray) || !callItemsValid) {
+    renderBoardError("The board data does not have the required structure");
+    return;
+  }
+
+  try {
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  }
+  function badge(tone, text) { return el("span", "fm-badge fm-badge--" + tone, text); }
+  /* Warnings ride the queued feed for layout only; they are alarms, not work,
+     so every count of queued work excludes them. */
+  function isWarning(t) { return t && t.kind === "warning"; }
+  function chartedQueued(rows) { return (rows || []).filter(function (t) { return !isWarning(t); }); }
+  var chartedMoreQueued = data.charted_more || 0;
+  var chartedMoreWarnings = data.charted_warning_more || 0;
+  function utf8ByteLength(text) { return new TextEncoder().encode(text).length; }
+  var CHEVRON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>';
+  var CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+  var BLOCK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M6 12h12"/></svg>';
+
+  document.getElementById("bb-provenance").textContent = data.schema + " · " + data.generated;
+
+  /* ---- todos: the ordered step list every item carries ---- */
+  function todosOf(t) { return Array.isArray(t && t.todos) ? t.todos : []; }
+  /* The step the item is AT: the first blocked or current step, else the first
+     step still to do. Done-only lists are at their end. */
+  function stepAt(todos) {
+    var i;
+    for (i = 0; i < todos.length; i++) {
+      if (todos[i].state === "blocked" || todos[i].state === "current") return todos[i];
+    }
+    for (i = 0; i < todos.length; i++) if (todos[i].state === "todo") return todos[i];
+    return null;
+  }
+  function doneCount(todos) {
+    return todos.filter(function (s) { return s.state === "done"; }).length;
+  }
+  /* One line that says where the item stands without opening it. */
+  function stepSummary(todos) {
+    if (!todos.length) return "";
+    var at = stepAt(todos);
+    var head = doneCount(todos) + " of " + todos.length + " done";
+    if (!at) return head;
+    var verb = at.state === "blocked" ? "blocked" : at.state === "current" ? "now" : "next";
+    return head + " · " + verb + ": " + at.text;
+  }
+  function pips(todos) {
+    var p = el("span", "bb-pips");
+    p.setAttribute("aria-hidden", "true");
+    todos.forEach(function (s) { p.appendChild(el("span", "bb-pip bb-pip--" + s.state)); });
+    return p;
+  }
+  function stepList(todos) {
+    var list = el("ol", "bb-steps");
+    todos.forEach(function (s) {
+      var li = el("li", "bb-step bb-step--" + s.state);
+      var mark = el("span", "bb-step__mark");
+      if (s.state === "done") mark.innerHTML = CHECK_SVG;
+      else if (s.state === "blocked") mark.innerHTML = BLOCK_SVG;
+      li.appendChild(mark);
+      li.appendChild(el("span", "bb-step__text", s.text));
+      if (s.by === "captain") li.appendChild(el("span", "bb-step__who", "you"));
+      list.appendChild(li);
+    });
+    return list;
+  }
+  var itemSeq = 0;
+  /* The expand control. Collapsed is the default so the list stays scannable;
+     the toggle names how many steps sit behind it. */
+  function wireToggle(item, list, count) {
+    var btn = el("button", "bb-toggle");
+    btn.type = "button";
+    var id = "bb-steps-" + (++itemSeq);
+    list.setAttribute("id", id);
+    btn.setAttribute("aria-controls", id);
+    var label = el("span", "bb-toggle__text");
+    function set(open) {
+      list.hidden = !open;
+      btn.setAttribute("aria-expanded", open ? "true" : "false");
+      item.classList.toggle("is-open", open);
+      label.textContent = open ? "Hide steps" : count + (count === 1 ? " step" : " steps");
+    }
+    btn.innerHTML = CHEVRON_SVG;
+    btn.appendChild(label);
+    btn.addEventListener("click", function () { set(list.hidden); });
+    set(false);
+    return btn;
+  }
+
+  /* One owner for an item's head row and its collapsed step list. Rank is one
+     sequence across all three bands, because the board is one list. */
+  var rank = 0;
+  var anchorSeq = 0;
+  var itemById = {};
+  function todoItem(kind, t, title, pick) {
+    var item = el("article", "bb-item bb-item--" + kind);
+    item.setAttribute("id", "bb-item-" + (++anchorSeq));
+    var head = el("div", "bb-item__head");
+    if (pick !== undefined) head.appendChild(pick || el("span", "bb-pick-spacer"));
+    head.appendChild(el("span", "bb-item__rank", String(++rank)));
+    var main = el("div", "bb-item__main");
+    main.appendChild(el(kind === "call" ? "h3" : "div", "bb-item__title", title));
+    var meta = el("div", "bb-item__meta");
+    main.appendChild(meta);
+    head.appendChild(main);
+    var side = el("div", "bb-item__side");
+    head.appendChild(side);
+    item.appendChild(head);
+
+    var todos = todosOf(t);
+    if (todos.length) {
+      meta.appendChild(pips(todos));
+      meta.appendChild(el("span", "bb-item__now", stepSummary(todos)));
+    }
+    var list = stepList(todos);
+    var toggle = wireToggle(item, list, todos.length);
+    side.appendChild(toggle);
+    var id = t.id || t.key;
+    if (id) itemById[id] = { item: item, meta: meta, rank: rank, title: title };
+    return { item: item, head: head, meta: meta, side: side, list: list };
+  }
+  function repoLabel(t) { return t.repo || t.id || t.key || ""; }
+
+  /* ---- the tally ---- */
+  var callTotal = data.captains_call.length;
+  var stats = [
+    { n: callTotal, l: "need you", call: true },
+    { n: data.underway.length, l: "underway" },
+    { n: chartedQueued(data.charted).length + chartedMoreQueued, l: "queued next" },
+    { n: data.landed.length, l: "landed recently" }
+  ];
+  var strip = document.getElementById("bb-stats");
+  stats.forEach(function (s) {
+    var t = el("div", "bb-stat" + (s.call ? " bb-stat--call" : ""));
+    t.appendChild(el("span", "bb-stat__num", String(s.n)));
+    t.appendChild(el("span", "bb-stat__label", s.l));
+    strip.appendChild(t);
+  });
+  document.getElementById("bb-call-sub").textContent =
+    callTotal ? callTotal + " wait" + (callTotal === 1 ? "s" : "") + " on you, captain · one click queues an answer for review, nothing sends from here"
+      : "nothing needs you, captain";
+
+  /* ---- 1. Your calls: every call listed, answer controls always visible ---- */
+  var deck = document.getElementById("bb-call");
+  /* Every call the captain can answer, in list order, each carrying its
+     recommended value and the one function that stages its answer. The bulk
+     control reads this list; nothing else does. */
+  var answerable = [];
+
+  /* The answer values a card offers. A composer that leans on the freeform box
+     can leave `options` empty, and a card that then still declares a
+     recommendation IS declaring a real answer value - so offer it as an option
+     rather than rendering a card with no controls on it at all. */
+  function cardOptions(item) {
+    if (item.options.length) return item.options;
+    if (typeof item.recommend_value === "string" && item.recommend_value) {
+      return [{ value: item.recommend_value, label: item.recommend_value }];
+    }
+    return [];
+  }
+  function ctxRow(k, v) {
+    var row = el("div", "bb-ctx__row");
+    row.appendChild(el("span", "bb-ctx__k", k));
+    row.appendChild(el("span", "bb-ctx__v", v));
+    return row;
+  }
+
+  /* A call that holds up other work costs more to leave unanswered, so those
+     calls lead the list; the rest keep the composer's order. */
+  var calls = data.captains_call.map(function (item, i) { return { item: item, i: i }; });
+  calls.sort(function (a, b) {
+    var ab = Array.isArray(a.item.blocks) && a.item.blocks.length ? 0 : 1;
+    var bb = Array.isArray(b.item.blocks) && b.item.blocks.length ? 0 : 1;
+    return ab - bb || a.i - b.i;
+  });
+  calls.map(function (c) { return c.item; }).forEach(function (item) {
+    var parts = todoItem("call", item, item.title);
+    var card = parts.item;
+    card.classList.add("bb-decision");
+    if (item.type === "merge") {
+      parts.meta.insertBefore(badge(item.risk === "low" ? "neutral" : "warn", "risk " + item.risk), parts.meta.children[0] || null);
+      parts.meta.insertBefore(badge("online", "checks green"), parts.meta.children[0] || null);
+    } else {
+      parts.meta.insertBefore(badge("solid", item.type), parts.meta.children[0] || null);
+    }
+    parts.meta.insertBefore(el("span", "bb-item__repo", repoLabel(item)), parts.meta.children[1] || null);
+
+    var body = el("div", "bb-call-body");
+    var ctx = el("div", "bb-ctx");
+    if (item.about) ctx.appendChild(ctxRow("about", item.about));
+    if (item.decide) ctx.appendChild(ctxRow("decide", item.decide));
+    if (item.detail) ctx.appendChild(ctxRow("detail", item.detail));
+    if (ctx.children.length) body.appendChild(ctx);
+    if (item.pr_url) {
+      var pr = el("a", "bb-decision__link", item.pr_url);
+      pr.href = item.pr_url; pr.target = "_blank"; pr.rel = "noopener";
+      body.appendChild(pr);
+    }
+
+    var form = document.createElement("form");
+    form.className = "bb-answer";
+    form.setAttribute("data-lavish-question", item.key);
+    var opts = el("div", "bb-opts");
+    var options = cardOptions(item);
+    var ff = null;
+    var optButtons = [];
+    var q = el("span", "bb-queued");
+    var answerLimit = el("span", "bb-limit");
+    answerLimit.setAttribute("role", "alert");
+
+    /* One owner for what a staged answer looks like, so a single option click
+       and the bulk control put identical records in the review panel.
+       Queueing is never sending: Lavish holds these until the captain sends. */
+    function stageAnswer(answer, value) {
+      if (window.lavish && window.lavish.queuePrompt) {
+        /* close carries the composer-declared close mode: "release" frees a
+           captain-gated work item instead of completing a question task */
+        var ctxData = { question: item.key, answer: answer };
+        if (item.close) ctxData.close = item.close;
+        window.lavish.queuePrompt(
+          "Captain's Call answer - " + item.title + ": " + answer,
+          { tag: "choice", text: item.title + " -> " + answer, element: form,
+            data: ctxData }
+        );
+      }
+      optButtons.forEach(function (b) { b.classList.toggle("is-picked", b.value === value); });
+      q.textContent = "queued for review: " + answer;
+      card.classList.add("is-queued");
+    }
+    /* picked option, optionally annotated; a bare note is itself the answer */
+    function answerWith(value) {
+      answerLimit.classList.remove("is-visible");
+      var note = ff ? (ff.value || "").trim() : "";
+      var answer = value ? (note ? value + " - " + note : value) : note;
+      if (!answer) {
+        answerLimit.textContent = options.length
+          ? "Pick an option or type an answer before queueing it."
+          : "Type an answer before queueing it.";
+        answerLimit.classList.add("is-visible");
+        return;
+      }
+      if (utf8ByteLength(answer) > 512) {
+        answerLimit.textContent = "Answer is too long to queue (512 bytes maximum).";
+        answerLimit.classList.add("is-visible");
+        return;
+      }
+      stageAnswer(answer, value);
+      if (staged.length) closeStage();
+    }
+
+    options.forEach(function (o) {
+      var b = el("button", "bb-opt");
+      b.type = "button";
+      b.value = o.value;
+      var isRec = item.recommend_value && o.value === item.recommend_value;
+      if (isRec) b.classList.add("bb-opt--rec");
+      var lab = el("span", "bb-opt__label", o.label);
+      if (isRec) lab.appendChild(el("span", "bb-opt__rec", "rec"));
+      b.appendChild(lab);
+      if (o.hint) b.appendChild(el("span", "bb-opt__hint", o.hint));
+      b.addEventListener("click", function () { answerWith(o.value); });
+      optButtons.push(b);
+      opts.appendChild(b);
+    });
+    if (!options.length) {
+      opts.appendChild(el("div", "bb-opt-none",
+        "This call carries no preset answers - type your answer below."));
+    }
+    form.appendChild(opts);
+
+    if (item.allow_freeform) {
+      var ffRow = el("div", "bb-ff");
+      ff = document.createElement("input");
+      ff.type = "text"; ff.name = "note"; ff.className = "bb-freeform";
+      ff.placeholder = item.freeform_hint || (options.length
+        ? "optional note, then click an option"
+        : "type your answer");
+      ffRow.appendChild(ff);
+      var ffBtn = el("button", "fm-btn fm-btn--sm fm-btn--primary", "Queue typed answer");
+      ffBtn.type = "submit";
+      ffRow.appendChild(ffBtn);
+      form.appendChild(ffRow);
+    }
+    var foot = el("div", "bb-decision__foot");
+    foot.appendChild(q);
+    foot.appendChild(answerLimit);
+    form.appendChild(foot);
+    form.addEventListener("submit", function (ev) {
+      ev.preventDefault();
+      answerWith("");
+    });
+    body.appendChild(form);
+    card.appendChild(body);
+    card.appendChild(parts.list);
+
+    answerable.push({
+      key: item.key, title: item.title, card: card,
+      stage: function (v) { stageAnswer(v, v); },
+      recommend: options.length && typeof item.recommend_value === "string" ? item.recommend_value : "",
+      blocks: Array.isArray(item.blocks) ? item.blocks : [],
+      rank: rank, meta: parts.meta
+    });
+    deck.appendChild(card);
+  });
+  if (!callTotal) deck.appendChild(el("div", "bb-empty", "Nothing needs your action right now."));
+
+  /* Bulk staging for the recommended answers.
+     Its value is bulk and so is its risk, so it takes two deliberate steps: the
+     first only builds a readable list of exactly what would be queued, and can
+     be cancelled outright; the second puts those answers in the review panel
+     beside a single option click. Neither step sends anything - the captain
+     still presses Send in the review panel, and can drop any answer there or
+     re-answer its call to replace it. */
+  var bulkHost = document.getElementById("bb-bulk");
+  var bulkCount = document.getElementById("bb-bulk-count");
+  var bulkBtn = document.getElementById("bb-bulk-btn");
+  var bulkStage = document.getElementById("bb-bulk-stage");
+  var bulkLead = document.getElementById("bb-bulk-lead");
+  var bulkList = document.getElementById("bb-bulk-list");
+  var bulkConfirm = document.getElementById("bb-bulk-confirm");
+  var bulkCancel = document.getElementById("bb-bulk-cancel");
+  var bulkNote = document.getElementById("bb-bulk-note");
+  var recommended = answerable.filter(function (a) { return a.recommend; });
+  var staged = [];
+
+  function bulkSay(text) {
+    bulkNote.textContent = text;
+    bulkNote.hidden = !text;
+  }
+  function bulkPending() {
+    return recommended.filter(function (a) { return !a.card.classList.contains("is-queued"); });
+  }
+  function closeStage() {
+    staged = [];
+    bulkStage.hidden = true;
+    bulkList.textContent = "";
+    bulkBtn.disabled = !bulkPending().length;
+    bulkCount.textContent = recommended.length +
+      " of " + answerable.length + " calls carry a recommended answer";
+  }
+
+  if (recommended.length) {
+    bulkHost.hidden = false;
+    closeStage();
+    bulkBtn.addEventListener("click", function () {
+      staged = bulkPending();
+      if (!staged.length) {
+        bulkStage.hidden = true;
+        bulkSay("Every recommended answer is already waiting in the review panel.");
+        return;
+      }
+      bulkSay("");
+      bulkList.textContent = "";
+      bulkLead.textContent = "These " + staged.length +
+        " recommended answer" + (staged.length === 1 ? "" : "s") +
+        " would go to the review panel. Nothing is sent from this board.";
+      staged.forEach(function (a) {
+        var li = el("li", "bb-bulk__item");
+        li.appendChild(el("span", "bb-bulk__title", a.title + " → "));
+        li.appendChild(el("span", "bb-bulk__answer", a.recommend));
+        bulkList.appendChild(li);
+      });
+      bulkStage.hidden = false;
+    });
+    bulkCancel.addEventListener("click", function () {
+      var dropped = staged.length;
+      closeStage();
+      bulkSay(dropped ? "Cancelled - nothing was queued." : "");
+    });
+    bulkConfirm.addEventListener("click", function () {
+      var pending = bulkPending();
+      var sent = staged.filter(function (a) { return pending.indexOf(a) !== -1; });
+      sent.forEach(function (a) { a.stage(a.recommend); });
+      closeStage();
+      if (!sent.length) return;
+      bulkSay(sent.length + " recommended answer" + (sent.length === 1 ? " is" : "s are") +
+        " waiting in the review panel - nothing has been sent yet. Drop any of them there," +
+        " or answer that call again to replace its queued answer.");
+    });
+  }
+
+  /* ---- 2. Firstmate is on it ---- */
+  var uw = document.getElementById("bb-underway");
+  if (!data.underway.length) uw.appendChild(el("div", "bb-empty", "Nothing is underway."));
+  data.underway.forEach(function (t) {
+    var parts = todoItem("underway", t, t.title || t.doing);
+    parts.meta.insertBefore(badge(t.state === "working" ? "online" : t.state === "failed" ? "danger" : "info", t.state), parts.meta.children[0] || null);
+    parts.meta.insertBefore(el("span", "bb-item__repo", t.kind + " · " + repoLabel(t)), parts.meta.children[1] || null);
+    parts.item.appendChild(parts.list);
+    uw.appendChild(parts.item);
+  });
+  document.getElementById("bb-underway-sub").textContent =
+    data.underway.length ? data.underway.length + " in progress, nothing needed from you" : "";
+
+  /* ---- 3. Queued next + dispatch picker ---- */
+  var ch = document.getElementById("bb-charted");
+  var bar = document.getElementById("bb-dispatch");
+  var barCount = document.getElementById("bb-dispatch-count");
+  var barBtn = document.getElementById("bb-dispatch-btn");
+  var anyPickable = false;
+
+  function pickedIds() {
+    return Array.prototype.map.call(ch.querySelectorAll(".bb-pick:checked"), function (c) { return c.value; });
+  }
+  function refreshBar(limitMessage) {
+    var n = pickedIds().length;
+    barCount.textContent = limitMessage || (n ? n + " picked to start now" : "tick queued work to start it now");
+    barBtn.disabled = !n;
+  }
+
+  if (!chartedQueued(data.charted).length && !chartedMoreQueued) {
+    ch.appendChild(el("div", "bb-empty", "Nothing is queued."));
+  }
+  data.charted.forEach(function (t) {
+    var pick = null;
+    if (t.dispatchable && !isWarning(t)) {
+      anyPickable = true;
+      pick = document.createElement("input");
+      pick.type = "checkbox"; pick.className = "bb-pick"; pick.value = t.id;
+      pick.setAttribute("aria-label", "Pick " + t.title + " to start now");
+      pick.addEventListener("change", function () {
+        if (pick.checked && utf8ByteLength(pickedIds().join(",")) > 512) {
+          pick.checked = false;
+          refreshBar("Selection limit reached (512 bytes maximum). ");
+          return;
+        }
+        refreshBar();
+      });
+    }
+    var parts = todoItem(isWarning(t) ? "warning" : "queued", t, t.title, pick);
+    parts.item.classList.add("bb-row");
+    if (isWarning(t)) parts.side.insertBefore(badge("danger", "needs repair"), parts.side.children[0]);
+    else if (t.reason) parts.side.insertBefore(badge("warn", "waiting"), parts.side.children[0]);
+    parts.meta.insertBefore(el("span", "bb-item__repo", repoLabel(t)), parts.meta.children[0] || null);
+    if (t.reason) parts.meta.insertBefore(el("span", "bb-item__reason", t.reason), parts.meta.children[1] || null);
+    parts.item.appendChild(parts.list);
+    ch.appendChild(parts.item);
+  });
+  var chartedShown = chartedQueued(data.charted).length;
+  var chartedTotal = chartedShown + chartedMoreQueued;
+  document.getElementById("bb-charted-sub").textContent =
+    chartedMoreQueued ? "showing " + chartedShown + " of " + chartedTotal
+      : chartedTotal ? chartedTotal + " queued" : "";
+  if (chartedMoreQueued) {
+    ch.appendChild(el("span", "bb-morechip", "+" + chartedMoreQueued + " more queued - ask firstmate for the full chart"));
+  }
+  if (chartedMoreWarnings) {
+    ch.appendChild(el("span", "bb-morechip", "+" + chartedMoreWarnings + " more repair warning" + (chartedMoreWarnings === 1 ? "" : "s") + " - ask firstmate for the full chart"));
+  }
+
+  if (anyPickable) {
+    bar.hidden = false;
+    refreshBar();
+    barBtn.addEventListener("click", function () {
+      var ids = pickedIds();
+      var dispatchAnswer = ids.join(",");
+      if (!ids.length) return;
+      if (utf8ByteLength(dispatchAnswer) > 512) {
+        refreshBar("Selection is too long to queue (512 bytes maximum). ");
+        return;
+      }
+      if (window.lavish && window.lavish.queuePrompt) {
+        window.lavish.queuePrompt(
+          "Dispatch order - start this queued work now: " + ids.join(", "),
+          { tag: "choice", text: "Dispatch: " + ids.join(", "), element: bar,
+            queueKey: "dispatch.charted",
+            data: { question: "dispatch.charted", answer: dispatchAnswer } }
+        );
+      }
+      bar.classList.add("is-queued");
+    });
+  }
+
+  /* A call that holds up other work says so, and the held item points back at
+     the call by its rank, so the priority link reads in both directions. */
+  answerable.forEach(function (a) {
+    a.blocks.forEach(function (id) {
+      var held = itemById[id];
+      if (!held) return;
+      var h = el("a", "bb-held", "holds up #" + held.rank + ": " + held.title);
+      h.href = "#" + held.item.getAttribute("id");
+      a.meta.appendChild(h);
+      var back = el("a", "bb-held", "waits on your call #" + a.rank);
+      back.href = "#" + a.card.getAttribute("id");
+      held.meta.appendChild(back);
+    });
+  });
+
+  /* ---- Recently landed, folded ---- */
+  var ld = document.getElementById("bb-landed");
+  var ldToggle = document.getElementById("bb-landed-toggle");
+  var ldToggleText = document.getElementById("bb-landed-toggle-text");
+  document.getElementById("bb-landed-sub").textContent =
+    data.landed.length ? data.landed.length + " done" : "No recent completions are in the current baseline.";
+  ldToggleText.textContent = "Show";
+  if (!data.landed.length) ldToggle.hidden = true;
+  data.landed.forEach(function (t) {
+    var row = el("div", "bb-landed-row");
+    var chk = el("span", "bb-row__check");
+    chk.innerHTML = CHECK_SVG;
+    row.appendChild(chk);
+    var main = el("div", "bb-landed-row__main");
+    main.appendChild(el("div", "bb-landed-row__what", t.what));
+    main.appendChild(el("div", "bb-landed-row__sub", repoLabel(t) + " · " + t.owner));
+    if (t.pr_url) {
+      var a = el("a", "bb-row__pr", t.pr_url);
+      a.href = t.pr_url; a.target = "_blank"; a.rel = "noopener";
+      main.appendChild(a);
+    }
+    row.appendChild(main);
+    ld.appendChild(row);
+  });
+  ldToggle.addEventListener("click", function () {
+    var open = ld.hidden;
+    ld.hidden = !open;
+    ldToggle.setAttribute("aria-expanded", open ? "true" : "false");
+    ldToggleText.textContent = open ? "Hide" : "Show";
+  });
+
+  /* Effort maps: absent key and empty array both mean no band at all. */
+  var maps = Array.isArray(data.maps) ? data.maps : [];
+  if (maps.length) {
+    var mapsHost = document.getElementById("bb-maps");
+    maps.forEach(function (m) {
+      var card = el("div", "bb-map");
+      card.appendChild(el("div", "bb-map__title", m.title));
+      if (m.destination) {
+        card.appendChild(el("div", "bb-map__dest", m.destination));
+      }
+      var badges = el("div", "bb-map__badges");
+      badges.appendChild(badge("online", m.decided + " decided"));
+      badges.appendChild(badge("warn", m.open + " open"));
+      card.appendChild(badges);
+      var fog = Array.isArray(m.fog) ? m.fog : [];
+      card.appendChild(el("div", "bb-map__note",
+        fog.length ? "Fog: " + fog.join("; ") : "Fog: none - remaining work is sharp"));
+      var oos = Array.isArray(m.out_of_scope) ? m.out_of_scope : [];
+      if (oos.length) {
+        card.appendChild(el("div", "bb-map__note", "Out of scope: " + oos.join("; ")));
+      }
+      mapsHost.appendChild(card);
+    });
+    document.getElementById("bb-maps-sub").textContent =
+      maps.length + (maps.length === 1 ? " effort" : " efforts");
+    document.getElementById("bb-maps-section").hidden = false;
+  }
+  } catch (e) {
+    renderBoardError("The board data could not be rendered");
+  }
+})();
+</script>
+</body>
+</html>

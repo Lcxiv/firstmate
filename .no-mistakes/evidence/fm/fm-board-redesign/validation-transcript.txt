@@ -1,0 +1,44 @@
+## todos missing on a charted row
+fm-bearings-board: charted[0] (fm-secondmates-per-project) has no todos list; give it at least one step
+fm-bearings-board: board data does not satisfy fm-bearings-board.v1: malformed todos in bad.json
+exit=1
+## todos is a string
+fm-bearings-board: underway[0] (jt-personal-data-purge-execute) todos is not a list
+fm-bearings-board: board data does not satisfy fm-bearings-board.v1: malformed todos in bad.json
+exit=1
+## empty todos
+fm-bearings-board: captains_call[0] (grant-september-cycle-stakeholder-note) todos is empty; give it at least one step
+fm-bearings-board: board data does not satisfy fm-bearings-board.v1: malformed todos in bad.json
+exit=1
+## unknown step state
+fm-bearings-board: underway[0] (jt-personal-data-purge-execute) todos[1] state "doing" is not one of done, current, blocked, todo
+fm-bearings-board: board data does not satisfy fm-bearings-board.v1: malformed todos in bad.json
+exit=1
+## step without text
+fm-bearings-board: charted[2] (fm-phone-discord-polls) todos[0] has no text
+fm-bearings-board: board data does not satisfy fm-bearings-board.v1: malformed todos in bad.json
+exit=1
+## unknown owner
+fm-bearings-board: underway[0] (jt-personal-data-purge-execute) todos[0] by "pirate" is not one of captain, firstmate, worker
+fm-bearings-board: board data does not satisfy fm-bearings-board.v1: malformed todos in bad.json
+exit=1
+## two current steps
+fm-bearings-board: underway[0] (jt-personal-data-purge-execute) todos marks more than one step current; mark only the step the item is at
+fm-bearings-board: board data does not satisfy fm-bearings-board.v1: malformed todos in bad.json
+exit=1
+## blocks is not a list
+fm-bearings-board: captains_call[0] (grant-september-cycle-stakeholder-note) blocks is not a list of ids
+fm-bearings-board: board data does not satisfy fm-bearings-board.v1: malformed todos in bad.json
+exit=1
+## several blocked steps are allowed
+valid: bad.json
+exit=0
+## build refuses a malformed payload and leaves the published board untouched
+fm-bearings-board: underway[0] (jt-personal-data-purge-execute) has no todos list; give it at least one step
+fm-bearings-board: board data does not satisfy fm-bearings-board.v1: malformed todos in bad.json
+exit=1
+board unchanged
+## todos keeps composer-written steps and tolerates missing sections
+[{"text":"hand written","state":"todo"}]
+2
+{"schema":"fm-bearings-board.v1","captains_call":[],"underway":[],"charted":[]}
