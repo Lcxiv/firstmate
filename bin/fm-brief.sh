@@ -33,11 +33,15 @@
 #   without it carry a loud declaration so an omitted contract cannot be silent.
 # For ship tasks, --mode is REQUIRED and shapes the definition of done. Firstmate
 # resolves it per task at intake (AGENTS.md section 7); data/projects.md holds the
-# captain's standing posture as context, and this script never reads it:
+# captain's standing posture as context, and this script never reads a mode from it:
 #   no-mistakes  implement -> /no-mistakes pipeline -> PR -> configured merge authority
 #   direct-PR    implement -> push + open PR via gh-axi (no pipeline) -> configured merge authority
 #   local-only   implement on branch, stop and report "ready in branch" (no push/PR);
-#                the configured merge authority approves, firstmate merges to local main
+#                the configured merge authority approves, firstmate merges to local main.
+#                When the registry marks the project +local-origin (a secondmate's
+#                mirror, read through fm-project-mode.sh --origin), the worker
+#                instead pushes fm/<id> to origin (a rebased retry as fm/<id>-r<N>,
+#                never a force-push) and the main firstmate lands it.
 # no-mistakes-prod-only is a registry policy, not a task mode; resolve it to one of
 # the three concrete modes at intake before calling this script.
 # The generated ship brief records the chosen mode as a fixed machine-readable
@@ -228,6 +232,13 @@ if [ "$NO_PROJECTS" -eq 1 ]; then
 else
   PROJECT_CLONES_BODY=$(printf '%s\n' "$SECONDMATE_PROJECTS" | tr ' ' '\n' | sed 's/^/- /')
   PROJECT_CLONES_NOTE="The projects above are local clones for work you supervise; they are not an exclusive ownership claim."
+  # A local-only project reaches a secondmate only as a local-origin mirror
+  # (bin/fm-home-seed.sh), so its charter carries that shape's hard rules.
+  for project in $SECONDMATE_PROJECTS; do
+    [ "$(FM_HOME="$FM_HOME" FM_DATA_OVERRIDE="$DATA" "$FM_ROOT/bin/fm-project-mode.sh" "$project" 2>/dev/null | cut -d' ' -f1)" = local-only ] || continue
+    PROJECT_CLONES_NOTE="$PROJECT_CLONES_NOTE
+\`$project\` is local-only, so your clone of it is a local-origin mirror: its origin is the project's authoritative working repository, which stays the project's only authority. Ship its work as local-only tasks; each worker pushes only its \`fm/<id>\` work to that origin, a rebased retry as a new \`fm/<id>-r<N>\` branch and never a force-push, and the main firstmate lands the reported branch with \`bin/fm-merge-local.sh --secondmate <your id> [--branch <pushed branch>] <task-id>\`, so you never land it yourself and never give it any other remote. Touch that origin only through git fetch and those branch pushes: never read, copy, or write its working tree, because the project's private data and every rule fencing that data stay with the main firstmate. Route anything that needs them back to the main firstmate."
+  done
 fi
 cat > "$BRIEF" <<EOF
 You are a persistent second mate managed by the main firstmate. Work on your own; do not wait for a human.
@@ -403,6 +414,12 @@ fi
 # which bin/fm-promote.sh renders too so a promoted scout receives the same contract.
 # The block opens with the fixed "Delivery contract: mode=<mode>" line that
 # bin/fm-spawn.sh checks against its own explicit --mode before launching.
+# A local-only project's clone shape decides who lands it: this home, or (for a
+# secondmate's local-origin mirror) the main home after the worker pushes.
+ORIGIN=default
+if [ "$MODE" = local-only ]; then
+  ORIGIN=$(FM_HOME="$FM_HOME" FM_DATA_OVERRIDE="$DATA" "$FM_ROOT/bin/fm-project-mode.sh" --origin "$REPO" 2>/dev/null) || ORIGIN=default
+fi
 case "$MODE" in
   direct-PR)
     SETUP2=""
@@ -411,6 +428,9 @@ case "$MODE" in
   local-only)
     SETUP2=""
     RULE1="1. Never push to any remote and never open a PR. Work only on your \`fm/$ID\` branch; firstmate handles the merge into local \`main\`."
+    if [ "$ORIGIN" = local-origin ]; then
+      RULE1="1. Push only your \`fm/$ID\` work, only to \`origin\`, and only under a delivery name that does not exist there yet (\`fm/$ID\`, then \`fm/$ID-r2\`, \`fm/$ID-r3\`, ... after a rebase). Never force-push in any form, never push to an existing branch, never open a PR, and never merge. The main firstmate lands the branch you report."
+    fi
     ;;
   *)  # no-mistakes
     SETUP2="
@@ -419,7 +439,7 @@ case "$MODE" in
     RULE1='1. Never push to the default branch. Never merge a PR.'
     ;;
 esac
-DOD=$(fm_dod_block "$MODE" "$ID") || exit 1
+DOD=$(fm_dod_block "$MODE" "$ID" "$ORIGIN") || exit 1
 
 cat > "$BRIEF" <<EOF
 You are a crewmate: an autonomous worker agent managed by firstmate. Work on your own; do not wait for a human.

@@ -57,6 +57,13 @@
 # local-only projects additionally accept work merged into the local default
 # branch (firstmate performs that merge after configured approval) as a fallback
 # for the common case where there is no remote at all.
+# A local-only task in a secondmate's local-origin mirror (the registry's
+# +local-origin flag, read through fm-project-mode.sh --origin) is the exception:
+# its only remote is the project's authoritative working repository, so a branch
+# that has merely been pushed there is not landed. Teardown fetches origin and
+# requires the work to be contained in origin's default branch, which only the
+# main home's bin/fm-merge-local.sh --secondmate advances, and the backlog item
+# closes as "local main" only when that holds.
 # Scout tasks (kind=scout in meta) carve out of that check: their worktree is
 # declared scratch and the report at data/<task-id>/report.md is the work
 # product. Teardown proceeds only once the report exists and the shared
@@ -1096,6 +1103,26 @@ default_branch() {
   return 1
 }
 
+TEARDOWN_PROJECT_ORIGIN=
+task_is_local_origin_mirror() {
+  [ "$MODE" = local-only ] && [ -n "${PROJ:-}" ] || return 1
+  if [ -z "$TEARDOWN_PROJECT_ORIGIN" ]; then
+    TEARDOWN_PROJECT_ORIGIN=$(FM_HOME="$FM_HOME" FM_DATA_OVERRIDE="$DATA" "$SCRIPT_DIR/fm-project-mode.sh" --origin "$(basename "$PROJ")" 2>/dev/null) \
+      || TEARDOWN_PROJECT_ORIGIN=default
+  fi
+  [ "$TEARDOWN_PROJECT_ORIGIN" = local-origin ]
+}
+
+# Prints the worktree's commits that origin's default branch does not contain,
+# after a fresh fetch. Fails when that cannot be established.
+local_origin_unlanded_commits() {
+  local default
+  default=$(default_branch) || return 1
+  git -C "$WT" fetch --quiet origin >/dev/null 2>&1 || return 1
+  git -C "$WT" rev-parse --verify --quiet "refs/remotes/origin/$default" >/dev/null || return 1
+  git -C "$WT" log --oneline HEAD --not "refs/remotes/origin/$default" -- 2>/dev/null
+}
+
 meta_value() {
   local meta=$1 key=$2
   fm_meta_get "$meta" "$key"
@@ -1365,7 +1392,7 @@ work_is_landed() {
 # other ship carries the PR recorded on its own record.
 BACKLOG_DONE_ARGS=()
 backlog_done_args() {
-  local data_relative
+  local data_relative unlanded
   BACKLOG_DONE_ARGS=()
   case "$KIND" in
     scout)
@@ -1373,7 +1400,9 @@ backlog_done_args() {
       BACKLOG_DONE_ARGS=(--report "$data_relative/$ID/report.md")
       ;;
     *)
-      if [ "$MODE" = local-only ]; then
+      if task_is_local_origin_mirror && { [ ! -d "$WT" ] || ! unlanded=$(local_origin_unlanded_commits) || [ -n "$unlanded" ]; }; then
+        BACKLOG_DONE_ARGS=()
+      elif [ "$MODE" = local-only ]; then
         BACKLOG_DONE_ARGS=(--note "local main")
       elif [ -n "$PR_URL" ]; then
         BACKLOG_DONE_ARGS=(--pr "$PR_URL")
@@ -1643,6 +1672,23 @@ validate_worktree_teardown_safety() {
     return 1
   fi
   unpushed=$(printf '%s\n' "$unpushed_raw" | head -5)
+
+  if task_is_local_origin_mirror; then
+    if ! unmerged_raw=$(local_origin_unlanded_commits); then
+      echo "REFUSED: cannot verify that local-origin worktree $WT is landed: fetching origin or reading its default branch failed." >&2
+      echo "Restore access to origin, or get the captain's explicit OK to discard, then --force." >&2
+      return 1
+    fi
+    unmerged=$(printf '%s\n' "$unmerged_raw" | head -5)
+    if [ -n "$dirty" ] || [ -n "$unmerged" ]; then
+      echo "REFUSED: local-origin worktree $WT has work the main home has not landed yet; a branch pushed to origin is not landed." >&2
+      [ -n "$dirty" ] && echo "uncommitted changes present" >&2
+      [ -n "$unmerged" ] && printf "commits not yet on origin's default branch:\n%s\n" "$unmerged" >&2
+      echo "Have the main firstmate land the pushed branch (bin/fm-merge-local.sh --secondmate <secondmate-id> [--branch <pushed branch>] $ID after the captain approves), or get the captain's explicit OK to discard, then --force." >&2
+      return 1
+    fi
+    return 0
+  fi
 
   if [ -n "$unpushed" ] && [ "$MODE" = local-only ]; then
     DEFAULT=$(default_branch) || { echo "REFUSED: cannot determine default branch for $PROJ; expected origin/HEAD, main, or master." >&2; return 1; }

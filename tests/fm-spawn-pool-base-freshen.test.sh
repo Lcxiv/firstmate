@@ -365,6 +365,51 @@ test_remoteless_project_without_a_recognisable_default_is_refused() {
 # operator. Nothing here is converged - the gate only has to say why. The fixture
 # only builds the repositories; the residue itself is produced by a real spawn, so
 # these tests cover the reset that actually strands the submodule.
+# A secondmate's local-origin mirror (bin/fm-home-seed.sh <project>=<checkout>)
+# HAS a remote: origin is the main home's non-bare checkout, reached by path. It
+# must take the strict fetch path like any remote-backed project, so a landing
+# the main home made after the slot was allocated is the base the worker starts
+# from, and it never falls back to the mirror's own stale local main.
+test_local_origin_mirror_launches_from_the_authority_checkout() {
+  local id case_dir authority home mirror pool fakebin initial advanced out status
+  id='pool-local-origin-r1'
+  case_dir="$TMP_ROOT/local-origin"
+  authority="$case_dir/authority"
+  home="$case_dir/home"
+  mirror="$home/projects/alpha"
+  pool="$case_dir/pool"
+  fakebin=$(make_spawn_fakebin "$case_dir/fake")
+  mkdir -p "$home/data/$id" "$home/projects" "$home/state" "$home/config"
+  printf 'codex\n' > "$home/config/crew-harness"
+  printf 'brief for %s\n' "$id" > "$home/data/$id/brief.md"
+  printf '%s\n' '- alpha [local-only +local-origin] - mirror (added 2026-09-18)' > "$home/data/projects.md"
+  touch "$home/state/.last-watcher-beat"
+
+  git init --quiet -b main "$authority"
+  printf 'base\n' > "$authority/README.md"
+  git -C "$authority" add README.md
+  git -C "$authority" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' commit -qm initial
+  git clone --quiet --no-local -- "$authority" "$mirror"
+  initial=$(git -C "$mirror" rev-parse HEAD)
+  git -C "$mirror" worktree add --quiet --detach "$pool" "$initial"
+
+  # The main home lands work in its checkout after the mirror's slot exists.
+  printf 'landed by the main home\n' > "$authority/advanced-main.txt"
+  git -C "$authority" add advanced-main.txt
+  git -C "$authority" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' commit -qm advance-authority
+  advanced=$(git -C "$authority" rev-parse HEAD)
+
+  out=$(fm_test_run_spawn "$home" "$pool" "$fakebin" "$id" "$mirror" --mode local-only --yolo off)
+  status=$?
+  expect_code 0 "$status" "spawn should launch a local-origin mirror"
+  assert_contains "$out" "spawned $id" "spawn did not report success for a local-origin mirror"
+  [ "$(git -C "$pool" rev-parse HEAD)" = "$advanced" ] \
+    || fail "spawn did not start a local-origin mirror at its authority checkout's default branch"
+  [ "$(git -C "$mirror" rev-parse refs/heads/main)" = "$initial" ] \
+    || fail "fixture did not keep the mirror's own local main stale"
+  pass "a local-origin mirror launches from its authority checkout's current default branch"
+}
+
 make_submodule_case() {  # <name> <id>
   local name=$1 id=$2 case_dir home project origin pool publisher fakebin sub subpin1 subpin2 advanced
   case_dir="$TMP_ROOT/$name"
@@ -632,6 +677,7 @@ test_remoteless_project_refreshes_a_non_main_default_branch
 test_unreachable_origin_is_not_treated_as_a_local_only_project
 test_remoteless_project_still_refuses_a_dirty_pool
 test_remoteless_project_without_a_recognisable_default_is_refused
+test_local_origin_mirror_launches_from_the_authority_checkout
 test_stale_submodule_pin_explains_itself
 test_unpushed_submodule_commit_is_still_uncommitted_work
 test_work_inside_submodule_is_still_uncommitted_work

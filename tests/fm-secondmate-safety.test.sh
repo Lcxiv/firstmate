@@ -878,8 +878,371 @@ test_home_seed_refuses_local_only_project() {
   fi
   grep -F 'project alpha is local-only; secondmate routes support only no-mistakes and direct-PR projects' "$err" >/dev/null \
     || fail "seed did not explain local-only project rejection"
+  grep -F "name the project's authoritative working repository: alpha=<absolute checkout path>" "$err" >/dev/null \
+    || fail "seed did not point a local-only project at the local-origin form"
   [ ! -e "$subhome" ] || fail "seed created a subhome before rejecting a local-only project"
   pass "home seeding refuses local-only projects"
+}
+
+# --- local-origin mirrors (Shape 2B) ----------------------------------------
+# A local-only project reaches a secondmate only as a mirror cloned from the
+# project's authoritative working repository. These fixtures stand in for it;
+# no real project is involved.
+
+# make_local_origin_main <main-home>: a main home registering alpha local-only
+# (+yolo) and beta direct-PR, with alpha's authority checkout under projects/.
+# alpha carries an ignored private file, an untracked file, and an unreachable
+# commit, none of which may reach a mirror.
+# The secondmate home is a clone of this repository, test files included, so the
+# private marker is assembled at run time and never appears verbatim in source.
+LOCAL_ORIGIN_PRIVATE_NEEDLE="captain private$(printf ' ')data"
+make_local_origin_main() {
+  local home=$1 alpha
+  alpha="$home/projects/alpha"
+  mkdir -p "$home/projects" "$home/data" "$home/state"
+  git init -q -b main "$alpha"
+  printf 'private/\n' > "$alpha/.gitignore"
+  printf '# alpha\n' > "$alpha/README.md"
+  git -C "$alpha" add .gitignore README.md
+  git -C "$alpha" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' commit -qm initial
+  printf 'dropped\n' > "$alpha/dropped.txt"
+  git -C "$alpha" add dropped.txt
+  git -C "$alpha" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' commit -qm dropped
+  git -C "$alpha" rev-parse HEAD > "$home/unreachable-sha"
+  git -C "$alpha" reset -q --hard HEAD~1
+  mkdir -p "$alpha/private"
+  printf '%s\n' "$LOCAL_ORIGIN_PRIVATE_NEEDLE" > "$alpha/private/applications.csv"
+  printf 'scratch\n' > "$alpha/untracked-notes.txt"
+  fm_git_init_commit "$home/projects/beta"
+  fm_git_add_origin "$home/projects/beta" "$home/remotes/beta.git"
+  cat > "$home/data/projects.md" <<EOF
+- alpha [local-only +yolo] - private local project (added 2026-09-18)
+- beta [direct-PR] - remote-backed project (added 2026-09-18)
+EOF
+}
+
+test_project_mode_reads_local_origin_annotation() {
+  local home out
+  home="$TMP_ROOT/project-mode-origin"
+  mkdir -p "$home/data"
+  cat > "$home/data/projects.md" <<'EOF'
+- mirror [local-only +local-origin] - mirror (added 2026-09-18)
+- mirror-yolo [local-only +local-origin +yolo] - mirror (added 2026-09-18)
+- plain [local-only +yolo] - authority (added 2026-09-18)
+- remote [direct-PR +local-origin] - misapplied flag (added 2026-09-18)
+EOF
+  [ "$(FM_HOME="$home" "$ROOT/bin/fm-project-mode.sh" --origin mirror)" = local-origin ] \
+    || fail "fm-project-mode --origin did not read +local-origin"
+  [ "$(FM_HOME="$home" "$ROOT/bin/fm-project-mode.sh" mirror)" = "local-only off" ] \
+    || fail "+local-origin changed the mirror's mode or yolo"
+  [ "$(FM_HOME="$home" "$ROOT/bin/fm-project-mode.sh" mirror-yolo)" = "local-only on" ] \
+    || fail "+local-origin hid a +yolo that follows it"
+  [ "$(FM_HOME="$home" "$ROOT/bin/fm-project-mode.sh" --origin plain)" = default ] \
+    || fail "an authority checkout read as a local-origin mirror"
+  [ "$(FM_HOME="$home" "$ROOT/bin/fm-project-mode.sh" --origin unknown 2>/dev/null)" = default ] \
+    || fail "an unregistered project did not read as default"
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-project-mode.sh" --origin remote 2>&1 >/dev/null)
+  assert_contains "$out" "+local-origin applies only to local-only projects" \
+    "a misapplied +local-origin was not reported"
+  [ "$(FM_HOME="$home" "$ROOT/bin/fm-project-mode.sh" --origin remote 2>/dev/null)" = default ] \
+    || fail "+local-origin changed a remote-backed project's shape"
+  [ "$(FM_HOME="$home" "$ROOT/bin/fm-project-mode.sh" remote 2>&1)" = "direct-PR off" ] \
+    || fail "a misapplied +local-origin changed or noised a remote-backed mode read"
+  pass "fm-project-mode reads +local-origin only on local-only entries"
+}
+
+test_home_seed_local_origin_mirror_end_to_end() {
+  local main sub mirror authority sm_mirror_line brief out status before
+  main="$TMP_ROOT/local-origin-main"
+  sub="$TMP_ROOT/local-origin-sub"
+  make_local_origin_main "$main"
+  authority=$(cd "$main/projects/alpha" && pwd -P)
+
+  FM_HOME="$main" FM_SECONDMATE_CHARTER='alpha and beta work' \
+    "$ROOT/bin/fm-home-seed.sh" jt "$sub" "alpha=$authority" beta >/dev/null \
+    || fail "seed refused a local-only project named with its local origin"
+  mirror="$sub/projects/alpha"
+
+  # The mirror's only remote is the authority checkout, never a forge.
+  [ "$(git -C "$mirror" remote get-url origin)" = "$authority" ] \
+    || fail "the mirror's origin is not the authority checkout"
+  [ "$(git -C "$mirror" remote)" = origin ] || fail "the mirror gained a remote beyond origin"
+  # Only committed, reachable content crossed into the secondmate home.
+  assert_absent "$mirror/private" "an ignored private directory reached the mirror"
+  assert_absent "$mirror/untracked-notes.txt" "an untracked file reached the mirror"
+  if git -C "$mirror" cat-file -e "$(cat "$main/unreachable-sha")" 2>/dev/null; then
+    fail "an unreachable commit from the authority reached the mirror"
+  fi
+  if grep -rF -- "$LOCAL_ORIGIN_PRIVATE_NEEDLE" "$sub" >/dev/null 2>&1; then
+    fail "private data from the authority checkout reached the secondmate home"
+  fi
+  assert_absent "$sub/data/captain.md" "seeding copied a captain file into the secondmate home"
+  assert_absent "$sub/data/backlog.md" "seeding copied a backlog into the secondmate home"
+
+  # The main home records the mirror's authoritative repository in its own data.
+  [ "$(cat "$main/data/jt/local-origins")" = "alpha$(printf '\t')$authority" ] \
+    || fail "seeding did not record the mirror's authoritative repository in the main home"
+  assert_absent "$sub/data/jt/local-origins" "the landing record was written into the secondmate home"
+
+  # The registry annotation is written with the parent's mode and yolo intact.
+  sm_mirror_line=$(grep -F -- '- alpha ' "$sub/data/projects.md")
+  [ "$sm_mirror_line" = '- alpha [local-only +yolo +local-origin] - private local project (added 2026-09-18)' ] \
+    || fail "mirror registry line was not the parent's line plus +local-origin: $sm_mirror_line"
+  assert_grep '- beta [direct-PR] - remote-backed project (added 2026-09-18)' "$sub/data/projects.md" \
+    "a remote-backed project's registry line changed beside a mirror"
+  assert_no_grep '+local-origin' "$main/data/projects.md" "seeding annotated the main home's registry"
+  [ "$(git -C "$sub/projects/beta" remote get-url origin)" = "$(git -C "$main/projects/beta" remote get-url origin)" ] \
+    || fail "a remote-backed project beside a mirror did not clone from its own origin"
+  assert_grep 'projects: alpha, beta' "$main/data/secondmates.md" "route did not list the mirror by name"
+  assert_grep 'alpha` is local-only, so your clone of it is a local-origin mirror' "$sub/data/charter.md" \
+    "the charter did not carry the mirror's hard rules"
+  assert_no_grep 'beta` is local-only' "$sub/data/charter.md" "the charter gave a remote-backed project mirror rules"
+
+  # The annotation is consumed: the secondmate's worker contract pushes fm/<id>.
+  FM_HOME="$sub" "$ROOT/bin/fm-brief.sh" jt-task alpha --mode local-only >/dev/null \
+    || fail "brief scaffold failed in the secondmate home"
+  brief="$sub/data/jt-task/brief.md"
+  assert_grep 'Delivery contract: mode=local-only' "$brief" "mirror brief lost the machine-readable contract line"
+  assert_grep 'git push origin fm/jt-task' "$brief" "mirror brief did not tell the worker to push fm/<id> to origin"
+  assert_grep 'never read, copy, or write the files of the repository it points at' "$brief" \
+    "mirror brief did not fence the authority checkout's files"
+  assert_no_grep 'Do NOT push, do NOT open a PR' "$brief" "mirror brief kept the no-push local contract"
+
+  # The worker commits and pushes, as that contract says.
+  git -C "$mirror" checkout -q -b fm/jt-task
+  printf 'secondmate change\n' >> "$mirror/README.md"
+  git -C "$mirror" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' commit -qam change
+  git -C "$mirror" push -q origin fm/jt-task || fail "the worker could not push fm/<id> to the authority checkout"
+  printf 'project=%s\nmode=local-only\n' "$mirror" > "$sub/state/jt-task.meta"
+
+  # The secondmate cannot land: its clone is not the authority.
+  before=$(git -C "$authority" rev-parse main)
+  out=$(FM_HOME="$sub" "$ROOT/bin/fm-merge-local.sh" jt-task 2>&1)
+  status=$?
+  [ "$status" -ne 0 ] || fail "the secondmate landed into its own mirror"
+  assert_contains "$out" "is a local-origin mirror, not the project's authority" "mirror landing refusal was not explained"
+  [ "$(git -C "$authority" rev-parse main)" = "$before" ] || fail "a refused mirror landing moved the authority"
+  [ "$(git -C "$mirror" rev-parse main)" = "$(git -C "$mirror" rev-parse origin/main)" ] \
+    || fail "a refused mirror landing moved the mirror's main"
+
+  # The main home lands the pushed branch into its own checkout. The fixture's
+  # untracked scratch file must go first: the dirty-tree guard still applies.
+  rm -f "$authority/untracked-notes.txt"
+  out=$(FM_HOME="$main" "$ROOT/bin/fm-merge-local.sh" --secondmate jt jt-task 2>&1) \
+    || fail "the main home could not land the mirror's pushed branch: $out"
+  assert_contains "$out" "merged fm/jt-task into local main" "main landing did not report the merge"
+  [ "$(git -C "$authority" rev-parse main)" = "$(git -C "$authority" rev-parse fm/jt-task)" ] \
+    || fail "the main home did not fast-forward its checkout to the pushed branch"
+  assert_present "$authority/private/applications.csv" "landing disturbed the authority's ignored private data"
+
+  # Reseeding the same mirror is idempotent.
+  FM_HOME="$main" "$ROOT/bin/fm-home-seed.sh" jt "$sub" "alpha=$authority" beta >/dev/null \
+    || fail "reseeding an existing mirror failed"
+  [ "$(grep -cF -- '- alpha ' "$sub/data/projects.md")" -eq 1 ] || fail "reseeding duplicated the mirror's registry line"
+  [ "$(cat "$main/data/jt/local-origins")" = "alpha$(printf '\t')$authority" ] \
+    || fail "reseeding duplicated or changed the main home's local-origin record"
+  assert_grep '[local-only +yolo +local-origin]' "$sub/data/projects.md" "reseeding lost or doubled the annotation"
+  if FM_HOME="$main" "$ROOT/bin/fm-home-seed.sh" jt "$sub" "alpha=$main/projects/beta" >/dev/null 2>"$TMP_ROOT/local-origin-reseed.err"; then
+    fail "reseeding accepted a mirror whose existing origin is a different checkout"
+  fi
+  assert_grep "expected local origin $(cd "$main/projects/beta" && pwd -P)" "$TMP_ROOT/local-origin-reseed.err" \
+    "reseeding did not explain the mismatched local origin"
+  [ "$(git -C "$mirror" remote get-url origin)" = "$authority" ] || fail "a refused reseed changed the mirror's origin"
+  [ "$(cat "$main/data/jt/local-origins")" = "alpha$(printf '\t')$authority" ] \
+    || fail "a refused reseed did not roll the main home's local-origin record back"
+  pass "a local-only project seeds, delivers, and lands end to end as a local-origin mirror"
+}
+
+test_home_seed_local_origin_refusals() {
+  local main sub err authority bare case_name
+  main="$TMP_ROOT/local-origin-refusals-main"
+  sub="$TMP_ROOT/local-origin-refusals-sub"
+  err="$TMP_ROOT/local-origin-refusals.err"
+  make_local_origin_main "$main"
+  authority=$(cd "$main/projects/alpha" && pwd -P)
+  bare="$TMP_ROOT/local-origin-refusals-alpha.git"
+  git clone -q --bare "$authority" "$bare"
+  printf '%s\n' '- gamma [no-mistakes] - pipeline project (added 2026-09-18)' >> "$main/data/projects.md"
+
+  seed_refused() {  # <label> <expected message> <project spec>...
+    local label=$1 expected=$2
+    shift 2
+    if FM_HOME="$main" FM_SECONDMATE_CHARTER='refusal charter' \
+      "$ROOT/bin/fm-home-seed.sh" jt "$sub" "$@" >/dev/null 2>"$err"; then
+      fail "seed accepted $label"
+    fi
+    grep -F -- "$expected" "$err" >/dev/null || fail "seed did not explain $label: $(cat "$err")"
+    assert_absent "$sub" "seed created a secondmate home for $label"
+    assert_absent "$main/data/secondmates.md" "seed wrote a route for $label"
+    assert_absent "$main/data/jt" "seed left a charter brief for $label"
+  }
+
+  seed_refused "a bare local-only name" \
+    "to give it a local-origin mirror instead, name the project's authoritative working repository: alpha=<absolute checkout path>" alpha
+  seed_refused "a local origin for a direct-PR project" \
+    'project beta is direct-PR; a local origin applies only to local-only projects' "beta=$main/projects/beta"
+  seed_refused "a local origin for a pipeline project" \
+    'project gamma is no-mistakes; a local origin applies only to local-only projects' "gamma=$authority"
+  seed_refused "a local origin for an unregistered project" \
+    'project delta is no-mistakes; a local origin applies only to local-only projects' "delta=$authority"
+  seed_refused "a relative local origin" 'must be an absolute path' "alpha=projects/alpha"
+  seed_refused "a missing local origin" 'is not a directory' "alpha=$TMP_ROOT/no-such-checkout"
+  seed_refused "a bare repository as local origin" 'is a bare repository' "alpha=$bare"
+  mkdir -p "$authority/sub"
+  seed_refused "a directory inside the checkout" 'not its top' "alpha=$authority/sub"
+  seed_refused "an empty local origin" 'expected <project>=<checkout>' "alpha="
+  seed_refused "a project named twice" 'project alpha is named more than once' "alpha=$authority" alpha
+
+  git -C "$authority" checkout -q -b topic
+  seed_refused "a checkout off its default branch" "is on 'topic', not its default branch 'main'" "alpha=$authority"
+  git -C "$authority" checkout -q --detach
+  seed_refused "a detached checkout" 'is not on a branch' "alpha=$authority"
+  git -C "$authority" checkout -q main
+  pass "local-origin seeding refuses every malformed or misapplied origin without creating anything"
+}
+
+# The landing target is the main home's own seed-time record. A worker that
+# repoints its mirror at another real repository and pushes there must not get
+# that repository advanced by the main home.
+test_merge_local_secondmate_ignores_a_rewritten_mirror_origin() {
+  local main sub mirror authority other out status authority_before other_before
+  main="$TMP_ROOT/local-origin-rewrite-main"
+  sub="$TMP_ROOT/local-origin-rewrite-sub"
+  other="$TMP_ROOT/local-origin-rewrite-other"
+  make_local_origin_main "$main"
+  authority=$(cd "$main/projects/alpha" && pwd -P)
+  rm -f "$authority/untracked-notes.txt"
+  FM_HOME="$main" FM_SECONDMATE_CHARTER='alpha work' \
+    "$ROOT/bin/fm-home-seed.sh" jt "$sub" "alpha=$authority" >/dev/null || fail "seed failed for origin rewrite test"
+  mirror="$sub/projects/alpha"
+  git clone -q --no-local -- "$authority" "$other"
+  other=$(cd "$other" && pwd -P)
+
+  git -C "$mirror" remote set-url origin "$other"
+  git -C "$mirror" checkout -q -b fm/jt-task
+  printf 'redirected change\n' >> "$mirror/README.md"
+  git -C "$mirror" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' commit -qam redirected
+  git -C "$mirror" push -q origin fm/jt-task || fail "fixture push to the other repository failed"
+  git -C "$other" rev-parse --verify --quiet refs/heads/fm/jt-task >/dev/null \
+    || fail "fixture did not place the branch in the other repository"
+  printf 'project=%s\nmode=local-only\n' "$mirror" > "$sub/state/jt-task.meta"
+  authority_before=$(git -C "$authority" rev-parse main)
+  other_before=$(git -C "$other" rev-parse main)
+
+  out=$(FM_HOME="$main" "$ROOT/bin/fm-merge-local.sh" --secondmate jt jt-task 2>&1)
+  status=$?
+  [ "$status" -ne 0 ] || fail "the main home landed through a mirror origin the secondmate side rewrote"
+  assert_contains "$out" "$other" "the refusal did not name the mirror's rewritten origin"
+  assert_contains "$out" "$authority" "the refusal did not name the recorded authoritative repository"
+  [ "$(git -C "$other" rev-parse main)" = "$other_before" ] || fail "a refused landing advanced the repository the mirror was repointed at"
+  [ "$(git -C "$authority" rev-parse main)" = "$authority_before" ] || fail "a refused landing advanced the authoritative repository"
+  pass "the main home lands only into its own recorded repository, never a rewritten mirror origin"
+}
+
+test_merge_local_secondmate_refusals() {
+  local main sub mirror authority out status before pushed_first
+  main="$TMP_ROOT/local-origin-merge-main"
+  sub="$TMP_ROOT/local-origin-merge-sub"
+  make_local_origin_main "$main"
+  authority=$(cd "$main/projects/alpha" && pwd -P)
+  rm -f "$authority/untracked-notes.txt"
+  FM_HOME="$main" FM_SECONDMATE_CHARTER='alpha work' \
+    "$ROOT/bin/fm-home-seed.sh" jt "$sub" "alpha=$authority" >/dev/null || fail "seed failed for merge refusal test"
+  mirror="$sub/projects/alpha"
+  git -C "$mirror" checkout -q -b fm/jt-r1
+  printf 'change\n' >> "$mirror/README.md"
+  git -C "$mirror" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' commit -qam change
+  git -C "$mirror" push -q origin fm/jt-r1
+  printf 'project=%s\nmode=local-only\n' "$mirror" > "$sub/state/jt-r1.meta"
+  before=$(git -C "$authority" rev-parse main)
+
+  merge_refused() {  # <label> <expected> <args>...
+    local label=$1 expected=$2
+    shift 2
+    out=$(FM_HOME="$main" "$ROOT/bin/fm-merge-local.sh" "$@" 2>&1)
+    status=$?
+    [ "$status" -ne 0 ] || fail "main landing accepted $label"
+    assert_contains "$out" "$expected" "main landing did not explain $label"
+    [ "$(git -C "$authority" rev-parse main)" = "$before" ] || fail "a refused landing ($label) moved the authority"
+  }
+
+  merge_refused "an unknown secondmate" 'secondmate nobody has no single parseable route' --secondmate nobody jt-r1
+  merge_refused "a task the secondmate does not have" 'no meta for task jt-missing in secondmate jt' --secondmate jt jt-missing
+
+  printf 'wrong-id\n' > "$sub/.fm-secondmate-home"
+  merge_refused "a home marked for another secondmate" 'is not the seeded home of secondmate jt' --secondmate jt jt-r1
+  printf 'jt\n' > "$sub/.fm-secondmate-home"
+
+  printf 'project=%s\nmode=no-mistakes\n' "$mirror" > "$sub/state/jt-r1.meta"
+  merge_refused "a pipeline task" 'is mode=no-mistakes, not local-only' --secondmate jt jt-r1
+  printf 'project=%s\nmode=local-only\n' "$mirror" > "$sub/state/jt-r1.meta"
+
+  sed -i.bak 's/ +local-origin//' "$sub/data/projects.md"
+  merge_refused "a project the secondmate does not register as a mirror" \
+    'alpha is not registered +local-origin in secondmate jt' --secondmate jt jt-r1
+  mv "$sub/data/projects.md.bak" "$sub/data/projects.md"
+
+  sed -i.bak 's/^- alpha \[local-only +yolo\]/- alpha [direct-PR]/' "$main/data/projects.md"
+  merge_refused "a main registry that is not local-only" \
+    'alpha is registered direct-PR in this home, not local-only' --secondmate jt jt-r1
+  mv "$main/data/projects.md.bak" "$main/data/projects.md"
+
+  git -C "$mirror" remote set-url origin "file://$authority"
+  merge_refused "a mirror whose origin is not the recorded path" \
+    "but this home recorded its authoritative working repository as '$authority'" --secondmate jt jt-r1
+  git -C "$mirror" remote set-url origin "$authority"
+
+  mv "$main/data/jt/local-origins" "$main/data/jt/local-origins.moved"
+  merge_refused "a mirror this home holds no record for" 'has no local-origin record for alpha' --secondmate jt jt-r1
+  mv "$main/data/jt/local-origins.moved" "$main/data/jt/local-origins"
+
+  merge_refused "a branch of another task" '--branch fm/other is not a delivery branch of task jt-r1' \
+    --secondmate jt --branch fm/other jt-r1
+  merge_refused "the default branch as the delivery branch" '--branch main is not a delivery branch of task jt-r1' \
+    --secondmate jt --branch main jt-r1
+  merge_refused "a first-attempt suffix" '--branch fm/jt-r1-r1 is not a delivery branch of task jt-r1' \
+    --secondmate jt --branch fm/jt-r1-r1 jt-r1
+  merge_refused "a delivery branch that was never pushed" 'branch fm/jt-r1-r2 does not exist' \
+    --secondmate jt --branch fm/jt-r1-r2 jt-r1
+
+  # The ordinary guards still fire on the mirror path: a diverged branch.
+  printf 'main moved\n' > "$authority/moved.txt"
+  git -C "$authority" add moved.txt
+  git -C "$authority" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' commit -qm moved
+  before=$(git -C "$authority" rev-parse main)
+  merge_refused "a diverged branch" 'is not a fast-forward of main' --secondmate jt jt-r1
+  assert_contains "$out" "fm/jt-r1-r2" "the diverged-branch refusal did not name the next delivery branch"
+
+  # Recovery without a force-push: the worker cannot overwrite the pushed
+  # branch, so the rebased work arrives under a new name and lands from there.
+  git -C "$mirror" fetch -q origin
+  git -C "$mirror" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' rebase -q origin/main \
+    || fail "fixture rebase onto the advanced authority failed"
+  if git -C "$mirror" push -q origin fm/jt-r1 2>/dev/null; then
+    fail "fixture error: a rebased branch overwrote the pushed one without force"
+  fi
+  pushed_first=$(git -C "$authority" rev-parse fm/jt-r1)
+  git -C "$mirror" push -q origin fm/jt-r1:refs/heads/fm/jt-r1-r2 || fail "the worker could not push a rebased retry under a new name"
+  [ "$(git -C "$authority" rev-parse fm/jt-r1)" = "$pushed_first" ] || fail "a rebased retry overwrote the first pushed branch"
+  merge_refused "the stale first delivery after a rebase" 'is not a fast-forward of main' --secondmate jt jt-r1
+  out=$(FM_HOME="$main" "$ROOT/bin/fm-merge-local.sh" --secondmate jt --branch fm/jt-r1-r2 jt-r1 2>&1) \
+    || fail "the main home could not land a rebased retry branch: $out"
+  assert_contains "$out" "merged fm/jt-r1-r2 into local main" "landing a retry branch did not name it"
+  [ "$(git -C "$authority" rev-parse main)" = "$(git -C "$mirror" rev-parse fm/jt-r1)" ] \
+    || fail "the rebased retry did not fast-forward the authority"
+  out=$(FM_HOME="$main" "$ROOT/bin/fm-merge-local.sh" --branch fm/main-x main-x 2>&1) \
+    && fail "--branch was accepted without --secondmate"
+
+  # And the main home's own local-only landing is unchanged.
+  git -C "$authority" checkout -q -b fm/main-task
+  printf 'main task\n' >> "$authority/README.md"
+  git -C "$authority" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' commit -qam main-task
+  git -C "$authority" checkout -q main
+  printf 'project=%s\nmode=local-only\n' "$authority" > "$main/state/main-task.meta"
+  out=$(FM_HOME="$main" "$ROOT/bin/fm-merge-local.sh" main-task 2>&1) || fail "the main home's own local-only landing broke: $out"
+  [ "$(git -C "$authority" rev-parse main)" = "$(git -C "$authority" rev-parse fm/main-task)" ] \
+    || fail "the main home's own local-only landing did not fast-forward"
+  pass "main-home landing of a mirror's branch refuses every mismatched record and keeps its guards"
 }
 
 test_home_seed_refuses_registry_delimiter_home() {
@@ -2922,6 +3285,11 @@ test_home_seed_refuses_projectless_home_with_non_directory_projects
 test_home_seed_refuses_projectless_home_with_uninspectable_registry
 test_home_seed_refuses_missing_projects_without_signal
 test_home_seed_refuses_local_only_project
+test_project_mode_reads_local_origin_annotation
+test_home_seed_local_origin_mirror_end_to_end
+test_home_seed_local_origin_refusals
+test_merge_local_secondmate_ignores_a_rewritten_mirror_origin
+test_merge_local_secondmate_refusals
 test_home_seed_refuses_registry_delimiter_home
 test_home_seed_refuses_active_home_and_root
 test_home_seed_refuses_home_marked_for_another_id
