@@ -1,0 +1,120 @@
+== precise privacy sweep (fixture-unique needles)
+
+$ grep -rlE SECRET-APPLICANT-ROW|scratch-SECRET-NOTE|SECRET-CONFIG /tmp/fm-lo.TK99PR/sub
+[exit 1]
+== S3: worker pushes fm/jt-task; secondmate cannot land; main home lands
+
+$ git -C /tmp/fm-lo.TK99PR/sub/projects/alpha push origin fm/jt-task
+To /private/tmp/fm-lo.TK99PR/main/projects/alpha
+ * [new branch]      fm/jt-task -> fm/jt-task
+[exit 0]
+   authority main=21407d6
+
+$ /Users/louiscondevaux/.no-mistakes/worktrees/71bad1a6f2bc/01M2V39DV1XCQ8Q4YS31NSE2MR/bin/fm-merge-local.sh jt-task
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  A cycle may simply not be running between turns yet; if this session is taking turns, the next turn end arms one.
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: alpha in this home is a local-origin mirror, not the project's authority; nothing lands here.
+Have the worker push fm/jt-task to origin, then the main firstmate lands it with: bin/fm-merge-local.sh --secondmate <this secondmate's id> [--branch <pushed branch>] jt-task
+[exit 1]
+   authority main=21407d6
+-- dirty-tree guard still applies (untracked file in authority):
+
+$ /Users/louiscondevaux/.no-mistakes/worktrees/71bad1a6f2bc/01M2V39DV1XCQ8Q4YS31NSE2MR/bin/fm-merge-local.sh --secondmate jt jt-task
+error: /private/tmp/fm-lo.TK99PR/main/projects/alpha has a dirty working tree; refusing to merge into it
+[exit 1]
+   authority main=21407d6
+
+$ /Users/louiscondevaux/.no-mistakes/worktrees/71bad1a6f2bc/01M2V39DV1XCQ8Q4YS31NSE2MR/bin/fm-merge-local.sh --secondmate jt jt-task
+merged fm/jt-task into local main (21407d6 -> 6622a50) in /private/tmp/fm-lo.TK99PR/main/projects/alpha
+[exit 0]
+   authority main=6622a50
+
+$ git -C /private/tmp/fm-lo.TK99PR/main/projects/alpha log --oneline -3 main
+6622a50 change
+21407d6 initial
+[exit 0]
+
+$ cat /private/tmp/fm-lo.TK99PR/main/projects/alpha/private/applications.csv
+SECRET-APPLICANT-ROW
+[exit 0]
+== S4: default branch advances; rebased retry lands as -r2 with no force-push
+
+$ git -C /tmp/fm-lo.TK99PR/sub/projects/alpha push origin fm/t2
+To /private/tmp/fm-lo.TK99PR/main/projects/alpha
+ * [new branch]      fm/t2 -> fm/t2
+[exit 0]
+hint: The '.git/hooks/pre-commit' hook was ignored because it's not set as executable.
+hint: You can disable this warning with `git config set advice.ignoredHook false`.
+   authority main=e914b7c
+
+$ /Users/louiscondevaux/.no-mistakes/worktrees/71bad1a6f2bc/01M2V39DV1XCQ8Q4YS31NSE2MR/bin/fm-merge-local.sh --secondmate jt t2
+REFUSED: fm/t2 is not a fast-forward of main (it has diverged).
+Have the crewmate rebase onto main and push the result under the next unused name (fm/t2-r2, fm/t2-r3, ...), never a force-push, then retry with --branch <that name>.
+[exit 1]
+   authority main=e914b7c
+-- plain re-push of rebased fm/t2 is rejected by git (non-ff), as the contract expects:
+
+$ git -C /tmp/fm-lo.TK99PR/sub/projects/alpha push origin fm/t2
+To /private/tmp/fm-lo.TK99PR/main/projects/alpha
+ ! [rejected]        fm/t2 -> fm/t2 (non-fast-forward)
+error: failed to push some refs to '/private/tmp/fm-lo.TK99PR/main/projects/alpha'
+hint: Updates were rejected because the tip of your current branch is behind
+hint: its remote counterpart. If you want to integrate the remote changes,
+hint: use 'git pull' before pushing again.
+hint: See the 'Note about fast-forwards' in 'git push --help' for details.
+[exit 1]
+
+$ git -C /tmp/fm-lo.TK99PR/sub/projects/alpha push origin fm/t2:refs/heads/fm/t2-r2
+To /private/tmp/fm-lo.TK99PR/main/projects/alpha
+ * [new branch]      fm/t2 -> fm/t2-r2
+[exit 0]
+-- bad --branch values:
+
+$ /Users/louiscondevaux/.no-mistakes/worktrees/71bad1a6f2bc/01M2V39DV1XCQ8Q4YS31NSE2MR/bin/fm-merge-local.sh --secondmate jt --branch main t2
+error: --branch main is not a delivery branch of task t2; expected fm/t2 or fm/t2-r<N> with N >= 2
+[exit 1]
+
+$ /Users/louiscondevaux/.no-mistakes/worktrees/71bad1a6f2bc/01M2V39DV1XCQ8Q4YS31NSE2MR/bin/fm-merge-local.sh --secondmate jt --branch fm/other-r2 t2
+error: --branch fm/other-r2 is not a delivery branch of task t2; expected fm/t2 or fm/t2-r<N> with N >= 2
+[exit 1]
+
+$ /Users/louiscondevaux/.no-mistakes/worktrees/71bad1a6f2bc/01M2V39DV1XCQ8Q4YS31NSE2MR/bin/fm-merge-local.sh --secondmate jt --branch fm/t2-r1 t2
+error: --branch fm/t2-r1 is not a delivery branch of task t2; expected fm/t2 or fm/t2-r<N> with N >= 2
+[exit 1]
+   authority main=e914b7c
+
+$ /Users/louiscondevaux/.no-mistakes/worktrees/71bad1a6f2bc/01M2V39DV1XCQ8Q4YS31NSE2MR/bin/fm-merge-local.sh --secondmate jt --branch fm/t2-r2 t2
+merged fm/t2-r2 into local main (e914b7c -> 66307fc) in /private/tmp/fm-lo.TK99PR/main/projects/alpha
+[exit 0]
+   authority main=66307fc
+
+$ git -C /private/tmp/fm-lo.TK99PR/main/projects/alpha log --oneline -4 main
+66307fc t2
+e914b7c main home lands other work
+6622a50 change
+21407d6 initial
+[exit 0]
+== S5 adversarial: mirror origin rewritten to another real repo
+
+$ /Users/louiscondevaux/.no-mistakes/worktrees/71bad1a6f2bc/01M2V39DV1XCQ8Q4YS31NSE2MR/bin/fm-merge-local.sh --secondmate jt evil
+REFUSED: secondmate jt's alpha clone has origin '/private/tmp/fm-lo.TK99PR/victim', but this home recorded its authoritative working repository as '/private/tmp/fm-lo.TK99PR/main/projects/alpha'; nothing lands.
+[exit 1]
+   victim main moved? no  authority main moved? no
+== S5b adversarial: main-home record missing
+
+$ /Users/louiscondevaux/.no-mistakes/worktrees/71bad1a6f2bc/01M2V39DV1XCQ8Q4YS31NSE2MR/bin/fm-merge-local.sh --secondmate jt --branch fm/t2-r2 t2
+error: this home has no local-origin record for alpha in /tmp/fm-lo.TK99PR/main/data/jt/local-origins; refusing to land a mirror's branch without it
+bin/fm-home-seed.sh writes that record when it seeds the mirror; reseed secondmate jt with alpha=<authoritative working repository>
+[exit 1]
+== S5c: secondmate-side forged record is ignored (record only read from main home)
+
+$ /Users/louiscondevaux/.no-mistakes/worktrees/71bad1a6f2bc/01M2V39DV1XCQ8Q4YS31NSE2MR/bin/fm-merge-local.sh --secondmate jt evil
+REFUSED: secondmate jt's alpha clone has origin '/private/tmp/fm-lo.TK99PR/victim', but this home recorded its authoritative working repository as '/private/tmp/fm-lo.TK99PR/main/projects/alpha'; nothing lands.
+[exit 1]
+   victim main moved? no

@@ -1,0 +1,100 @@
+== local-origin form refusals (target)
+
+$ <target>/bin/fm-home-seed.sh rx <T>/ref-sub alpha
+error: project alpha is local-only; secondmate routes support only no-mistakes and direct-PR projects
+error: to give it a local-origin mirror instead, name the project's authoritative working repository: alpha=<absolute checkout path>
+[exit 1]
+   subhome created? no; main record? no
+
+$ <target>/bin/fm-home-seed.sh rx <T>/ref-sub alpha=projects/alpha
+error: local origin for alpha must be an absolute path: projects/alpha
+[exit 1]
+   subhome created? no; main record? no
+
+$ <target>/bin/fm-home-seed.sh rx <T>/ref-sub alpha=<T>/nope
+error: local origin for alpha is not a directory: <T>/nope
+[exit 1]
+   subhome created? no; main record? no
+
+$ <target>/bin/fm-home-seed.sh rx <T>/ref-sub alpha=<T>/alpha-bare.git
+error: local origin for alpha is a bare repository: <T>/alpha-bare.git; name the project's authoritative working repository
+[exit 1]
+   subhome created? no; main record? no
+
+$ <target>/bin/fm-home-seed.sh rx <T>/ref-sub alpha=/private<T>/ref/projects/alpha/subdir
+error: local origin for alpha is inside the checkout <T>/ref/projects/alpha, not its top: <T>/ref/projects/alpha/subdir
+[exit 1]
+   subhome created? no; main record? no
+
+$ <target>/bin/fm-home-seed.sh rx <T>/ref-sub alpha=/private<T>/ref/projects/alpha
+error: local origin for alpha at <T>/ref/projects/alpha is on 'side', not its default branch 'main'
+[exit 1]
+   subhome created? no; main record? no
+
+$ <target>/bin/fm-home-seed.sh rx <T>/ref-sub beta=<T>/ref/projects/beta
+error: project beta is direct-PR; a local origin applies only to local-only projects, and beta clones from its own origin
+[exit 1]
+   subhome created? no; main record? no
+
+$ <target>/bin/fm-home-seed.sh rx <T>/ref-sub alpha=
+error: expected <project>=<checkout>, got: alpha=
+[exit 1]
+   subhome created? no; main record? no
+
+== remote-backed path: identical output on base vs target
+--- gone (target output):
+
+
+
+
+
+
+
+scaffolded: <H>/data/rx/brief.md (secondmate charter)
+fatal: repository '<H>/does-not-exist.git' does not exist
+exit=1
+--- diff base vs target for gone:
+0a1,7
+> 
+> 
+> 
+> 
+> 
+> 
+> 
+--- noremote (target output):
+error: project noremote is direct-PR but has no origin remote
+exit=1
+--- diff base vs target for noremote:
+IDENTICAL
+--- beta (target output):
+
+
+
+
+
+
+
+scaffolded: <H>/data/rx/brief.md (secondmate charter)
+home=<H>-sub
+exit=0
+--- diff base vs target for beta:
+0a1,7
+> 
+> 
+> 
+> 
+> 
+> 
+> 
+--- state (target output):
+- rx - c (home: <H>-sub; scope: c; projects: beta; added 2026-09-18)
+- beta [direct-PR] - remote-backed (added 2026-09-18)
+<H>/beta.git
+brief.md
+--- diff base vs target for state:
+IDENTICAL
+
+== re-diff ignoring blank lines (blank lines come from git's detached-HEAD advice: the target worktree is a detached HEAD, the base copy is on a branch)
+gone: IDENTICAL
+beta: IDENTICAL

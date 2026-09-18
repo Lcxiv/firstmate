@@ -1,0 +1,138 @@
+== fixture: alpha has NO remote:
+
+$ git -C /tmp/fm-lo.TK99PR/main/projects/alpha remote -v
+[exit 0]
+== S1a: bare local-only name keeps its refusal + hint
+
+$ /Users/louiscondevaux/.no-mistakes/worktrees/71bad1a6f2bc/01M2V39DV1XCQ8Q4YS31NSE2MR/bin/fm-home-seed.sh jt /tmp/fm-lo.TK99PR/sub alpha beta
+error: project alpha is local-only; secondmate routes support only no-mistakes and direct-PR projects
+error: to give it a local-origin mirror instead, name the project's authoritative working repository: alpha=<absolute checkout path>
+[exit 1]
+
+$ ls -d /tmp/fm-lo.TK99PR/sub
+ls: /tmp/fm-lo.TK99PR/sub: No such file or directory
+[exit 1]
+== S1b: seed as alpha=<checkout>
+
+$ /Users/louiscondevaux/.no-mistakes/worktrees/71bad1a6f2bc/01M2V39DV1XCQ8Q4YS31NSE2MR/bin/fm-home-seed.sh jt /tmp/fm-lo.TK99PR/sub alpha=/private/tmp/fm-lo.TK99PR/main/projects/alpha beta
+Note: switching to '84c690cbe64f231f0bc09b309c29879fbb627449'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+scaffolded: /tmp/fm-lo.TK99PR/main/data/jt/brief.md (secondmate charter)
+home=/private/tmp/fm-lo.TK99PR/sub
+[exit 0]
+
+$ git -C /tmp/fm-lo.TK99PR/sub/projects/alpha remote -v
+origin	/private/tmp/fm-lo.TK99PR/main/projects/alpha (fetch)
+origin	/private/tmp/fm-lo.TK99PR/main/projects/alpha (push)
+[exit 0]
+
+$ git -C /tmp/fm-lo.TK99PR/sub/projects/beta remote -v
+origin	/private/tmp/fm-lo.TK99PR/remotes-beta.git (fetch)
+origin	/private/tmp/fm-lo.TK99PR/remotes-beta.git (push)
+[exit 0]
+
+$ cat /tmp/fm-lo.TK99PR/sub/data/projects.md
+- alpha [local-only +yolo +local-origin] - private local project (added 2026-09-18)
+- beta [direct-PR] - remote-backed project (added 2026-09-18)
+[exit 0]
+
+$ cat /tmp/fm-lo.TK99PR/main/data/projects.md
+- alpha [local-only +yolo] - private local project (added 2026-09-18)
+- beta [direct-PR] - remote-backed project (added 2026-09-18)
+[exit 0]
+
+$ cat /tmp/fm-lo.TK99PR/main/data/jt/local-origins
+alpha	/private/tmp/fm-lo.TK99PR/main/projects/alpha
+[exit 0]
+
+$ ls /tmp/fm-lo.TK99PR/sub/data
+charter.md
+projects.md
+[exit 0]
+
+$ cat /tmp/fm-lo.TK99PR/main/data/secondmates.md
+- jt - alpha and beta work (home: /private/tmp/fm-lo.TK99PR/sub; scope: alpha and beta work; projects: alpha, beta; added 2026-09-18)
+[exit 0]
+== privacy sweep of the whole secondmate home
+
+$ grep -rl SECRET /tmp/fm-lo.TK99PR/sub
+/tmp/fm-lo.TK99PR/sub/bin/fm-timing-lib.sh
+/tmp/fm-lo.TK99PR/sub/bin/fm-voice-relay.py
+/tmp/fm-lo.TK99PR/sub/tests/fm-voice-relay.test.sh
+/tmp/fm-lo.TK99PR/sub/tests/fm-on.test.sh
+/tmp/fm-lo.TK99PR/sub/tests/fm-remote-job.test.sh
+/tmp/fm-lo.TK99PR/sub/tests/fm-notify.test.sh
+[exit 0]
+
+$ ls -a /tmp/fm-lo.TK99PR/sub/projects/alpha
+.
+..
+.git
+.gitignore
+README.md
+[exit 0]
+
+$ git -C /tmp/fm-lo.TK99PR/sub/projects/alpha cat-file -e 4deb1a4d34569756a027e8e65617d418ba9ccd47
+[exit 1]
+
+$ git -C /tmp/fm-lo.TK99PR/sub/projects/alpha config fixture.secret
+[exit 1]
+
+$ ls /tmp/fm-lo.TK99PR/sub/projects/alpha/.git/hooks/pre-commit
+ls: /tmp/fm-lo.TK99PR/sub/projects/alpha/.git/hooks/pre-commit: No such file or directory
+[exit 1]
+== S2: annotation read
+
+$ /Users/louiscondevaux/.no-mistakes/worktrees/71bad1a6f2bc/01M2V39DV1XCQ8Q4YS31NSE2MR/bin/fm-project-mode.sh --origin alpha
+local-origin
+[exit 0]
+
+$ /Users/louiscondevaux/.no-mistakes/worktrees/71bad1a6f2bc/01M2V39DV1XCQ8Q4YS31NSE2MR/bin/fm-project-mode.sh alpha
+local-only on
+[exit 0]
+
+$ /Users/louiscondevaux/.no-mistakes/worktrees/71bad1a6f2bc/01M2V39DV1XCQ8Q4YS31NSE2MR/bin/fm-project-mode.sh --origin beta
+default
+[exit 0]
+
+$ /Users/louiscondevaux/.no-mistakes/worktrees/71bad1a6f2bc/01M2V39DV1XCQ8Q4YS31NSE2MR/bin/fm-project-mode.sh --origin alpha
+default
+[exit 0]
+
+$ /Users/louiscondevaux/.no-mistakes/worktrees/71bad1a6f2bc/01M2V39DV1XCQ8Q4YS31NSE2MR/bin/fm-brief.sh jt-task alpha --mode local-only
+scaffolded: /tmp/fm-lo.TK99PR/sub/data/jt-task/brief.md (ship, mode=local-only; replace {TASK})
+[exit 0]
+
+$ /Users/louiscondevaux/.no-mistakes/worktrees/71bad1a6f2bc/01M2V39DV1XCQ8Q4YS31NSE2MR/bin/fm-brief.sh main-task alpha --mode local-only
+scaffolded: /tmp/fm-lo.TK99PR/main/data/main-task/brief.md (ship, mode=local-only; replace {TASK})
+[exit 0]
+--- mirror brief (secondmate home) delivery lines:
+21:1. Push only your `fm/jt-task` work, only to `origin`, and only under a delivery name that does not exist there yet (`fm/jt-task`, then `fm/jt-task-r2`, `fm/jt-task-r3`, ... after a rebase). Never force-push in any form, never push to an existing branch, never open a PR, and never merge. The main firstmate lands the branch you report.
+59:Delivery contract: mode=local-only
+60:This task ships **local-only** from a local-origin mirror: no PR, no pipeline, and the only remote is `origin`, the project's authoritative working repository.
+61:The task is complete only when committed on your branch `fm/jt-task` and that branch is pushed to `origin` with `git push origin fm/jt-task`. Push nothing else anywhere, do NOT open a PR, and do NOT merge.
+62:Never force-push, in any form: no `--force`, no `--force-with-lease`, no `+` refspec, and never delete a branch in `origin`. A branch name you have pushed is never pushed to again.
+63:Touch `origin` only through `git fetch`, `git ls-remote`, and those pushes: never read, copy, or write the files of the repository it points at.
+64:Keep your work a clean fast-forward onto `origin`'s default branch. If that branch has advanced after you pushed, fetch, rebase your local `fm/jt-task` onto it, and push the result under the next unused delivery name instead: `git push origin fm/jt-task:refs/heads/fm/jt-task-r2`, then `fm/jt-task-r3`, and so on. Check `git ls-remote --heads origin 'fm/jt-task*'` first so the name you pick does not exist yet.
+65:When it is implemented, committed, and pushed, append `done: ready in branch <exact branch name you last pushed> pushed to origin` to the status file (for example `done: ready in branch fm/jt-task pushed to origin`, or `fm/jt-task-r2` after one rebase) and stop.
+--- authority brief (main home) delivery lines:
+21:1. Never push to any remote and never open a PR. Work only on your `fm/main-task` branch; firstmate handles the merge into local `main`.
+59:Delivery contract: mode=local-only
+61:The task is complete only when committed on your branch `fm/main-task`. Do NOT push, do NOT open a PR, do NOT merge.
+--- charter mirror rules:
+16:`alpha` is local-only, so your clone of it is a local-origin mirror: its origin is the project's authoritative working repository, which stays the project's only authority. Ship its work as local-only tasks; each worker pushes only its `fm/<id>` work to that origin, a rebased retry as a new `fm/<id>-r<N>` branch and never a force-push, and the main firstmate lands the reported branch with `bin/fm-merge-local.sh --secondmate <your id> [--branch <pushed branch>] <task-id>`, so you never land it yourself and never give it any other remote. Touch that origin only through git fetch and those branch pushes: never read, copy, or write its working tree, because the project's private data and every rule fencing that data stay with the main firstmate. Route anything that needs them back to the main firstmate.

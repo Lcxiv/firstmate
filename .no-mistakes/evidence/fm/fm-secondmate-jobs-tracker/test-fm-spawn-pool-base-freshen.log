@@ -1,0 +1,19 @@
+ok - a stale pooled worktree refreshes to current origin/main before a crew branch is created
+ok - a stale pooled worktree resolves and refreshes a non-main default branch
+ok - direct-PR ships and scouts both refresh stale pooled worktrees before launch
+ok - a dirty pooled worktree is refused without discarding its local work
+ok - an unresolved remote default branch refuses the pooled worktree
+ok - an unreachable origin refuses a potentially stale pooled worktree
+ok - a project with no remote launches from its current local default branch
+ok - a remoteless project on master refreshes to its current local default branch
+ok - a configured but unreachable remote still refuses, and never falls back to the local branch
+ok - a remoteless project still refuses a dirty pooled worktree without discarding its work
+ok - a remoteless project with no main or master branch is refused, not launched from a guess
+ok - a local-origin mirror launches from its authority checkout's current default branch
+ok - two consecutive spawns across a moved submodule pin end in a refusal naming both pins and no remedy
+ok - an unpushed submodule commit keeps the uncommitted-work refusal and survives it
+ok - work inside a submodule is still refused as uncommitted work, not called stale
+ok - a stale pin carrying real work is refused conservatively, never called stale
+ok - a stale pin beside other dirt yields the conservative refusal alone, with no stale-pin line
+ok - a fork pooled worktree resolves unqualified lookups to origin, not the upstream parent
+# all fm-spawn-pool-base-freshen tests passed
