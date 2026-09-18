@@ -175,19 +175,24 @@ fi
 if [ "$watcher_healthy" = false ]; then
   # Only the down path reads these, and the status call is several stats, so
   # leave an idle or healthy home paying nothing for them. The handoff ledger
-  # is a Claude auto-arm artifact that nothing removes, so a home later
-  # re-spawned under another harness still carries it: only the autoarm model
-  # may read it, or the banner misdiagnoses a persistent-watcher home.
+  # is a Claude auto-arm artifact that nothing removes, and only
+  # bin/fm-claude-stop-autoarm.sh ever advances it, so a home later re-spawned
+  # under another harness still carries a frozen one. Only a Claude primary may
+  # read it: a Cursor home shares the autoarm model but its stop-hook park never
+  # touches the ledger, so it keeps the generic between-cycles line, and a
+  # persistent-watcher home gets no handoff line at all.
   handoff_model=0
   handoff_stale=false
   handoff_overdue=false
   handoff_age_desc=""
   if [ "$(fm_supervision_model)" = autoarm ]; then
     handoff_model=1
-    fm_supervision_handoff_status "$STATE" "$GRACE"
-    handoff_stale=$FM_SUP_HANDOFF_STALE
-    handoff_overdue=$FM_SUP_HANDOFF_OVERDUE
-    handoff_age_desc=$(fm_supervision_duration "$FM_SUP_HANDOFF_AGE")
+    if [ "$("$SCRIPT_DIR/fm-harness.sh" 2>/dev/null || printf unknown)" = claude ]; then
+      fm_supervision_handoff_status "$STATE" "$GRACE"
+      handoff_stale=$FM_SUP_HANDOFF_STALE
+      handoff_overdue=$FM_SUP_HANDOFF_OVERDUE
+      handoff_age_desc=$(fm_supervision_duration "$FM_SUP_HANDOFF_AGE")
+    fi
   fi
   episode_key=$(fm_guard_stale_episode_key "$watcher_down_reason")
   episode_key=${episode_key%$'\n'}

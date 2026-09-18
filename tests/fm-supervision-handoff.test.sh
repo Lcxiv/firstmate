@@ -242,27 +242,28 @@ test_pretool_speaks_once_per_episode() {
   park_session "$dir"
   run_pretool "$dir"; first=$PRETOOL_OUT
   assert_contains "$first" "SUPERVISION IS OFF" "the first call must speak"
-  park_session "$dir"
+  # The ledger and beacon are still ancient; only the activity record the first
+  # call refreshed keeps the next call in the same episode quiet.
   run_pretool "$dir"; second=$PRETOOL_OUT
   [ -z "$second" ] || fail "the same episode must not be announced twice, got: $second"
   pass "the pre-tool notice speaks once per handoff episode"
 }
 
-test_pretool_speaks_again_for_a_new_abandoned_handoff() {
-  local dir first second
+test_pretool_speaks_again_after_a_fresh_park() {
+  local dir first second third
   dir=$(make_home pretool-new-episode)
   record_handoff "$dir"
   park_session "$dir"
   run_pretool "$dir"; first=$PRETOOL_OUT
-  assert_contains "$first" "SUPERVISION IS OFF" "the first episode must speak"
-  # A later turn end did arm a cycle, that cycle closed, and the session parked
-  # again: a different handoff was abandoned, so the model must hear about it.
-  record_handoff "$dir"
-  park_session "$dir"
-  touch -t 202001010001 "$dir/state/.claude-autoarm-epoch"
+  assert_contains "$first" "SUPERVISION IS OFF" "the first park must speak"
   run_pretool "$dir"; second=$PRETOOL_OUT
-  assert_contains "$second" "SUPERVISION IS OFF" "a new abandoned handoff is a new episode"
-  pass "the pre-tool notice speaks again for a new abandoned handoff"
+  [ -z "$second" ] || fail "a session still taking steps must not be told twice, got: $second"
+  # The session went a whole window without a step again on the SAME ledger
+  # entry: nothing armed in between, so it is blind again and must hear it.
+  touch -t "$ANCIENT" "$dir/state/.session-activity"
+  run_pretool "$dir"; third=$PRETOOL_OUT
+  assert_contains "$third" "SUPERVISION IS OFF" "a session that parks again must be told again"
+  pass "the pre-tool notice speaks again after a fresh park"
 }
 
 test_pretool_records_session_activity() {
@@ -284,7 +285,7 @@ test_pretool_recovery_path_goes_quiet_once_a_cycle_is_armed() {
   assert_contains "$out" "SUPERVISION IS OFF" "the blind state must be announced"
   # The model repaired supervision: a watcher is beating again.
   : > "$dir/state/.last-watcher-beat"
-  rm -f "$dir/state/.supervision-handoff-notified"
+  touch -t "$ANCIENT" "$dir/state/.session-activity"
   run_pretool "$dir"; out=$PRETOOL_OUT
   [ -z "$out" ] || fail "a repaired home must go quiet, got: $out"
   pass "the notice stops once a cycle is armed again"
@@ -359,11 +360,18 @@ test_turnend_banner_omits_the_lapse_line_between_cycles() {
   pass "the turn-end banner does not claim a lapse between ordinary cycles"
 }
 
-# Pin the supervision model rather than letting the host runner's harness
-# ancestry pick it: the handoff lines belong to the Claude auto-arm model only.
+# Pin the supervision model and the primary harness rather than letting the
+# host runner's ancestry pick them: the handoff lines belong to the auto-arm
+# model, and the ledger-derived ones to a Claude primary only.
 run_guard() {
-  local dir=$1 model=${2:-autoarm} rc=0
-  GUARD_OUT=$(FM_ROOT_OVERRIDE="$dir" FM_HOME="$dir" FM_SUPERVISION_MODEL="$model" "$ROOT/bin/fm-guard.sh" 2>&1) || rc=$?
+  local dir=$1 model=${2:-autoarm} harness=${3:-claude} rc=0
+  local -a marker
+  case "$harness" in
+    cursor) marker=(CURSOR_AGENT=1) ;;
+    *) marker=(CLAUDECODE=1) ;;
+  esac
+  GUARD_OUT=$(env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u CLAUDECODE "${marker[@]}" \
+    FM_ROOT_OVERRIDE="$dir" FM_HOME="$dir" FM_SUPERVISION_MODEL="$model" "$ROOT/bin/fm-guard.sh" 2>&1) || rc=$?
   GUARD_RC=$rc
   return 0
 }
@@ -414,6 +422,25 @@ test_guard_warning_keeps_handoff_lines_to_the_autoarm_model() {
   pass "the watcher-down warning keeps the handoff lines to the auto-arm model"
 }
 
+# Cursor shares the auto-arm model, but its stop-hook park never advances the
+# Claude ledger, so a formerly-Claude home now on Cursor carries a frozen one
+# whose age says nothing about when a cycle was last armed.
+test_guard_warning_keeps_the_claude_ledger_out_of_a_cursor_home() {
+  local dir out
+  dir=$(make_home guard-cursor)
+  record_handoff "$dir"
+  park_session "$dir"
+  run_guard "$dir" autoarm cursor; out=$GUARD_OUT
+  assert_contains "$out" "WATCHER DOWN" "the guard must still alarm in a Cursor home"
+  assert_not_contains "$out" "Nothing has armed a watcher for" \
+    "a stale Claude ledger must not be aged in a Cursor home"
+  assert_not_contains "$out" "cannot recover on its own" \
+    "the Claude turn-end diagnosis must not reach a Cursor home"
+  assert_contains "$out" "the next turn end arms one" \
+    "a Cursor home keeps the generic between-cycles line"
+  pass "the watcher-down warning keeps the Claude ledger out of a Cursor home"
+}
+
 test_autoarm_claims_a_new_generation_on_every_firing
 test_fresh_handoff_between_turns_is_not_overdue
 test_active_session_mid_turn_is_not_overdue
@@ -425,7 +452,7 @@ test_home_that_never_ran_the_autoarm_is_not_overdue
 test_pretool_is_silent_while_supervision_is_healthy
 test_pretool_reports_the_unrecoverable_state
 test_pretool_speaks_once_per_episode
-test_pretool_speaks_again_for_a_new_abandoned_handoff
+test_pretool_speaks_again_after_a_fresh_park
 test_pretool_records_session_activity
 test_pretool_recovery_path_goes_quiet_once_a_cycle_is_armed
 test_pretool_is_inert_under_away_mode
@@ -435,3 +462,4 @@ test_turnend_banner_omits_the_lapse_line_between_cycles
 test_guard_warning_names_the_unrecoverable_state
 test_guard_warning_does_not_cry_lapse_between_cycles
 test_guard_warning_keeps_handoff_lines_to_the_autoarm_model
+test_guard_warning_keeps_the_claude_ledger_out_of_a_cursor_home

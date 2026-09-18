@@ -32,8 +32,11 @@
 #     itself; systemMessage is shown to an attending operator only, and is kept
 #     so a human at the keyboard still sees it. Neither is a permission
 #     decision.
-#   - It speaks at most once per handoff episode, so a session that is working
-#     through the repair is not nagged on every subsequent call.
+#   - It speaks once per park, so a session that is working through the repair
+#     is not nagged on every subsequent call. The activity record delivers that
+#     by itself: the call that speaks also refreshes it, so the predicate cannot
+#     hold again until the session has gone a whole window without a step - and
+#     a session that parks again must be told again.
 #   - bin/fm-supervision-lib.sh owns the overdue predicate and the activity
 #     record; this wrapper only acquires the payload, renders the notice, and
 #     keeps the activity record current.
@@ -66,7 +69,6 @@ FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 GRACE=${FM_GUARD_GRACE:-300}
-MARKER="$STATE/.supervision-handoff-notified"
 
 # Consume the payload once so a writer can never wedge on a full pipe.
 PAYLOAD=$(cat 2>/dev/null || true)
@@ -114,32 +116,6 @@ fi
 # shellcheck source=bin/fm-primary-scope-lib.sh
 . "$SCRIPT_DIR/fm-primary-scope-lib.sh" 2>/dev/null || exit 0
 fm_primary_scope_matches "$FM_ROOT" "$STATE" || exit 0
-
-# One notice per handoff episode. The episode is the ledger entry that was never
-# picked up, so a later handoff (a turn that did end, and did arm) mints a new
-# one; an unchanged entry stays quiet until the re-nag window so a session that
-# parks again is told again.
-LEDGER_STAMP=$(fm_sup_stat_mtime "$STATE/.claude-autoarm-epoch" 2>/dev/null || true)
-[ -n "$LEDGER_STAMP" ] || exit 0
-NOW=$(date +%s)
-RENAG=${FM_SUPERVISION_HANDOFF_RENAG:-$FM_SUP_HANDOFF_WINDOW}
-case "$RENAG" in ''|*[!0-9]*|0) RENAG=$FM_SUP_HANDOFF_WINDOW ;; esac
-if [ -f "$MARKER" ]; then
-  OLD_LEDGER=$(sed -n '1s/^ledger=//p' "$MARKER" 2>/dev/null || true)
-  OLD_AT=$(sed -n '2s/^at=//p' "$MARKER" 2>/dev/null || true)
-  case "$OLD_AT" in ''|*[!0-9]*) OLD_AT=0 ;; esac
-  if [ "$OLD_LEDGER" = "$LEDGER_STAMP" ] && [ $(( NOW - OLD_AT )) -lt "$RENAG" ]; then
-    exit 0
-  fi
-fi
-TMP="$MARKER.tmp.$$"
-if ! printf 'ledger=%s\nat=%s\n' "$LEDGER_STAMP" "$NOW" > "$TMP" 2>/dev/null \
-  || ! mv -f "$TMP" "$MARKER" 2>/dev/null; then
-  # Unable to record the notice: stay silent rather than repeat it on every
-  # single tool call for the rest of the session.
-  rm -f "$TMP" 2>/dev/null || true
-  exit 0
-fi
 
 if [ "$IN_FLIGHT" -gt 0 ]; then
   NEED_DESC="$IN_FLIGHT task(s) in flight"
