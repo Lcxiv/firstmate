@@ -105,6 +105,8 @@ Compose the payload from the same snapshot with the same ranking judgment as the
   That command's header owns the fill rules: a call is the captain's answer then firstmate acting on it, underway work is its delivery lifecycle with the step it is at spelled out, and queued work shows only its real prerequisites before "Start".
   Write your own `todos` on a row only when you know that item's steps more specifically than the lifecycle does, and keep one step `current` at most; the generator leaves a composed list untouched.
 - Give each Underway row a `title` naming the work in the captain's nouns, so the item reads as a todo rather than as the snapshot's activity detail, and never carry a snapshot title or summary that ends in an ellipsis onto the board: write the full short title from the task record instead.
+- Write each queued row's `reason` as its full hold or date reason from the task record, keeping a date gate's leading `until <date>`, never the snapshot's shortened gate reason.
+  The generator builds that row's held or waits step from the row's own `reason`, and it never uses snapshot text that ends in an ellipsis.
 - A call whose task id blocks queued work carries `blocks`, which the generator fills from the snapshot's unresolved blockers; the board lists those calls first and links each to the work it holds up.
 - Every Captain's Call item and every Underway, Recently Landed, and Charted Next row carries an explicit `repo` field. Fill it from the snapshot and task records wherever known; use null or an empty string only as the deliberate genuinely-no-repo marker, in which case the template may show the internal id. Ids otherwise stay in the payload only as the routing channel, and composed reasons name blockers in plain words.
 

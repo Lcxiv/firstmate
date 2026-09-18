@@ -472,7 +472,11 @@ test_build_refuses_malformed_todos_and_names_what_is_wrong() {
   refuse_todos "$home" '.captains_call[0].todos[0] = "step"' \
     "todos[0] is not a step object" "a bare-string step"
   refuse_todos "$home" '.captains_call[0].blocks = [""]' \
-    "does not satisfy fm-bearings-board.v1" "an empty blocks id"
+    "perishable-first-admission-choice) blocks is not a list of ids" "an empty blocks id"
+  refuse_todos "$home" '.captains_call[1].blocks = "sample-queued"' \
+    "captains_call[1] (merge.sample-task) blocks is not a list of ids" "a blocks string"
+  refuse_todos "$home" '.captains_call[0].blocks = ["sample-queued", 7]' \
+    "blocks is not a list of ids" "a non-string blocks id"
   refuse_todos "$home" '.underway = [{"id":"u","repo":"sample","state":"working","doing":"x","kind":"ship","title":7,
       "todos":[{"text":"Build","state":"current"}]}]' \
     "does not satisfy fm-bearings-board.v1" "a non-string underway title"
@@ -570,6 +574,86 @@ test_todos_are_generated_from_the_snapshot() {
   pass "todos generates each row's steps and each call's blocks from the snapshot, keeping composed ones"
 }
 
+test_todos_never_carry_snapshot_truncated_text() {
+  local home data snap filled
+  home=$(make_home todos-untruncated)
+  data="$home/payload.json"
+  snap="$home/snapshot.json"
+  jq -n '{schema:"fm-bearings.v1",
+    in_flight:[
+      {id:"u-full", kind:"ship", state:"working", doing:"rewriting the importer so that every vendor fe…"},
+      {id:"u-short", kind:"ship", state:"working", doing:"polishing the unreadable part of the long…"}],
+    gates:[
+      {id:"q-hold", title:"Hold", blocked_by:"-", reason:"waiting for the vendor contract to be co…", owner:"(main)"},
+      {id:"q-date", title:"Date", blocked_by:"-", reason:"until 2026-10-01: after the quarterly rel…", owner:"(main)"},
+      {id:"q-bare", title:"Bare", blocked_by:"u-full,fm-mangled-blo…", reason:"held for a reason nobody copied in fu…", owner:"(main)"}]}' > "$snap"
+  jq -n '{schema:"fm-bearings-board.v1", home:"h", generated:"g", prs_live:false,
+    captains_call:[],
+    underway:[
+      {id:"u-full", repo:"sample", kind:"ship", state:"working", title:"Importer",
+       doing:"rewriting the importer so that every vendor feed is parsed the same way"},
+      {id:"u-short", repo:"sample", kind:"ship", state:"working", doing:"polishing"}],
+    landed:[],
+    charted:[
+      {id:"q-hold", repo:"sample", title:"Hold", dispatchable:false,
+       reason:"waiting for the vendor contract to be countersigned"},
+      {id:"q-date", repo:"sample", title:"Date", dispatchable:false,
+       reason:"until 2026-10-01: after the quarterly release is out"},
+      {id:"q-bare", repo:"sample", title:"Bare", dispatchable:false, reason:""}]}' > "$data"
+  filled=$(run_board "$home" todos "$snap" "$data") || fail "todos generation failed"
+  printf '%s' "$filled" | jq -e '
+    def steps($id): [(.underway[], .charted[]) | select(.id == $id) | .todos[] | "\(.state): \(.text)"];
+    ([(.underway[], .charted[]) | .todos[].text | select(contains("…"))] == [])
+    and (steps("u-full")[1]
+      == "current: Build the change: rewriting the importer so that every vendor feed is parsed the same way")
+    and (steps("u-short")[1] == "current: Build the change: polishing")
+    and (steps("q-hold") == ["blocked: Held: waiting for the vendor contract to be countersigned",
+      "todo: Start: dispatch a worker"])
+    and (steps("q-date") == ["blocked: Waits until 2026-10-01: after the quarterly release is out",
+      "todo: Start: dispatch a worker"])
+    and (steps("q-bare") == ["blocked: Waits on Importer", "blocked: Held: the task record carries the reason",
+      "todo: Start: dispatch a worker"])
+  ' >/dev/null || fail "a generated step carried snapshot-truncated text: $filled"
+  pass "todos prefers the composer's full text and never carries a snapshot value cut short"
+}
+
+test_a_call_in_a_long_blocker_list_keeps_its_blocks_link() {
+  local home data snap filled
+  home=$(make_home todos-long-blockers)
+  data="$home/payload.json"
+  snap="$home/snapshot.json"
+  jq -n '{schema:"fm-bearings.v1", in_flight:[],
+    gates:[{id:"q-long", title:"Long", reason:"-", owner:"(main)",
+      blocked_by:([range(0; 8) | "fm-a-rather-long-prerequisite-task-identifier-\(.)"] + ["fm-the-call-at-the-end"] | join(","))}]}' > "$snap"
+  jq -n '{schema:"fm-bearings-board.v1", home:"h", generated:"g", prs_live:false,
+    captains_call:[{key:"fm-the-call-at-the-end", type:"decision", repo:"sample", title:"Pick the vendor",
+      options:[{value:"yes", label:"Yes"}]}],
+    underway:[], landed:[],
+    charted:[{id:"q-long", repo:"sample", title:"Long", reason:"", dispatchable:false}]}' > "$data"
+  filled=$(run_board "$home" todos "$snap" "$data") || fail "todos generation failed"
+  printf '%s' "$filled" | jq -e '
+    (.captains_call[0].blocks == ["q-long"])
+    and (.charted[0].todos | length == 10)
+    and (.charted[0].todos[8] | .text == "Waits on your call: Pick the vendor" and .by == "captain")
+    and (.charted[0].todos[7].text == "Waits on fm-a-rather-long-prerequisite-task-identifier-7")
+  ' >/dev/null || fail "a call at the end of a long blocker list lost its blocks link: $filled"
+  pass "a call whose id ends a long blocker list still links to the work it holds up"
+}
+
+test_todos_treats_a_missing_section_as_empty() {
+  local home data snap filled rc
+  home=$(make_home todos-no-sections)
+  data="$home/payload.json"
+  snap="$home/snapshot.json"
+  write_snapshot "$snap"
+  jq -n '{schema:"fm-bearings-board.v1", home:"h", generated:"g", prs_live:false, landed:[]}' > "$data"
+  set +e; filled=$(run_board "$home" todos "$snap" "$data" 2>&1); rc=$?; set -e
+  [ "$rc" -eq 0 ] || fail "todos failed on a payload with no call, underway, or charted section: $filled"
+  printf '%s' "$filled" | jq -e '.captains_call == [] and .underway == [] and .charted == []' >/dev/null \
+    || fail "a missing section was not filled as an empty list: $filled"
+  pass "todos treats a missing call, underway, or charted section as an empty list"
+}
+
 test_todos_generation_refuses_missing_inputs() {
   local home rc out
   home=$(make_home todos-missing)
@@ -586,6 +670,9 @@ test_a_recommendation_is_checked_against_the_options_that_exist
 test_build_refuses_malformed_todos_and_names_what_is_wrong
 test_several_blocked_prerequisites_are_accepted
 test_todos_are_generated_from_the_snapshot
+test_todos_never_carry_snapshot_truncated_text
+test_a_call_in_a_long_blocker_list_keeps_its_blocks_link
+test_todos_treats_a_missing_section_as_empty
 test_todos_generation_refuses_missing_inputs
 test_build_injects_binds_then_arms
 test_registration_cannot_consume_before_any_origin_binding

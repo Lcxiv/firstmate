@@ -201,9 +201,15 @@ todos_errors() {  # <data.json>
          then "\($w) todos marks more than one step current; mark only the step the item is at"
          else empty end)
       end;
+    def blocks_problems($w):
+      if has("blocks") and ((.blocks | type) != "array"
+          or ([.blocks[] | type == "string" and length > 0] | all | not))
+      then "\($w) blocks is not a list of ids" else empty end;
     def section($name):
       (.[$name] // []) | if type == "array" then to_entries[]
-        | .key as $i | .value | objects | step_problems(where($name; $i)) else empty end;
+        | .key as $i | .value | objects | where($name; $i) as $w
+        | step_problems($w), (if $name == "captains_call" then blocks_problems($w) else empty end)
+        else empty end;
     if type == "object" then section("captains_call"), section("underway"), section("charted") else empty end
   ' "$1"
 }
@@ -228,6 +234,9 @@ check_payload() {  # <data.json>
 #   call        decision/credential: "Your call: <title>" (current, captain),
 #               then firstmate acting on the answer. merge.<id>: checks green
 #               (done), the captain's merge word (current), merge and clean up.
+#   text        the composer's own row text (an underway `doing`, a queued
+#               `reason`) wins over the snapshot's copy, and a snapshot value
+#               the snapshot cut short (ending in an ellipsis) is never used.
 #   underway    the kind's lifecycle. ship: instructions and worker, build,
 #               validate, PR open with checks green, the captain's merge word,
 #               merge and clean up. scout: instructions and worker, investigate,
@@ -266,7 +275,9 @@ command_todos() {  # <snapshot.json|-> <payload.json>
         elif $d == "harness idle" then "the worker is idle"
         elif $d == "run cancelled" then "the validation run was cancelled"
         else $d end;
-      def blockers($g): ($g.blocked_by // "-") | if . == "-" or . == "" then [] else split(",") end;
+      def whole: if type == "string" and (endswith("…") | not) then . else "" end;
+      def blockers($g): ($g.blocked_by // "-") | if . == "-" or . == "" then []
+        else split(",") | map(select(. != "" and (endswith("…") | not))) end;
       def lifecycle($names; $bys; $at; $state; $detail):
         [range(0; $names | length) as $i
           | if $i < $at then step($names[$i]; "done"; $bys[$i])
@@ -278,7 +289,7 @@ command_todos() {  # <snapshot.json|-> <payload.json>
       def underway_todos($t):
         ($flight[$t.id] // {}) as $f
         | (($f.state // $t.state // "unknown")) as $state
-        | (plain($f.doing // $t.doing // "")) as $detail
+        | (plain(if ($t.doing // "") != "" then $t.doing else ($f.doing | whole) end)) as $detail
         | (($f.kind // $t.kind // "ship")) as $kind
         | if $kind == "secondmate" then [step("Second mate working: " + $detail; "current"; "worker")]
           elif $kind == "scout" then
@@ -316,8 +327,10 @@ command_todos() {  # <snapshot.json|-> <payload.json>
           | [blockers($g)[] as $id
               | if $call_titles[$id] != null then step("Waits on your call: " + $call_titles[$id]; "blocked"; "captain")
                 else step("Waits on " + ($row_titles[$id] // $id); "blocked"; "firstmate") end]
-            + (($g.reason // "-") as $r
-               | if $r == "-" or $r == "" then []
+            + (($g.reason // "-") as $gr
+               | (if ($t.reason // "") != "" then $t.reason else ($gr | whole) end) as $r
+               | if $gr == "-" or $gr == "" then []
+                 elif $r == "" then [step("Held: the task record carries the reason"; "blocked"; "firstmate")]
                  elif ($r | startswith("until ")) then [step("Waits " + $r; "blocked"; "firstmate")]
                  else [step("Held: " + $r; "blocked"; "firstmate")] end)
             + [step("Start: dispatch a worker"; "todo"; "firstmate")]
@@ -325,6 +338,7 @@ command_todos() {  # <snapshot.json|-> <payload.json>
       ([$gates[] | . as $g | blockers($g)[] | select($call_titles[.] != null) | {call: ., id: $g.id}]
         | group_by(.call) | map({key: .[0].call, value: map(.id)}) | from_entries) as $blocks
     | $b
+    | .captains_call //= [] | .underway //= [] | .charted //= []
     | .captains_call |= map(
         (if has("todos") then . else .todos = call_todos(.) end)
         | (if has("blocks") or ($blocks[.key] // null) == null then . else .blocks = $blocks[.key] end))

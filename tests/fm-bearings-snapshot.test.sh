@@ -1995,6 +1995,30 @@ EOF
   pass "main and secondmate captain actionability use the same blocker readiness"
 }
 
+test_long_blocker_id_lists_are_projected_exactly() {
+  local home fakebin json ids expected
+  home=$(make_home long-blocker-ids)
+  : > "$home/data/secondmates.md"
+  ids=$(for n in 1 2 3 4 5 6; do printf 'a-rather-long-prerequisite-task-identifier-number-%s\n' "$n"; done)
+  expected=$(printf '%s' "$ids" | paste -sd, -)
+  {
+    printf '## In flight\n\n## Queued\n'
+    printf '%s\n' "$ids" | while IFS= read -r id; do
+      printf -- '- [ ] %s - Prerequisite (repo: firstmate) (kind: ship)\n' "$id"
+    done
+    printf -- '- [ ] held-work - Held work'
+    printf '%s\n' "$ids" | while IFS= read -r id; do printf ' blocked-by: %s' "$id"; done
+    printf ' (repo: firstmate) (kind: ship)\n\n## Done\n'
+  } > "$home/data/backlog.md"
+  fakebin=$(make_fakebin "$home")
+  json=$(run "$home" "$fakebin" --json)
+  [ "${#expected}" -gt 120 ] || fail "the blocker list fixture is too short to prove anything"
+  printf '%s' "$json" | jq -e --arg expected "$expected" '
+    [.gates[] | select(.id == "held-work") | .blocked_by] == [$expected]
+  ' >/dev/null || fail "a long blocker id list was not projected exactly: $json"
+  pass "a long blocker id list is projected exactly, never cut short"
+}
+
 test_domain_alpha_stale_parent_event_does_not_become_current_work
 test_gnu_stat_uses_file_formats_without_bsd_fallback_pollution
 test_parent_activity_evidence_is_bounded_and_disclosed
@@ -2025,6 +2049,7 @@ test_main_unstructured_current_is_disclosed_with_structured_sibling
 test_main_orphan_counterfactual_meta_clears_inventory_warning
 test_mixed_secondmate_roles_partial_state_and_captain_readiness
 test_main_captain_readiness_matches_secondmate_projection
+test_long_blocker_id_lists_are_projected_exactly
 test_completed_scout_report_not_pending
 test_open_decision_surfaces_end_to_end
 test_report_pointers_surface

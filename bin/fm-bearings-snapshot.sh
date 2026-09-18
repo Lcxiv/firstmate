@@ -438,7 +438,7 @@ MODEL=$(printf '%s' "$SNAP" | jq \
          | select(($all_queued == 1) or (.deferred_marker != true)
                   or ((.hold_until // null) != null and .hold_until > $today))
          | {id, title:(.title | trunc(60)),
-            blocked_by:((.unresolved_blocker_ids // []) | if length > 0 then join(",") else "-" end | trunc(120)),
+            blocked_by:((.unresolved_blocker_ids // []) | if length > 0 then join(",") else "-" end),
             reason:((if (.hold_until // null) != null and .hold_until > $today
                      then ("until " + .hold_until + ": " + (.hold_reason // .blocked_reason // "-"))
                      else (.hold_reason // .blocked_reason // "-") end) | trunc(40)),owner:"(main)"} ]
@@ -449,7 +449,7 @@ MODEL=$(printf '%s' "$SNAP" | jq \
          | select(($all_queued == 1) or (.deferred_marker != true)
                   or ((.hold_until // null) != null and .hold_until > $today))
          | {id,title:(.title | trunc(60)),
-            blocked_by:((.unresolved_blocker_ids // []) | if length > 0 then join(",") else "-" end | trunc(120)),
+            blocked_by:((.unresolved_blocker_ids // []) | if length > 0 then join(",") else "-" end),
             reason:((if (.hold_until // null) != null and .hold_until > $today
                      then ("until " + .hold_until + ": " + (.hold_reason // .blocked_reason // "-"))
                      else (.hold_reason // .blocked_reason // "-") end) | trunc(40)),owner:$m.id} ]) as $gates_all
