@@ -2,7 +2,7 @@
 # Provision and route persistent secondmate homes.
 #
 # Usage:
-#   fm-home-seed.sh <id> <home|-> {<project>...|--no-projects}
+#   fm-home-seed.sh <id> <home|-> {<project>[=<checkout>]...|--no-projects}
 #       Provision <home> as an isolated firstmate home. If <home> is "-", acquire
 #       a fresh firstmate worktree via "treehouse get --lease", which durably
 #       leases the worktree under the secondmate <id> so the home survives with
@@ -22,6 +22,22 @@
 #       generated briefs, new homes, new project clones, and registry edits are
 #       rolled back. Treehouse-acquired homes are returned only when the rollback
 #       target is safe; a failed return warns because the lease may still be held.
+#       A local-only project is refused as a bare <project>, because its local
+#       default branch is its only authority and a second clone would be a
+#       second, unreconciled authority. It is seeded only when named as
+#       <project>=<checkout>: <checkout> is the absolute path of the working
+#       checkout the main home lands that project into (projects/<project>, or
+#       wherever it lives), on its default branch. The secondmate home then gets
+#       a local-origin mirror: a clone whose origin is that checkout, never the
+#       project's own remote, so nothing it does can publish the project. Its
+#       workers push fm/<id> back to that origin and the main home lands it with
+#       bin/fm-merge-local.sh --secondmate, so landing stays in exactly one home.
+#       The mirror is cloned with --no-local, so it receives only the checkout's
+#       branches and tags and the objects they reach: never untracked or ignored
+#       files, unreachable objects, or the checkout's own git config and hooks. The child registry
+#       entry is the parent's line with +local-origin added (fm-project-mode.sh
+#       --origin reads it). <checkout> is accepted only for local-only projects;
+#       every other project clones from its own origin exactly as before.
 #       Set FM_SECONDMATE_CHARTER='<charter>' to seed from inline charter text
 #       when no filled charter brief exists. Set FM_SECONDMATE_SCOPE='<scope>'
 #       to override the registry routing scope. Otherwise the registry summary
@@ -53,7 +69,7 @@ SUB_HOME_PARENT_MARKER=".fm-secondmate-parent"
 . "$SCRIPT_DIR/fm-gh-default-repo-lib.sh"
 
 usage() {
-  echo "usage: fm-home-seed.sh <id> <home|-> {<project>...|--no-projects}" >&2
+  echo "usage: fm-home-seed.sh <id> <home|-> {<project>[=<checkout>]...|--no-projects}" >&2
   echo "       fm-home-seed.sh validate" >&2
 }
 
@@ -458,8 +474,107 @@ EOF
   return 1
 }
 
+# Explicit local-origin checkouts named on the command line, one
+# "<project><TAB><checkout>" line each (Bash 3.2 has no associative arrays).
+SEED_LOCAL_ORIGINS=
+
+seed_local_origin_for() {  # <project> -> the named checkout, or nothing
+  [ -n "$SEED_LOCAL_ORIGINS" ] || return 0
+  printf '%s\n' "$SEED_LOCAL_ORIGINS" | awk -F '\t' -v n="$1" '$1 == n { print $2; exit }'
+}
+
+local_origin_default_branch() {  # <checkout>; the branch the main home lands into
+  local repo=$1 ref branch
+  ref=$(git -C "$repo" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true)
+  if [ -n "$ref" ]; then
+    printf '%s\n' "${ref#origin/}"
+    return 0
+  fi
+  for branch in main master; do
+    if git -C "$repo" show-ref --verify --quiet "refs/heads/$branch"; then
+      printf '%s\n' "$branch"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# A local origin must be the working checkout bin/fm-merge-local.sh lands into:
+# the top of a non-bare checkout, sitting on its default branch, so the mirror's
+# origin/HEAD names the branch that landing advances. Prints its physical path.
+validate_local_origin_checkout() {  # <project> <checkout>
+  local project=$1 checkout=$2 top abs_checkout abs_top current default
+  case "$checkout" in
+    /*) ;;
+    *) echo "error: local origin for $project must be an absolute path: $checkout" >&2; return 1 ;;
+  esac
+  case "$checkout" in
+    *[[:cntrl:]]*) echo "error: local origin for $project contains a control character" >&2; return 1 ;;
+  esac
+  [ -d "$checkout" ] || { echo "error: local origin for $project is not a directory: $checkout" >&2; return 1; }
+  if [ "$(git -C "$checkout" rev-parse --is-bare-repository 2>/dev/null || true)" = true ]; then
+    echo "error: local origin for $project is a bare repository: $checkout; name the working checkout the main home lands into" >&2
+    return 1
+  fi
+  top=$(git -C "$checkout" rev-parse --show-toplevel 2>/dev/null) || {
+    echo "error: local origin for $project is not a git working checkout: $checkout" >&2
+    return 1
+  }
+  abs_checkout=$(cd "$checkout" && pwd -P)
+  abs_top=$(cd "$top" && pwd -P)
+  [ "$abs_checkout" = "$abs_top" ] || {
+    echo "error: local origin for $project is inside the checkout $abs_top, not its top: $checkout" >&2
+    return 1
+  }
+  current=$(git -C "$abs_checkout" symbolic-ref --quiet --short HEAD 2>/dev/null) || {
+    echo "error: local origin for $project at $abs_checkout is not on a branch" >&2
+    return 1
+  }
+  default=$(local_origin_default_branch "$abs_checkout") || {
+    echo "error: cannot determine the default branch of local origin for $project at $abs_checkout; expected origin/HEAD, main, or master" >&2
+    return 1
+  }
+  [ "$current" = "$default" ] || {
+    echo "error: local origin for $project at $abs_checkout is on '$current', not its default branch '$default'" >&2
+    return 1
+  }
+  printf '%s\n' "$abs_checkout"
+}
+
+clone_local_origin_project() {  # <project> <home> <checkout>
+  local project=$1 home=$2 checkout=$3 dst abs_checkout abs_home dst_url
+  dst=$(validate_project_destination "$home" "$project") || return 1
+  abs_checkout=$(validate_local_origin_checkout "$project" "$checkout") || return 1
+  abs_home=$(resolved_path "$home")
+  if [ "$abs_checkout" = "$abs_home" ] || path_is_ancestor_of "$abs_home" "$abs_checkout" || path_is_ancestor_of "$abs_checkout" "$abs_home"; then
+    echo "error: local origin for $project cannot be the secondmate home, inside it, or contain it: $abs_checkout" >&2
+    return 1
+  fi
+  if [ -e "$dst" ]; then
+    [ -d "$dst" ] || { echo "error: seeded project $project exists at $dst but is not a directory" >&2; return 1; }
+    git -C "$dst" rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "error: seeded project $project at $dst is not a git repo" >&2; return 1; }
+    dst_url=$(seeded_origin_url "$project" "$dst" "$abs_checkout") || return 1
+    [ "$dst_url" = "$abs_checkout" ] || {
+      echo "error: seeded project $project at $dst has origin $dst_url; expected local origin $abs_checkout" >&2
+      return 1
+    }
+    return 0
+  fi
+  # --no-local takes the ordinary transport instead of hardlinking the object
+  # store, so the mirror receives only branches, tags, and the objects they reach.
+  # Untracked and ignored files, unreachable objects (such as history a purge has
+  # rewritten away but not yet collected), and the checkout's own config and
+  # hooks never reach the secondmate home.
+  git clone --quiet --no-local -- "$abs_checkout" "$dst"
+}
+
 clone_project() {
-  local project=$1 home=$2 src dst url dst_url mode
+  local project=$1 home=$2 src dst url dst_url mode checkout
+  checkout=$(seed_local_origin_for "$project")
+  if [ -n "$checkout" ]; then
+    clone_local_origin_project "$project" "$home" "$checkout"
+    return
+  fi
   src="$PROJECTS/$project"
   dst=$(validate_project_destination "$home" "$project") || return 1
   [ -d "$src" ] || { echo "error: project $project not found at $src" >&2; return 1; }
@@ -490,7 +605,19 @@ EOF
 }
 
 validate_seed_project() {
-  local project=$1 src mode url
+  local project=$1 src mode url checkout
+  checkout=$(seed_local_origin_for "$project")
+  if [ -n "$checkout" ]; then
+    read -r mode _ <<EOF
+$(FM_HOME="$FM_HOME" FM_DATA_OVERRIDE="$DATA" "$FM_ROOT/bin/fm-project-mode.sh" "$project")
+EOF
+    if [ "$mode" != local-only ]; then
+      echo "error: project $project is $mode; a local origin applies only to local-only projects, and $project clones from its own origin" >&2
+      return 1
+    fi
+    validate_local_origin_checkout "$project" "$checkout" >/dev/null
+    return
+  fi
   src="$PROJECTS/$project"
   [ -d "$src" ] || { echo "error: project $project not found at $src" >&2; return 1; }
   git -C "$src" rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "error: project $project is not a git repo" >&2; return 1; }
@@ -499,6 +626,7 @@ $(FM_HOME="$FM_HOME" FM_DATA_OVERRIDE="$DATA" "$FM_ROOT/bin/fm-project-mode.sh" 
 EOF
   if [ "$mode" = local-only ]; then
     echo "error: project $project is local-only; secondmate routes support only no-mistakes and direct-PR projects" >&2
+    echo "error: to give it a local-origin mirror instead, name the checkout the main home lands into: $project=<absolute checkout path>" >&2
     return 1
   fi
   url=$(git -C "$src" remote get-url origin 2>/dev/null || true)
@@ -683,6 +811,21 @@ EOF
   printf '%s\n' "$mode"
 }
 
+# Add +local-origin to a registry line's bracket annotation, keeping the mode and
+# any +yolo exactly as the parent registered them. Only local-only lines reach
+# this, and those always carry a bracket.
+annotate_local_origin_line() {  # <registry line>
+  printf '%s\n' "$1" | awk '
+    {
+      if ($3 !~ /^\[/) { print; next }
+      for (i = 3; i <= NF; i++) {
+        if ($i == "+local-origin" || $i == "+local-origin]") { print; next }
+        if ($i ~ /\]$/) { sub(/\]$/, " +local-origin]", $i); break }
+      }
+      print
+    }'
+}
+
 sync_project_registry() {
   local home=$1 sub_reg tmp project line today names
   shift
@@ -705,6 +848,9 @@ sync_project_registry() {
     line=$(registry_line_for_project "$project" || true)
     if [ -z "$line" ]; then
       line="- $project - cloned project (added $today)"
+    fi
+    if [ -n "$(seed_local_origin_for "$project")" ]; then
+      line=$(annotate_local_origin_line "$line")
     fi
     printf '%s\n' "$line" >> "$tmp"
   done
@@ -805,7 +951,7 @@ refuse_projectful_projectless_charter() {
 
 seed_home() {
   local id=$1 requested_home=$2 requested_abs home projects_csv project project_dst charter_summary charter_scope
-  local no_projects=0 arg
+  local no_projects=0 arg seen
   local filtered=()
   shift 2
   # A deliberate --no-projects signal (anywhere in the project position) seeds a
@@ -827,6 +973,35 @@ seed_home() {
   else
     [ $# -gt 0 ] || { echo "error: secondmate needs at least one project, or --no-projects for a project-less home" >&2; return 1; }
   fi
+  # Split <project>=<checkout> into the project name every later step uses and
+  # the explicit local origin recorded for it.
+  filtered=()
+  SEED_LOCAL_ORIGINS=
+  for arg in "$@"; do
+    case "$arg" in
+      *=*)
+        project=${arg%%=*}
+        project_dst=${arg#*=}
+        [ -n "$project" ] && [ -n "$project_dst" ] || { echo "error: expected <project>=<checkout>, got: $arg" >&2; return 1; }
+        case "$project_dst" in
+          *$'\t'*|*$'\n'*) echo "error: local origin for $project contains a control character" >&2; return 1 ;;
+        esac
+        SEED_LOCAL_ORIGINS="${SEED_LOCAL_ORIGINS:+$SEED_LOCAL_ORIGINS$'\n'}$project"$'\t'"$project_dst"
+        ;;
+      *) project=$arg ;;
+    esac
+    filtered+=("$project")
+  done
+  # A project given a local origin must be named exactly once, so its clone and
+  # registry entry can never disagree about which shape it has.
+  while IFS= read -r seen; do
+    [ -n "$seen" ] || continue
+    [ "$(printf '%s\n' "${filtered[@]}" | grep -Fxc -- "${seen%%$'\t'*}")" -eq 1 ] || {
+      echo "error: project ${seen%%$'\t'*} is named more than once" >&2
+      return 1
+    }
+  done <<< "$SEED_LOCAL_ORIGINS"
+  [ "${#filtered[@]}" -eq 0 ] || set -- "${filtered[@]}"
 
   mkdir -p "$STATE" || return 1
   SEED_REGISTRY_LOCK=$(secondmate_registry_lock_path "$STATE")

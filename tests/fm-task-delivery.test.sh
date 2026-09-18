@@ -374,6 +374,60 @@ STUB
   pass "fm-promote: a promoted worker receives the same mode-specific delivery contract a briefed one does"
 }
 
+# A local-only task in a secondmate's local-origin mirror pushes fm/<id> to the
+# main home's checkout instead of waiting for a merge in its own clone. Both
+# generation paths read that shape from the registry and must agree, and a
+# local-only project without the flag keeps the no-push contract.
+test_local_origin_delivery_contract_reaches_briefed_and_promoted_workers() {
+  local home sendroot meta out payload id brief_dod delivered_dod
+  home="$TMP_ROOT/local-origin-dod/home"
+  sendroot="$TMP_ROOT/local-origin-dod/sendroot"
+  mkdir -p "$home/state" "$home/data" "$sendroot/bin"
+  cat > "$home/data/projects.md" <<'EOF'
+- mirror-proj [local-only +local-origin] - secondmate mirror (added 2026-09-18)
+- authority-proj [local-only] - main home checkout (added 2026-09-18)
+EOF
+  cat > "$sendroot/bin/fm-send.sh" <<'STUB'
+#!/usr/bin/env bash
+printf '%s' "$2" > "$FM_TEST_CAPTURE"
+STUB
+  chmod +x "$sendroot/bin/fm-send.sh"
+
+  id=local-origin-promote
+  meta="$home/state/$id.meta"
+  printf 'window=fm-%s\nkind=scout\nworktree=/tmp/wt\nproject=/tmp/somewhere/mirror-proj\n' "$id" > "$meta"
+  out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$PROMOTE" "$id" --mode local-only --yolo off 2>&1) \
+    || fail "local-origin promotion should succeed: $out"
+  payload="$TMP_ROOT/local-origin-dod/payload"
+  ( cd "$sendroot" \
+    && FM_TEST_CAPTURE="$payload" \
+       eval "$(printf '%s\n' "$out" | sed -n 's/^next: //p' | grep 'fm-send\.sh')" ) \
+    || fail "local-origin promotion's delivery command did not run"
+  grep -qx 'Delivery contract: mode=local-only' "$payload" \
+    || fail "local-origin promotion lost the machine-readable contract line"
+  assert_grep "git push origin fm/$id" "$payload" "promoted mirror worker was not told to push fm/<id> to origin"
+  assert_no_grep "Do NOT push, do NOT open a PR" "$payload" "promoted mirror worker kept the no-push contract"
+
+  FM_HOME="$home" "$BRIEF" "$id" mirror-proj --mode local-only >/dev/null 2>&1 \
+    || fail "local-origin brief generation should succeed"
+  brief_dod="$TMP_ROOT/local-origin-dod/brief-dod"
+  delivered_dod="$TMP_ROOT/local-origin-dod/delivered-dod"
+  awk '/^# Definition of done$/ { emit=1 } emit' "$home/data/$id/brief.md" > "$brief_dod"
+  awk '/^# Definition of done$/ { emit=1 } emit' "$payload" > "$delivered_dod"
+  cmp -s "$brief_dod" "$delivered_dod" \
+    || fail "promotion and brief generation delivered different local-origin Definitions of done"
+  assert_grep "Push only your \`fm/$id\` branch, only to \`origin\`" "$home/data/$id/brief.md" \
+    "mirror brief rule 1 still forbids the push its contract requires"
+
+  FM_HOME="$home" "$BRIEF" authority-task authority-proj --mode local-only >/dev/null 2>&1 \
+    || fail "authority brief generation should succeed"
+  assert_grep "Do NOT push, do NOT open a PR, do NOT merge" "$home/data/authority-task/brief.md" \
+    "an unflagged local-only project lost its no-push contract"
+  assert_no_grep "git push origin" "$home/data/authority-task/brief.md" \
+    "an unflagged local-only project was told to push"
+  pass "a local-origin mirror's briefed and promoted workers both push fm/<id>, unflagged local-only never does"
+}
+
 # The registry parser survives for the mechanical consumers only. It accepts the
 # conditional policy, maps it to its most rigorous leg for them, and exposes the
 # raw annotation for the one caller that must tell a policy from a flat mode.
@@ -416,5 +470,6 @@ test_scout_records_no_delivery_posture
 test_promote_requires_and_records_the_delivery_contract
 test_promote_refuses_a_symlinked_task_record
 test_promotion_delivers_the_real_definition_of_done
+test_local_origin_delivery_contract_reaches_briefed_and_promoted_workers
 test_project_mode_maps_the_conditional_policy
 echo "# all fm-task-delivery tests passed"

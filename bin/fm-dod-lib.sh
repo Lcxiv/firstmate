@@ -5,16 +5,20 @@
 # receives. Both paths must hand the worker the same contract: a promoted
 # no-mistakes worker that never received the ask-user escalation rule or the
 # `--yes` ban is the exact delivery hole this single owner exists to close.
-# fm_dod_block <no-mistakes|direct-PR|local-only> <task-id> prints the block on
-# stdout with no trailing blank line. The caller validates the mode; an unknown
-# mode is refused rather than silently rendered as the pipeline contract.
+# fm_dod_block <no-mistakes|direct-PR|local-only> <task-id> [<origin>] prints the
+# block on stdout with no trailing blank line. <origin> is the project's
+# `fm-project-mode.sh --origin` answer; local-origin renders the local-only
+# variant for a secondmate's mirror clone, whose worker pushes fm/<id> to the
+# main home's checkout instead of waiting for a local merge in its own clone.
+# The caller validates the mode; an unknown mode is refused rather than silently
+# rendered as the pipeline contract.
 # The block opens with the fixed machine-readable "Delivery contract: mode=<mode>"
 # line that bin/fm-spawn.sh checks a ship brief against.
 # Every heredoc here stays outside a command substitution: `VAR=$(cat <<EOF ...)`
 # breaks parsing of the whole file on Bash 3.2 (tests/fm-brief.test.sh).
 
-fm_dod_block() {  # <mode> <task-id>
-  local mode=$1 id=$2
+fm_dod_block() {  # <mode> <task-id> [<origin>]
+  local mode=$1 id=$2 origin=${3:-default}
   case "$mode" in
     direct-PR)
       cat <<EOF
@@ -27,6 +31,19 @@ Do NOT run /no-mistakes. The configured merge authority decides whether to merge
 EOF
       ;;
     local-only)
+      if [ "$origin" = local-origin ]; then
+        cat <<EOF
+# Definition of done
+Delivery contract: mode=local-only
+This task ships **local-only** from a local-origin mirror: no PR, no pipeline, and the only remote is \`origin\`, the main home's checkout of this project.
+The task is complete only when committed on your branch \`fm/$id\` and that branch is pushed to \`origin\` with \`git push origin fm/$id\`. Push nothing else anywhere, never force-push, do NOT open a PR, and do NOT merge.
+Touch \`origin\` only through \`git fetch\` and that push: never read, copy, or write the files of the checkout it points at.
+Keep your branch a clean fast-forward onto \`origin\`'s default branch - fetch, and if it has advanced, rebase onto it and push again so the eventual merge stays a fast-forward.
+When it is implemented, committed, and pushed, append \`done: ready in branch fm/$id pushed to origin\` to the status file and stop.
+The configured merge authority approves the ready branch, then the main firstmate lands it in its checkout through the guarded fast-forward path.
+EOF
+        return
+      fi
       cat <<EOF
 # Definition of done
 Delivery contract: mode=local-only

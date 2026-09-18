@@ -63,7 +63,7 @@ Preserve the generated charter sections unless the domain genuinely needs a hard
 Provision a local persistent home and registry entry after the charter is filled:
 
 ```sh
-bin/fm-home-seed.sh <id> <home|-> {<project>...|--no-projects}
+bin/fm-home-seed.sh <id> <home|-> {<project>[=<checkout>]...|--no-projects}
 ```
 
 Provision a whole remote home through its configured SSH host with:
@@ -150,8 +150,12 @@ Run `bin/fm-home-seed.sh validate` when checking registry integrity; its header 
 Seeding is transactional.
 If validation, cloning, no-mistakes initialization, or registry update fails, generated briefs, new homes, new project clones, and registry edits are rolled back.
 
-Secondmate project lists may include `no-mistakes` and `direct-PR` projects only, and seeding refuses a `local-only` project.
-`AGENTS.md` section 6 alone owns when a captain-named `local-only` project may be routed to a mirror-backed second mate.
+Secondmate project lists may include `no-mistakes` and `direct-PR` projects, and a `local-only` project only as a local-origin mirror.
+`AGENTS.md` section 6 alone owns when a captain-named `local-only` project may be routed to a mirror-backed second mate; seed a mirror only for a project that section covers, and only once any purge of private history has covered every branch and tag of the authoritative repository, because a mirror receives every branch and tag.
+A bare `local-only` name is refused; name the checkout the main home lands that project into as `<project>=<absolute checkout path>`, and the script header owns every validation and refusal.
+The mirror's only remote is that checkout, never the project's own remote, and the secondmate registry receives the parent's line with `+local-origin` added.
+Its workers push `fm/<id>` to that checkout, the secondmate can never land it, and the main home lands it with `bin/fm-merge-local.sh --secondmate <id> <task-id>` under the captain's merge authority.
+The mirror receives only committed, reachable history, so the project's untracked and ignored private files never enter the secondmate home, and the charter forbids reading the checkout's working tree.
 For `no-mistakes` projects, seeding initializes only projects newly cloned into a secondmate home and refuses to mutate a preexisting clone that is not already initialized.
 
 ## Record intake for an existing or inherited domain
