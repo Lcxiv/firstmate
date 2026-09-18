@@ -248,7 +248,12 @@ Project creation never authorizes an unmentioned remote, and project removal nev
 
 Load `secondmate-provisioning` before creating, seeding, validating, launching, handing backlog to, recovering, pushing inherited local material into, or retiring a secondmate home, and before editing `data/secondmates.md`.
 Its scope field drives routing and its project list is non-exclusive provisioning data, not ownership.
-Keep `local-only` work in the main home.
+Keep `local-only` work in the main home, except that a `local-only` project the captain has named for a mirror-backed second mate may be routed to one.
+The captain's word names each such project individually; this is never a blanket rule, and a `local-only` project the captain has not named stays in the main home.
+The captain's current naming, given 2026-09-18, is sniper, jobs-tracker, and grant-hunting; that list is the captain's to extend or shrink, and firstmate never adds to it by inference or analogy.
+The mirror copies committed history only: untracked files, ignored files, unreachable objects, and local config do not travel to the second mate.
+The main home keeps every item that touches personal data, even within a named project; such work is never routed to a mirror-backed second mate and never handed off to one.
+Discard, force, and merge authority are unchanged: nothing in this exception relaxes hard rules 2 and 3 or section 7's merge defaults.
 
 A secondmate is idle by default and acts only on work routed by the main firstmate.
 It reconciles its own work under way after restart, then waits silently; an empty queue never authorizes a survey, audit, or self-directed improvement sweep.
@@ -279,7 +284,7 @@ An explicit project wins, a clear follow-up inherits its referent, and otherwise
 Proceed on one confident match while naming the project in plain language; ask one concise question when multiple or no projects plausibly match.
 
 Route by the nature of the work against each registered secondmate scope, not by a non-exclusive clone list.
-Keep `local-only` work in the main home.
+Keep `local-only` work in the main home unless section 6's captain-named mirror-backed exception covers that exact project, and never route an item that touches personal data out of the main home.
 Send in-scope work to the fitting secondmate unless it is blocked or the captain explicitly redirects it; do not read the secondmate's chat because marked routed replies return through its status or referenced document.
 If no secondmate scope fits, use the main home or discuss creating an appropriate persistent secondmate.
 For one-off or infrequent operational work, start with the simplest direct end-to-end path.
