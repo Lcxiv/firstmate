@@ -1,0 +1,27 @@
+ok - T1 main + secondmate fast-forward (single-parent), reread + nudge signalled
+ok - T3 reread gates on instruction surface, nudge on advancement
+ok - T4 dirty secondmate skipped, local edit preserved
+ok - T5 diverged secondmate skipped, local commit preserved
+ok - T6 idempotent: a second run is a no-op
+ok - T7 registry backstop resolves, dedups meta+registry, excludes the firstmate repo
+ok - T9 firstmate off its default branch is skipped, not forced
+ok - T10 firstmate detached HEAD is skipped
+ok - T11 unsafe secondmate home is not fast-forwarded
+ok - T12 merged firstmate PR fast-forwards this home and its secondmate unattended
+ok - T13 the re-read nudge follows the update as a durable steering record
+ok - T14 a merge outside the firstmate repository triggers no fast-forward
+ok - T15 a dirty home is skipped and reported, its local edits preserved
+ok - T16 a diverged home is skipped and reported, its unlanded commit preserved
+ok - T17 work in flight defers the update; the retry lands it once the home is quiet
+ok - T18 a live worker in another repository does not defer the update
+ok - T19 a home leased at a detached HEAD fast-forwards itself
+ok - T20 the watcher completes a deferred self-update and wakes firstmate to re-read
+ok - T22 a merge in another project leaves a deferred firstmate update owed
+ok - T21 a home that could not be updated is reported to firstmate by name and reason
+ok - T23 the merged PR's own task never defers; an unrelated live task of this repo still does
+ok - T24 an attempt cut short leaves the notification behind and the retry lands it
+ok - T25 an update that keeps failing reaches firstmate exactly once per episode
+ok - T26 a skipped remote secondmate is reported to firstmate by name and reason
+ok - T27 a quiet home keeps its watcher armed until a deferred update lands, then releases it
+# all fm-update tests passed
+exit 0

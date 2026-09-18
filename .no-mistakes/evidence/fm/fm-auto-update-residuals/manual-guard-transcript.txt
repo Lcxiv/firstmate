@@ -1,0 +1,18 @@
+### 1. quiet primary home, no pending record
+[turn-end guard exit 0]
+### 2. quiet home holding a regular state/.auto-update-pending, no watcher
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  TURN WOULD END BLIND - SUPERVISION IS OFF
+●  A firstmate self-update after a merge is still pending, but no live watcher holds this home lock (last beat: never).
+●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[turn-end guard exit 2]
+### 3. ADVERSARIAL: record is a symlink to an existing file (must not count)
+lrwxr-xr-x@ 1 louiscondevaux  staff  68 Sep 18 09:41 <tmp>/home/state/.auto-update-pending -> <tmp>/real
+[turn-end guard exit 0]
+### 4. record retired
+[turn-end guard exit 0]
+### 5. shared predicate readout
+none: needed=false update_pending=false in_flight=0
+regular: needed=true update_pending=true in_flight=0
+symlink: needed=false update_pending=false in_flight=0
