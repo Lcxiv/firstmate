@@ -974,6 +974,180 @@ SH
   pass "--max-wall-ms fails an over-budget run and refuses a malformed budget"
 }
 
+# The failure this guard exists for is not a slow test: it is a serial CI shard
+# that crept up on its job cap over weeks and was then killed by the provider
+# with no verdict, which reads to every operator as a test failure. The budget
+# has to be the runner's own number (a CI file cannot widen it), it has to leave
+# visible headroom on a healthy run, and blowing it has to be a NAMED failure
+# that arrives before the job cap would cancel the shard.
+test_serial_shard_budget_is_owned_watched_and_enforced() {
+  local tmp repo runner shard_lane fixture rc budget duration headroom
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-lane-budget.XXXXXX")
+  repo="$tmp/repo"
+  runner="$repo/bin/fm-test-run.sh"
+  fixture=tests/fm-lane-budget-fixture.test.sh
+  mkdir -p "$repo/bin" "$repo/tests"
+  cp "$RUNNER" "$runner"
+  cat >"$repo/$fixture" <<'SH'
+#!/usr/bin/env bash
+echo "ok - lane budget fixture"
+SH
+  chmod +x "$runner" "$repo/$fixture"
+  shard_lane=$(cd "$repo" && "$runner" --list-lanes | grep -m1 '^portable-serial-[0-9]*of[0-9]*$')
+  [ -n "$shard_lane" ] || fail "no portable serial shard lane to budget"
+
+  # A healthy shard passes and states the budget it met, with real headroom.
+  set +e
+  (cd "$repo" && "$runner" --lane "$shard_lane" --enforce-lane-budget \
+    --budget-markdown "$tmp/summary.md") >"$tmp/ok" 2>"$tmp/ok.err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || fail "a shard inside its budget must pass, got $rc: $(cat "$tmp/ok.err")"
+  grep -Eq '^FM_TEST_BUDGET max_wall_ms=[0-9]+ duration_ms=[0-9]+$' "$tmp/ok" \
+    || fail "an enforced shard did not report its budget: $(cat "$tmp/ok")"
+  budget=$(awk '/^FM_TEST_BUDGET / { for (i=1;i<=NF;i++) if ($i ~ /^max_wall_ms=/) { sub(/^max_wall_ms=/, "", $i); print $i } }' "$tmp/ok")
+  duration=$(awk '/^FM_TEST_BUDGET / { for (i=1;i<=NF;i++) if ($i ~ /^duration_ms=/) { sub(/^duration_ms=/, "", $i); print $i } }' "$tmp/ok")
+  [ "$budget" -gt "$duration" ] \
+    || fail "an enforced shard reported no headroom: budget=$budget duration=$duration"
+
+  # The margin is written where a reader sees it shrink, not only inferred.
+  headroom=$((budget - duration))
+  grep -Fq "| \`lane=$shard_lane\` | $duration ms | $budget ms | $headroom ms |" "$tmp/summary.md" \
+    || fail "the budget markdown did not record the measured margin: $(cat "$tmp/summary.md")"
+
+  # The equals spelling every other path flag accepts writes the same row.
+  (cd "$repo" && "$runner" --lane "$shard_lane" --enforce-lane-budget \
+    "--budget-markdown=$tmp/summary-eq.md") >"$tmp/ok-eq" 2>"$tmp/ok-eq.err" \
+    || fail "the equals spelling of --budget-markdown must run the shard: $(cat "$tmp/ok-eq.err")"
+  grep -Eq "^\| \`lane=$shard_lane\` \| [0-9]+ ms \| $budget ms \| [0-9]+ ms \| [0-9]+% \|\$" "$tmp/summary-eq.md" \
+    || fail "--budget-markdown=<path> did not record the measured margin: $(cat "$tmp/summary-eq.md" 2>/dev/null)"
+
+  # The budget has one owner: a caller may apply it, never widen it.
+  set +e
+  (cd "$repo" && "$runner" --lane "$shard_lane" --enforce-lane-budget \
+    --max-wall-ms 99999999 --list) >"$tmp/widen" 2>"$tmp/widen.err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 2 ] || fail "--enforce-lane-budget with --max-wall-ms must be refused (exit 2), got $rc"
+
+  # It is a serial-shard contract, not a general flag to sprinkle on any run.
+  set +e
+  (cd "$repo" && "$runner" --lane portable-serial --enforce-lane-budget --list) \
+    >"$tmp/wrong" 2>"$tmp/wrong.err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 2 ] || fail "--enforce-lane-budget on the whole serial lane must be refused (exit 2), got $rc"
+
+  # Reporting a margin against no budget would be a meaningless number.
+  set +e
+  (cd "$repo" && "$runner" --lane "$shard_lane" --budget-markdown "$tmp/orphan.md" --list) \
+    >"$tmp/orphan" 2>"$tmp/orphan.err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 2 ] || fail "--budget-markdown without a budget must be refused (exit 2), got $rc"
+  [ ! -e "$tmp/orphan.md" ] || fail "a refused run must not write a budget row"
+
+  # Same green shard, a budget it cannot meet: a FAILURE naming the cause and
+  # the fix, rather than a verdictless cancellation someone has to interpret.
+  sed 's/^PORTABLE_SERIAL_SHARD_BUDGET_MS=.*/PORTABLE_SERIAL_SHARD_BUDGET_MS=1/' \
+    "$RUNNER" >"$tmp/tight-runner"
+  chmod +x "$tmp/tight-runner"
+  cp "$tmp/tight-runner" "$runner"
+  set +e
+  (cd "$repo" && "$runner" --lane "$shard_lane" --enforce-lane-budget) \
+    >"$tmp/over" 2>"$tmp/over.err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 1 ] || fail "a shard over its budget must fail through the result path, got $rc"
+  grep -Eq '^FM_TEST_SUMMARY total=[0-9]+ failed=0 ' "$tmp/over" \
+    || fail "an over-budget shard must still report its passing scripts: $(cat "$tmp/over")"
+  grep -q 'out of headroom' "$tmp/over.err" \
+    || fail "an over-budget shard did not name the cause: $(cat "$tmp/over.err")"
+  grep -q 'fm-test-portable-shards' "$tmp/over.err" \
+    || fail "an over-budget shard did not point at the rebalance procedure: $(cat "$tmp/over.err")"
+
+  rm -rf "$tmp"
+  pass "the serial shard budget is runner-owned, reported with its headroom, and fails naming the cause"
+}
+
+# The serial lane's cap stopped being a hang tripwire once a shard ran 19m52s
+# inside it and was cancelled with no verdict. The budget only prevents that
+# recurring while it stays strictly below the cap AND the workflow actually
+# applies it, so both couplings are asserted rather than assumed.
+test_serial_ci_shards_run_under_an_enforced_budget() {
+  local tmp repo runner shard_lane budget json cap step_cap script stub_repo argv summary
+  command -v ruby >/dev/null 2>&1 \
+    || fail "ruby is required to parse .github/workflows/ci.yml as YAML"
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-ci-budget.XXXXXX")
+  repo="$tmp/repo"
+  runner="$repo/bin/fm-test-run.sh"
+  mkdir -p "$repo/bin" "$repo/tests"
+  cp "$RUNNER" "$runner"
+  cat >"$repo/tests/fm-ci-budget-fixture.test.sh" <<'SH'
+#!/usr/bin/env bash
+echo "ok - ci budget fixture"
+SH
+  chmod +x "$runner" "$repo/tests/fm-ci-budget-fixture.test.sh"
+  shard_lane=$(cd "$repo" && "$runner" --list-lanes | grep -m1 '^portable-serial-[0-9]*of[0-9]*$')
+  (cd "$repo" && "$runner" --lane "$shard_lane" --enforce-lane-budget) >"$tmp/out" 2>"$tmp/err" \
+    || fail "the budgeted shard fixture must pass: $(cat "$tmp/err")"
+  budget=$(awk '/^FM_TEST_BUDGET / { for (i=1;i<=NF;i++) if ($i ~ /^max_wall_ms=/) { sub(/^max_wall_ms=/, "", $i); print $i } }' "$tmp/out")
+  [ -n "$budget" ] || fail "could not read the enforced shard budget: $(cat "$tmp/out")"
+
+  json=$(ruby -ryaml -rjson -e '
+doc = YAML.load_file(ARGV[0])
+job = doc.fetch("jobs").fetch("tests-portable-serial")
+step = job.fetch("steps").find { |s|
+  s.is_a?(Hash) && s["name"].to_s.start_with?("Run portable serial shard")
+}
+raise "missing serial run step" if step.nil?
+puts JSON.generate(
+  "cap" => job.fetch("timeout-minutes"),
+  "step_cap" => step.fetch("timeout-minutes"),
+  "run" => step.fetch("run")
+)
+' "$ROOT/.github/workflows/ci.yml") \
+    || fail "could not parse tests-portable-serial from ci.yml"
+  cap=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["cap"])' <<<"$json") \
+    || fail "could not read the serial job cap from parsed workflow"
+  step_cap=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["step_cap"])' <<<"$json") \
+    || fail "could not read the serial run step bound from parsed workflow"
+  script="$tmp/step-run.sh"
+  python3 -c 'import json,sys; sys.stdout.write(json.load(sys.stdin)["run"])' <<<"$json" >"$script" \
+    || fail "could not read the serial run step script from parsed workflow"
+
+  [ "$budget" -lt $((step_cap * 60 * 1000)) ] \
+    || fail "the shard budget ($budget ms) must fire before the ${step_cap}-minute step bound kills a completed shard"
+  [ "$step_cap" -lt "$cap" ] \
+    || fail "the serial step bound (${step_cap} min) must be below the ${cap}-minute job cap so a hang fails the step, not the job"
+
+  # Execute the step's own script against a stub runner that records its argv,
+  # so the assertion is about what CI invokes rather than what the YAML says.
+  stub_repo="$tmp/stub-repo"
+  argv="$tmp/argv"
+  summary="$tmp/step-summary.md"
+  mkdir -p "$stub_repo/bin" "$tmp/runner-temp"
+  cat >"$stub_repo/bin/fm-test-run.sh" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$@" >"$argv"
+SH
+  chmod +x "$stub_repo/bin/fm-test-run.sh"
+  (cd "$stub_repo" && FM_SERIAL_LANE="$shard_lane" FM_SERIAL_SHARD=1 \
+    RUNNER_TEMP="$tmp/runner-temp" GITHUB_STEP_SUMMARY="$summary" \
+    bash "$script") >"$tmp/step.out" 2>&1 \
+    || fail "the serial run step script must complete against a stub runner: $(cat "$tmp/step.out")"
+  [ -s "$argv" ] || fail "the serial run step never invoked bin/fm-test-run.sh"
+  grep -qx -- '--enforce-lane-budget' "$argv" \
+    || fail "the serial CI shard step no longer applies the lane budget: $(tr '\n' ' ' <"$argv")"
+  awk -v want="$shard_lane" '$0 == "--lane" { getline; if ($0 == want) found = 1 } END { exit found ? 0 : 1 }' "$argv" \
+    || fail "the serial CI shard step must run the lane named by FM_SERIAL_LANE: $(tr '\n' ' ' <"$argv")"
+  awk -v want="$summary" '$0 == "--budget-markdown" { getline; if ($0 == want) found = 1 } END { exit found ? 0 : 1 }' "$argv" \
+    || fail "the serial CI shard step no longer publishes its remaining margin to GITHUB_STEP_SUMMARY: $(tr '\n' ' ' <"$argv")"
+
+  rm -rf "$tmp"
+  pass "CI serial shards run under a budget below the step bound, which sits below the job cap, and the step invokes both flags"
+}
+
 test_jobs_parallel_scheduler_and_failure_propagation() {
   local tmp repo runner evidence fake_bin a b c d rc begin_n end_n
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-jobs-sched.XXXXXX")
@@ -1205,6 +1379,8 @@ test_jobs_admits_a_concurrent_safe_family
 test_concurrent_runs_are_ordered_longest_first
 test_per_script_timeout_bounds_a_hang
 test_max_wall_ms_is_a_result_not_advice
+test_serial_shard_budget_is_owned_watched_and_enforced
+test_serial_ci_shards_run_under_an_enforced_budget
 test_jobs_parallel_scheduler_and_failure_propagation
 test_herdr_ci_family_run_has_a_step_timeout
 test_aggregate_json

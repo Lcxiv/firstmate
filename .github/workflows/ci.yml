@@ -47,8 +47,9 @@ jobs:
   tests-portable-parallel-1:
     name: Behavior portable parallel 1
     runs-on: ubuntu-latest
-    # Measured shard wall is ~1 min of serial sum on proven scripts; this cap is
-    # a hang tripwire with margin, not the expected healthy end of the lane.
+    # Measured on 2026-09-17: shard 1 runs ~3.1 min and shard 2 ~2.2 min. This
+    # cap is a hang tripwire with roughly 3x margin, not the expected healthy
+    # end of the lane.
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
@@ -129,15 +130,24 @@ jobs:
   tests-portable-serial:
     name: Behavior portable serial ${{ matrix.shard }}
     runs-on: ubuntu-latest
-    # Measured whole remainder is ~42 min of serial work; the balanced shards
-    # are ~10.6 min each. Cap is a hang tripwire with roughly 2x margin, not the
-    # expected healthy end of the lane.
+    # Measured on 2026-09-17 across runs 35252117354 and 35276790325: the whole
+    # remainder is ~64 min of serial work, which six balanced shards turn into
+    # ~10.7 min each. Three strictly ordered bounds each own one case: the
+    # runner's 14 min lane budget catches a shard whose tests complete between
+    # 14 and 15 min and fails naming that cause (it is evaluated after the
+    # suite, so it cannot catch a hang); the run step's 15 min timeout-minutes
+    # catches a shard that hangs or is still running at 15 min, failing that
+    # step with a timeout cause while the timing artifact still uploads; this
+    # 20 min job cap is the last-resort backstop behind both and is not
+    # expected to be reached.
+    # docs/fm-test-portable-shards.md owns the measured evidence and the refresh
+    # procedure; bin/fm-test-run.sh owns the shard count and the budget.
     timeout-minutes: 20
     strategy:
       # Every shard reports so one failure never hides another shard's result.
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6]
     steps:
       - uses: actions/checkout@v6
         with:
@@ -172,10 +182,21 @@ jobs:
           # leaving a shard of the required lane unrun.
           FM_SERIAL_LANE: portable-serial-${{ matrix.shard }}of${{ strategy.job-total }}
           FM_SERIAL_SHARD: ${{ matrix.shard }}
+        # Above the 14 min lane budget and below the 20 min job cap: a hang or
+        # a shard still running at 15 min fails this step with a timeout cause
+        # so the timing artifact upload below still runs.
+        timeout-minutes: 15
         run: |
           set -eu
           mkdir -p "$RUNNER_TEMP/fm-test"
+          # --enforce-lane-budget applies the runner's own chosen per-shard
+          # budget to a shard that completes before the step bound above, and
+          # --budget-markdown puts the
+          # remaining headroom on the run page so the margin is watched rather
+          # than rediscovered from a cancelled PR.
           bin/fm-test-run.sh --lane "$FM_SERIAL_LANE" \
+            --enforce-lane-budget \
+            --budget-markdown "$GITHUB_STEP_SUMMARY" \
             --json "$RUNNER_TEMP/fm-test/fm-test-timing-portable-serial-${FM_SERIAL_SHARD}.json"
       - name: Upload portable serial shard ${{ matrix.shard }} timing artifact
         if: always()
@@ -192,7 +213,7 @@ jobs:
   tests-herdr:
     name: Behavior tests (Herdr)
     runs-on: ubuntu-latest
-    # Healthy runs finish around 7 minutes. This job cap is a last-resort hang
+    # Healthy runs finish around 8 minutes. This job cap is a last-resort hang
     # tripwire, not the expected end of the lane. The family-run step owns the
     # tighter bound so a wedged suite fails fast with always() cleanup and
     # timing artifacts still uploaded (docs/fm-test-portable-shards.md).
@@ -276,7 +297,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/fm-herdr"
           bin/fm-herdr-ci-cleanup.sh snapshot "$RUNNER_TEMP/fm-herdr/sessions-before.json"
       - name: Run real-Herdr family (serial, required)
-        # Comfortably above the ~7 min healthy wall and far below the 75 min
+        # Comfortably above the ~8 min healthy wall and far below the 75 min
         # job backstop. A hang must fail this step so cleanup still runs.
         timeout-minutes: 20
         run: |
@@ -385,8 +406,8 @@ jobs:
           bearings_output=$(/bin/bash tests/fm-bearings-snapshot.test.sh)
           printf '%s\n' "$bearings_output"
           bearings_count=$(printf '%s\n' "$bearings_output" | grep -c '^ok - ')
-          [ "$bearings_count" -eq 42 ] || {
-            echo "::error::expected 42 Bearings tests, got $bearings_count"
+          [ "$bearings_count" -eq 43 ] || {
+            echo "::error::expected 43 Bearings tests, got $bearings_count"
             exit 1
           }
 

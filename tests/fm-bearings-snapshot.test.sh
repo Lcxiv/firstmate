@@ -49,6 +49,10 @@ SH
 echo "gh $*" >> "$NET_LOG"
 if [ "${FAKE_GH_FAIL:-0}" = 1 ]; then exit 1; fi
 if [ "${FAKE_GH_SLEEP:-0}" = 1 ]; then sleep 30; fi
+if [ -n "${FAKE_GH_ROLLUP:-}" ]; then
+  printf '[{"number":9,"title":"Ship the thing","url":"https://github.com/kunchenguid/firstmate/pull/9","headRefName":"fm/ship-task","reviewDecision":"APPROVED","mergeable":"MERGEABLE","statusCheckRollup":%s}]\n' "$FAKE_GH_ROLLUP"
+  exit 0
+fi
 if [ "${FAKE_GH_MANY:-0}" = 1 ]; then
   cat <<'JSON'
 [{"number":1,"title":"One","url":"https://github.com/acme/repo/pull/1","headRefName":"fm/one","reviewDecision":"","mergeable":"MERGEABLE","statusCheckRollup":[]},{"number":2,"title":"Two","url":"https://github.com/acme/repo/pull/2","headRefName":"fm/two","reviewDecision":"","mergeable":"MERGEABLE","statusCheckRollup":[]},{"number":3,"title":"Three","url":"https://github.com/acme/repo/pull/3","headRefName":"fm/three","reviewDecision":"","mergeable":"MERGEABLE","statusCheckRollup":[]}]
@@ -1041,6 +1045,51 @@ test_include_prs_is_the_only_fetch_path() {
   pass "--include-prs is the only path that fetches, and it enriches correctly"
 }
 
+# A job the provider cancels at its timeout carries no verdict, so calling it
+# "failing" sends the reader to debug a suite that passed. The correct response
+# to a cancellation is a rerun, and these two cases must stay distinguishable.
+test_cancelled_checks_are_not_reported_as_failing() {
+  local home fakebin json
+  home=$(make_home cancelled-checks); write_fixture "$home"
+  fakebin=$(make_fakebin "$home")
+
+  json=$(FAKE_GH_ROLLUP='[{"conclusion":"SUCCESS","status":"COMPLETED"},{"conclusion":"CANCELLED","status":"COMPLETED"}]' \
+    run "$home" "$fakebin" --include-prs --json)
+  printf '%s' "$json" | jq -e '
+    .candidate_prs | any(.[]; .num == "9" and .checks == "cancelled")
+  ' >/dev/null || fail "a cancelled check must not be collapsed into a failure: $json"
+
+  json=$(FAKE_GH_ROLLUP='[{"conclusion":"SUCCESS","status":"COMPLETED"},{"conclusion":"TIMED_OUT","status":"COMPLETED"}]' \
+    run "$home" "$fakebin" --include-prs --json)
+  printf '%s' "$json" | jq -e '
+    .candidate_prs | any(.[]; .num == "9" and .checks == "cancelled")
+  ' >/dev/null || fail "a timed-out check must report as verdictless, not failing: $json"
+
+  # A real failure alongside a cancellation still wins: debugging beats rerunning.
+  json=$(FAKE_GH_ROLLUP='[{"conclusion":"CANCELLED","status":"COMPLETED"},{"conclusion":"FAILURE","status":"COMPLETED"}]' \
+    run "$home" "$fakebin" --include-prs --json)
+  printf '%s' "$json" | jq -e '
+    .candidate_prs | any(.[]; .num == "9" and .checks == "failing")
+  ' >/dev/null || fail "a genuine failure must outrank a cancellation: $json"
+
+  # A cancelled carry-over record beside an in-flight rerun means wait, not
+  # rerun again: pending outranks cancelled.
+  json=$(FAKE_GH_ROLLUP='[{"conclusion":"CANCELLED","status":"COMPLETED"},{"status":"IN_PROGRESS"}]' \
+    run "$home" "$fakebin" --include-prs --json)
+  printf '%s' "$json" | jq -e '
+    .candidate_prs | any(.[]; .num == "9" and .checks == "pending")
+  ' >/dev/null || fail "an in-flight rerun beside a cancelled record must report pending: $json"
+
+  # A cancellation must not be laundered into "passing" either.
+  json=$(FAKE_GH_ROLLUP='[{"conclusion":"SUCCESS","status":"COMPLETED"}]' \
+    run "$home" "$fakebin" --include-prs --json)
+  printf '%s' "$json" | jq -e '
+    .candidate_prs | any(.[]; .num == "9" and .checks == "passing")
+  ' >/dev/null || fail "an all-green rollup must still report passing: $json"
+
+  pass "a cancelled or timed-out check reports as verdictless, never as a test failure"
+}
+
 test_partial_github_failure_degrades() {
   local home fakebin json rc
   home=$(make_home partial); write_fixture "$home"
@@ -1981,6 +2030,7 @@ test_open_decision_surfaces_end_to_end
 test_report_pointers_surface
 test_superseded_queued_item_dropped_by_default
 test_include_prs_is_the_only_fetch_path
+test_cancelled_checks_are_not_reported_as_failing
 test_partial_github_failure_degrades
 test_perl_fallback_bounds_github_call
 test_section_caps_and_expansion_flags
