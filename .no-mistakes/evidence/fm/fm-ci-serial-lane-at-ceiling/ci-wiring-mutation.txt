@@ -1,0 +1,8 @@
+### mutant: ci.yml serial step without the --enforce flag line
+not ok - the serial CI shard step no longer applies the lane budget: --lane portable-serial-1of6 --budget-markdown /var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T//fm-test-run-ci-budget.EGSpd0/step-summary.md --json /var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T//fm-test-run-ci-budget.EGSpd0/runner-temp/fm-test/fm-test-timing-portable-serial-1.json 
+mutant[enforce] exit=1
+
+### mutant: ci.yml serial step without the --markdown flag line
+not ok - the serial CI shard step no longer publishes its remaining margin to GITHUB_STEP_SUMMARY: --lane portable-serial-1of6 --enforce-lane-budget --json /var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T//fm-test-run-ci-budget.Wk0S3g/runner-temp/fm-test/fm-test-timing-portable-serial-1.json 
+mutant[markdown] exit=1
+

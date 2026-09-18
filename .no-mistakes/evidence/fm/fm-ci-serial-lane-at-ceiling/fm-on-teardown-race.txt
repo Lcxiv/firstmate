@@ -1,0 +1,28 @@
+Harness: the teardown code is the REAL code (base e4e8a7e inline trap vs HEAD fm_on_test_cleanup, extracted from tests/fm-on.test.sh); the worker is a stand-in that takes ~0.6s to release worker.lock after TERM.
+
+### old teardown, attempt 1
+ALL TESTS PASSED
+script exit=0
+fixture root LEFT BEHIND: 20 entries
+### old teardown, attempt 2
+ALL TESTS PASSED
+script exit=0
+fixture root LEFT BEHIND: 19 entries
+### old teardown, attempt 3
+ALL TESTS PASSED
+script exit=0
+fixture root LEFT BEHIND: 19 entries
+
+### new teardown, attempt 1
+ALL TESTS PASSED
+script exit=0
+fixture root removed
+### new teardown, attempt 2
+ALL TESTS PASSED
+script exit=0
+fixture root removed
+### new teardown, attempt 3
+ALL TESTS PASSED
+script exit=0
+fixture root removed
+

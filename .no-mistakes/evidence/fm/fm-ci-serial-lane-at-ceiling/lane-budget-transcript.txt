@@ -1,0 +1,92 @@
+### 1. healthy shard under the runner-owned budget
+
+$ fm-test-run.sh --lane portable-serial-1of6 --enforce-lane-budget --budget-markdown <tmp>/summary.md
+FM_TEST_BEGIN 2026-09-18T15:36:31Z tests/fm-lane-budget-fixture.test.sh family=unclassified expected_gate_skip=none
+ok - fixture
+FM_TEST_END 2026-09-18T15:36:31Z tests/fm-lane-budget-fixture.test.sh exit=0 duration_ms=30 gate_skip=false
+FM_TEST_SUMMARY total=1 failed=0 skipped_gate=0 duration_ms=167
+FM_TEST_SUMMARY_FAMILY family=unclassified count=1 duration_ms=30 failed=0
+FM_TEST_SLOWEST rank=1 script=tests/fm-lane-budget-fixture.test.sh duration_ms=30
+FM_TEST_BUDGET max_wall_ms=840000 duration_ms=167
+exit=0
+
+--- <tmp>/summary.md (what $GITHUB_STEP_SUMMARY receives) ---
+### Behavior lane budget
+
+| lane | measured | budget | headroom | used |
+|---|---:|---:|---:|---:|
+| `lane=portable-serial-1of6` | 167 ms | 840000 ms | 839833 ms | 0% |
+
+### 2. equals spelling, appended to the same file
+FM_TEST_BUDGET max_wall_ms=840000 duration_ms=109
+exit=0
+--- summary.md after second run ---
+### Behavior lane budget
+
+| lane | measured | budget | headroom | used |
+|---|---:|---:|---:|---:|
+| `lane=portable-serial-1of6` | 167 ms | 840000 ms | 839833 ms | 0% |
+### Behavior lane budget
+
+| lane | measured | budget | headroom | used |
+|---|---:|---:|---:|---:|
+| `lane=portable-serial-1of6` | 109 ms | 840000 ms | 839891 ms | 0% |
+
+### 3. adversarial: caller tries to widen the budget
+
+$ fm-test-run.sh --lane portable-serial-1of6 --enforce-lane-budget --max-wall-ms 99999999
+fm-test-run: --enforce-lane-budget already sets the wall budget; drop --max-wall-ms
+exit=2
+
+$ fm-test-run.sh --lane portable-serial-1of6 --enforce-lane-budget --max-wall-ms=99999999
+fm-test-run: --enforce-lane-budget already sets the wall budget; drop --max-wall-ms
+exit=2
+
+### 4. adversarial: budget flag outside a serial shard lane
+
+$ fm-test-run.sh --lane portable-serial --enforce-lane-budget
+fm-test-run: --enforce-lane-budget applies only to a portable-serial-<k>of<n> lane (see --list-lanes)
+exit=2
+
+$ fm-test-run.sh --lane portable-parallel-1 --enforce-lane-budget
+fm-test-run: --enforce-lane-budget applies only to a portable-serial-<k>of<n> lane (see --list-lanes)
+exit=2
+
+$ fm-test-run.sh --all --enforce-lane-budget
+fm-test-run: --enforce-lane-budget applies only to a portable-serial-<k>of<n> lane (see --list-lanes)
+exit=2
+
+$ fm-test-run.sh tests/fm-lane-budget-fixture.test.sh --enforce-lane-budget
+fm-test-run: --enforce-lane-budget applies only to a portable-serial-<k>of<n> lane (see --list-lanes)
+exit=2
+
+### 5. margin row with no budget in force
+
+$ fm-test-run.sh --lane portable-serial-1of6 --budget-markdown <tmp>/orphan.md
+fm-test-run: --budget-markdown requires --enforce-lane-budget or --max-wall-ms
+exit=2
+ls: <tmp>/orphan.md: No such file or directory
+
+### 6. shard that outgrows its budget (constant set to 1 ms in a throwaway copy of the runner)
+
+$ fm-test-run.sh --lane portable-serial-1of6 --enforce-lane-budget --budget-markdown <tmp>/over.md
+FM_TEST_BEGIN 2026-09-18T15:36:32Z tests/fm-lane-budget-fixture.test.sh family=unclassified expected_gate_skip=none
+ok - fixture
+FM_TEST_END 2026-09-18T15:36:32Z tests/fm-lane-budget-fixture.test.sh exit=0 duration_ms=42 gate_skip=false
+FM_TEST_SUMMARY total=1 failed=0 skipped_gate=0 duration_ms=164
+FM_TEST_SUMMARY_FAMILY family=unclassified count=1 duration_ms=42 failed=0
+FM_TEST_SLOWEST rank=1 script=tests/fm-lane-budget-fixture.test.sh duration_ms=42
+FM_TEST_BUDGET max_wall_ms=1 duration_ms=164
+fm-test-run: wall-clock budget exceeded: 164ms > 1ms for lane=portable-serial-1of6
+fm-test-run: this shard is out of headroom against its 1ms budget: rebalance the measured hints or raise PORTABLE_SERIAL_SHARDS (docs/fm-test-portable-shards.md)
+exit=1
+--- over.md ---
+### Behavior lane budget
+
+| lane | measured | budget | headroom | used |
+|---|---:|---:|---:|---:|
+| `lane=portable-serial-1of6` | 164 ms | 1 ms | -163 ms | 16400% |
+
+### 7. adversarial: environment tries to widen the budget
+$ PORTABLE_SERIAL_SHARD_BUDGET_MS=99999999 MAX_WALL_MS=99999999 fm-test-run.sh --lane portable-serial-1of6 --enforce-lane-budget | grep FM_TEST_BUDGET
+FM_TEST_BUDGET max_wall_ms=840000 duration_ms=102

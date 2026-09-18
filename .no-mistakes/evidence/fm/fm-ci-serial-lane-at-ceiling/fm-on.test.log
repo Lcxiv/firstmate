@@ -1,0 +1,8 @@
+ok - fm-on --stdin preserves argv, stdin, stdout, stderr, and exit status without shell interpretation
+ok - fm-on defaults the remote command's stdin to /dev/null
+ok - fm-on arms a bounded SSH dead-peer detection window by default (15s x 3 = 45s)
+ok - fm-on's dead-peer detection window is env-overridable
+ok - fm-on rejects invalid dead-peer settings before launching ssh
+ok - the fixed entrypoint runs every command in the worker's explicit environment
+tests/fm-on.test.sh: line 258: NVM_CHILD_DIRS[@]: unbound variable
+bash tests/fm-on.test.sh  1.14s user 1.91s system 38% cpu 7.871 total

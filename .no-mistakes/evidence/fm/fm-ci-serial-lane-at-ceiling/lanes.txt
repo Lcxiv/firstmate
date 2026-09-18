@@ -1,0 +1,22 @@
+$ bin/fm-test-run.sh --list-lanes
+portable-parallel-1
+portable-parallel-2
+portable-serial
+portable-serial-1of6
+portable-serial-2of6
+portable-serial-3of6
+portable-serial-4of6
+portable-serial-5of6
+portable-serial-6of6
+real-herdr-gated
+portable-serial-1of6 scripts:       24
+portable-serial-2of6 scripts:       24
+portable-serial-3of6 scripts:       25
+portable-serial-4of6 scripts:       25
+portable-serial-5of6 scripts:       26
+portable-serial-6of6 scripts:       24
+$ bin/fm-test-run.sh --lane portable-serial-1of4 --list (stale count must be refused)
+fm-test-run: lane 'portable-serial-1of4' asks for 4 portable serial shards but this runner is configured for 6 (see --list-lanes)
+exit=2
+whole serial lane:      148 scripts; union of 6 shards:      148; duplicates across shards:        0
+PARTITION EXACT: shards cover the serial lane with no overlap and no gap

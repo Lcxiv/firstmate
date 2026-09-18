@@ -1,0 +1,32 @@
+### real GitHub rollup for Lcxiv/firstmate PR 23 (gh pr view 23 --json statusCheckRollup)
+SUCCESS	COMPLETED	Lint
+SUCCESS	COMPLETED	PR must be raised via no-mistakes
+SUCCESS	COMPLETED	Test coverage guard
+SUCCESS	COMPLETED	Behavior portable parallel 1
+SUCCESS	COMPLETED	Behavior portable parallel 2
+SUCCESS	COMPLETED	Behavior portable serial 1
+SUCCESS	COMPLETED	Behavior portable serial 2
+CANCELLED	COMPLETED	Behavior portable serial 3
+SUCCESS	COMPLETED	Behavior portable serial 4
+SUCCESS	COMPLETED	Behavior tests (Herdr)
+SUCCESS	COMPLETED	Stock macOS Bash snapshot compatibility
+SUCCESS	COMPLETED	Repo invariants
+SUCCESS	COMPLETED	Behavior timing aggregate
+
+### bin/fm-bearings-snapshot.sh --include-prs --json | .candidate_prs (real gh)
+{"num":"28","checks":"pending","title":null}
+{"num":"27","checks":"pending","title":null}
+{"num":"23","checks":"cancelled","title":null}
+
+### same, default TOON view
+26:candidate_prs[3]{num,repo,task,url,review,mergeable,checks}:
+27-  "28",Lcxiv/firstmate,fm-autoarm-not-claiming-after-pause-recheck,"https://github.com/Lcxiv/firstmate/pull/28","",MERGEABLE,pending
+28-  "27",Lcxiv/firstmate,fm-ci-serial-lane-at-ceiling,"https://github.com/Lcxiv/firstmate/pull/27","",MERGEABLE,pending
+29-  "23",Lcxiv/firstmate,fm-watch-stale-on-parked-review,"https://github.com/Lcxiv/firstmate/pull/23","",MERGEABLE,cancelled
+30-omitted[6]{surface,reveal}:
+31-  backlog item bodies,"--fields bodies"
+32-  task paths,"--fields paths"
+33-  watch/steer actions,"--fields actions"
+34-  healthy endpoint detail,"--fields endpoints"
+### CONTRAST: base commit e4e8a7e, same real PR 23, same command
+{"num":"23","checks":"failing"}

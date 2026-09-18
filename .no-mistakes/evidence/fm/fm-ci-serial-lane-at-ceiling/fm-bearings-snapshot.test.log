@@ -41,3 +41,4 @@ ok - captain-held tasks of any kind reach Captain's Call, deferral is honored, a
 ok - live PR enrichment caps repositories with counted expansion
 ok - per-repository open-PR caps are disclosed with an expansion knob
 ok - projection and TOON rendering failures exit nonzero with diagnostics
+bash tests/fm-bearings-snapshot.test.sh  34.83s user 45.92s system 95% cpu 1:24.26 total

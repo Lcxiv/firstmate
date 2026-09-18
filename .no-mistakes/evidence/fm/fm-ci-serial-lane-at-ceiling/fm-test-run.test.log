@@ -25,3 +25,4 @@ ok - CI serial shards run under a budget below the step bound, which sits below 
 ok - jobs scheduler runs proven scripts; failure propagates; non-proven refused
 ok - Herdr CI family-run step times out at 20 min under a 75 min job backstop
 ok - aggregate-json merges lane timing artifacts
+bash tests/fm-test-run.test.sh  23.63s user 35.44s system 75% cpu 1:18.73 total
