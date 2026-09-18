@@ -48,7 +48,8 @@ fail() {
 
 validate_slug() {  # <label> <value>
   case "$2" in
-    ''|*[!A-Za-z0-9._-]*) fail "$1 must be a non-empty privacy-safe slug: $2" ;;
+    '') fail "$1 is required but no value was supplied" ;;
+    *[!A-Za-z0-9._-]*) fail "$1 must be a non-empty privacy-safe slug: $2" ;;
   esac
 }
 

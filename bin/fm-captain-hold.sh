@@ -164,10 +164,15 @@ fail() {
   exit 1
 }
 
+# Every refusal that names an id in this script goes through here first, so an
+# absent id is reported as absent rather than interpolated as a blank. A
+# diagnostic with a hole where the id should be sends the reader looking for a
+# record that was never queried.
 validate_slug() {  # <label> <value>
   local label=$1 value=$2
   case "$value" in
-    ''|*[!A-Za-z0-9._-]*) fail "$label must be a non-empty privacy-safe slug: $value" ;;
+    '') fail "$label is required but no value was supplied" ;;
+    *[!A-Za-z0-9._-]*) fail "$label must be a non-empty privacy-safe slug: $value" ;;
   esac
 }
 
@@ -344,6 +349,7 @@ resolution_block() {  # <mode>
 # surviving even when a date gate has expired) or a recorded captain answer.
 verify_hold_durable() {  # <task-id>
   local id=$1 show state hold_kind body
+  validate_slug "captain-held task id" "$id"
   show=$(task_show "$id") || fail "captain-held task $id is absent from $FM_HOME/data/backlog.md"
   state=$(show_field "$show" state)
   hold_kind=$(show_field_value "$show" hold_kind)
@@ -359,8 +365,14 @@ verify_hold_durable() {  # <task-id>
 
 # Resolve one inventory entry or channel key to the task that carries it: the
 # exact task id when it exists, else the legacy derived identity.
+#
+# CALLER CONTRACT: capture this in an assignment (`id=$(resolve_entry ...)`) and
+# act on its status. `fail` inside a command substitution exits only the
+# subshell, so passing the substitution straight into another command's argument
+# list swallows the real refusal and hands that command an empty id.
 resolve_entry() {  # <origin-or-empty> <entry>; prints the resolved id or fails
   local origin=$1 entry=$2 legacy
+  validate_slug "captain-call inventory entry" "$entry"
   if task_show "$entry" >/dev/null 2>&1; then
     printf '%s' "$entry"
     return 0
@@ -767,7 +779,7 @@ command_answers() {
 }
 
 command_complete() {
-  local origin=${1:-} meta previous='' supplied='' keys='' entry key status_file open raw_open has_meta=0 transfer_rc
+  local origin=${1:-} meta previous='' supplied='' keys='' entry resolved key status_file open raw_open has_meta=0 transfer_rc
   [ "$#" -ge 2 ] || { usage >&2; exit 2; }
   validate_slug origin-id "$origin"
   shift
@@ -798,7 +810,8 @@ command_complete() {
   if [ -n "$keys" ]; then
     while IFS= read -r entry; do
       [ -n "$entry" ] || continue
-      verify_hold_durable "$(resolve_entry "$origin" "$entry")"
+      resolved=$(resolve_entry "$origin" "$entry") || exit 1
+      verify_hold_durable "$resolved"
     done <<EOF
 $(printf '%s\n' "$keys" | tr ',' '\n')
 EOF
@@ -840,7 +853,7 @@ EOF
 }
 
 command_verify() {
-  local origin=${1:-} meta reviewed keys entry key open
+  local origin=${1:-} meta reviewed keys entry resolved key open
   [ "$#" -eq 1 ] || { usage >&2; exit 2; }
   validate_slug origin-id "$origin"
   meta="$STATE/$origin.meta"
@@ -852,7 +865,8 @@ command_verify() {
   if [ -n "$keys" ]; then
     while IFS= read -r entry; do
       [ -n "$entry" ] || continue
-      verify_hold_durable "$(resolve_entry "$origin" "$entry")"
+      resolved=$(resolve_entry "$origin" "$entry") || exit 1
+      verify_hold_durable "$resolved"
     done <<EOF
 $(printf '%s\n' "$keys" | tr ',' '\n')
 EOF
