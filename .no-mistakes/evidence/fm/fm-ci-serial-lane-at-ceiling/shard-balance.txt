@@ -1,0 +1,11 @@
+shard scripts hinted_ms hinted_min (default 26000 for unhinted)
+1of6 24 640451 10.67
+2of6 24 640451 10.67
+3of6 25 640457 10.67
+4of6 25 640459 10.67
+5of6 26 640457 10.67
+6of6 24 640444 10.67
+total scripts=148 hinted_total_min=64.0
+union unique:      148  vs portable-serial lane:      148
+diff union vs unsharded lane:
+identical

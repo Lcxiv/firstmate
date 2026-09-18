@@ -1,0 +1,24 @@
+$ FM_HOME=<tmp home> bin/fm-bearings-snapshot.sh --include-prs --json | jq .prs,.candidate_prs   (real gh, repo Lcxiv/firstmate)
+"checked (1 repos, 3 open)"
+[
+  {
+    "num": "26",
+    "task": "fm-captain-hold-complete-empty-id",
+    "checks": "passing"
+  },
+  {
+    "num": "25",
+    "task": "fm-board-ui-fixes",
+    "checks": "passing"
+  },
+  {
+    "num": "23",
+    "task": "fm-watch-stale-on-parked-review",
+    "checks": "cancelled"
+  }
+]
+
+$ raw rollup conclusions per open PR from gh, for comparison
+{"number":26,"conclusions":{"SUCCESS":13}}
+{"number":25,"conclusions":{"SUCCESS":13}}
+{"number":23,"conclusions":{"CANCELLED":1,"SUCCESS":12}}

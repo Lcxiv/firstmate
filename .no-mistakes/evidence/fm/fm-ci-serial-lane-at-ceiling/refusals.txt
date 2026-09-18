@@ -1,0 +1,31 @@
+$ bin/fm-test-run.sh --list-lanes
+portable-parallel-1
+portable-parallel-2
+portable-serial
+portable-serial-1of6
+portable-serial-2of6
+portable-serial-3of6
+portable-serial-4of6
+portable-serial-5of6
+portable-serial-6of6
+real-herdr-gated
+
+$ --enforce-lane-budget --max-wall-ms 99999999 --lane portable-serial-1of6
+fm-test-run: --enforce-lane-budget already sets the wall budget; drop --max-wall-ms
+exit=2
+
+$ --enforce-lane-budget --lane portable-parallel
+fm-test-run: --enforce-lane-budget applies only to a portable-serial-<k>of<n> lane (see --list-lanes)
+exit=2
+
+$ --enforce-lane-budget (no lane) tests/fm-lint.test.sh
+fm-test-run: --enforce-lane-budget applies only to a portable-serial-<k>of<n> lane (see --list-lanes)
+exit=2
+
+$ --budget-markdown /tmp/x --lane portable-serial-1of6 (no budget)
+fm-test-run: --budget-markdown requires --enforce-lane-budget or --max-wall-ms
+exit=2
+
+$ --lane portable-serial-1of4 (stale count)
+fm-test-run: lane 'portable-serial-1of4' asks for 4 portable serial shards but this runner is configured for 6 (see --list-lanes)
+exit=0

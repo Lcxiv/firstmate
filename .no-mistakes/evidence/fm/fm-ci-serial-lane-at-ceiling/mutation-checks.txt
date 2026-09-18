@@ -1,0 +1,16 @@
+=== mutation: removed --enforce-lane-budget from the serial step ===
+ 1 file changed, 1 deletion(-)
+not ok - the serial CI shard step no longer applies the lane budget: --lane portable-serial-1of6 --budget-markdown /var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T//fm-test-run-ci-budget.sm133h/step-summary.md --json /var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T//fm-test-run-ci-budget.sm133h/runner-temp/fm-test/fm-test-timing-portable-serial-1.json 
+rc=
+=== mutation: removed --budget-markdown "\$GITHUB_STEP_SUMMARY" from the serial step ===
+ 1 file changed, 1 deletion(-)
+not ok - the serial CI shard step no longer publishes its remaining margin to GITHUB_STEP_SUMMARY: --lane portable-serial-1of6 --enforce-lane-budget --json /var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T//fm-test-run-ci-budget.InjO4w/runner-temp/fm-test/fm-test-timing-portable-serial-1.json 
+rc=
+=== mutation: classifier reverted to collapse CANCELLED/TIMED_OUT into failing ===
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+    }
+  ]
+}
+rc=
+not ok - a cancelled check must not be collapsed into a failure: 
+rc=1
