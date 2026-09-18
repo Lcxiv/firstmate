@@ -39,6 +39,8 @@ A stretch longer than the handoff window with no cycle is a lapse worth naming i
 `bin/fm-supervision-pretool-check.sh` is the path back that does not depend on the broken trigger.
 It runs on tool calls rather than turn ends, so the first thing a session does after a usage limit resets, or anything it does inside a turn that has been running blind, reaches the model with the diagnosis.
 It never denies a tool call, never arms a watcher itself - the arm belongs in the Stop hook's own process tree, where the harness owns the process group - and speaks once per park: the call that speaks refreshes the activity record, so it stays quiet while the session keeps working and speaks again only if the session parks again.
+The same script also runs with `--post` on `PostToolUse`, where it only refreshes `state/.session-activity`: the record is then current when a tool call returns as well as when it starts, so one long-running call or an unanswered permission prompt inside a live turn is not read as a parked session.
+That post-tool refresh never reads the predicate, never speaks, never arms a watcher, and never denies or blocks.
 `bin/fm-turnend-guard.sh` and `bin/fm-guard.sh` report the same reading in their watcher-down banners, naming how long nothing has armed, so an operator can tell a routine gap between cycles from stopped continuity instead of learning to dismiss both.
 
 ## Actionable wake ordering

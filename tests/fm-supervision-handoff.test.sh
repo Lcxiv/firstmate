@@ -70,6 +70,26 @@ run_pretool() {
   return 0
 }
 
+# The PostToolUse transport of the same script. Sets POSTTOOL_OUT and
+# POSTTOOL_RC; extra arguments replace the tracked "--claude --post" pair.
+run_posttool() {
+  local dir=$1 rc=0
+  shift
+  [ "$#" -gt 0 ] || set -- --claude --post
+  POSTTOOL_OUT=$(printf '%s\n' '{"session_id":"sess-handoff","tool_name":"Bash","tool_input":{"command":"true"},"tool_response":{}}' \
+    | FM_ROOT_OVERRIDE="$dir" FM_HOME="$dir" "$PRETOOL" "$@" 2>/dev/null) || rc=$?
+  POSTTOOL_RC=$rc
+  return 0
+}
+
+# Backdate a path by a number of seconds, portably across BSD and GNU date.
+age_path() {
+  local path=$1 seconds=$2 epoch stamp
+  epoch=$(( $(date +%s) - seconds ))
+  stamp=$(date -r "$epoch" +%Y%m%d%H%M.%S 2>/dev/null) || stamp=$(date -d "@$epoch" +%Y%m%d%H%M.%S)
+  touch -t "$stamp" "$path"
+}
+
 overdue_verdict() {
   local dir=$1
   FM_HOME="$dir" bash -c '
@@ -353,6 +373,82 @@ test_pretool_never_fails_on_an_internal_failure() {
   pass "the pre-tool check exits 0 through an internal failure"
 }
 
+# --- the post-tool refresh ---------------------------------------------------
+
+# One tool call that outlasts the whole window (a Bash call run to its timeout,
+# or a permission prompt left unanswered) is a live turn, not a parked session:
+# the call's return refreshes the record, so the next call reads it as fresh.
+test_long_tool_call_is_not_read_as_a_parked_session() {
+  local dir out
+  dir=$(make_home posttool-long-call)
+  record_handoff "$dir"
+  park_session "$dir"
+  : > "$dir/state/.session-activity"
+  run_pretool "$dir"; out=$PRETOOL_OUT
+  [ -z "$out" ] || fail "a session taking steps must start quiet, got: $out"
+  age_path "$dir/state/.session-activity" 700
+  run_posttool "$dir"
+  expect_code 0 "$POSTTOOL_RC" "the post-tool refresh must never fail"
+  [ -z "$POSTTOOL_OUT" ] || fail "the post-tool refresh must never speak, got: $POSTTOOL_OUT"
+  run_pretool "$dir"; out=$PRETOOL_OUT
+  [ -z "$out" ] || fail "a call that outlasted the window must not read as a park, got: $out"
+  pass "a tool call longer than the handoff window does not raise the notice"
+}
+
+# The refresh must not move the schedule for a session that really is idle: with
+# no tool call returning, the notice still fires at the same window as before.
+test_idle_session_goes_overdue_on_the_same_schedule() {
+  local dir out
+  dir=$(make_home posttool-idle)
+  record_handoff "$dir"
+  park_session "$dir"
+  : > "$dir/state/.session-activity"
+  age_path "$dir/state/.session-activity" 500
+  run_pretool "$dir"; out=$PRETOOL_OUT
+  [ -z "$out" ] || fail "an idle stretch inside the 600s window must stay quiet, got: $out"
+  age_path "$dir/state/.session-activity" 700
+  run_pretool "$dir"; out=$PRETOOL_OUT
+  assert_contains "$out" "SUPERVISION IS OFF" "an idle stretch past the 600s window must still be announced"
+  pass "a genuinely idle session still goes overdue at the unchanged window"
+}
+
+# The post path refreshes the record and does nothing else, even in the exact
+# state where the pre-tool path would speak.
+test_posttool_only_refreshes_the_activity_record() {
+  local dir before after
+  dir=$(make_home posttool-only-touch)
+  record_handoff "$dir"
+  park_session "$dir"
+  before=$(find "$dir/state" -mindepth 1 | sort)
+  run_posttool "$dir"
+  expect_code 0 "$POSTTOOL_RC" "the post-tool refresh must never fail"
+  [ -z "$POSTTOOL_OUT" ] || fail "the post-tool refresh must never speak, got: $POSTTOOL_OUT"
+  assert_present "$dir/state/.session-activity" "a returning tool call proves the session is taking steps"
+  after=$(find "$dir/state" -mindepth 1 ! -name .session-activity | sort)
+  [ "$before" = "$after" ] || fail "the post-tool refresh must write nothing but the activity record: $after"
+  pass "the post-tool refresh touches the activity record and nothing else"
+}
+
+test_posttool_never_fails() {
+  local dir
+  dir=$(make_home posttool-failures)
+  record_handoff "$dir"
+  park_session "$dir"
+  run_posttool "$dir" --claude --post --bogus
+  expect_code 0 "$POSTTOOL_RC" "an unknown argument must never fail the post-tool hook"
+  [ -z "$POSTTOOL_OUT" ] || fail "an unknown argument must print nothing to stdout, got: $POSTTOOL_OUT"
+  printf 'epoch=\x00\xff owner_pid=not-a-pid outcome= updated_at=never\n' > "$dir/state/.claude-autoarm-epoch"
+  run_posttool "$dir"
+  expect_code 0 "$POSTTOOL_RC" "a corrupt ledger must never fail the post-tool hook"
+  [ -z "$POSTTOOL_OUT" ] || fail "a corrupt ledger must stay silent, got: $POSTTOOL_OUT"
+  chmod 000 "$dir/state"
+  run_posttool "$dir"
+  chmod 755 "$dir/state"
+  expect_code 0 "$POSTTOOL_RC" "an unreadable state directory must never fail the post-tool hook"
+  [ -z "$POSTTOOL_OUT" ] || fail "an unreadable state directory must stay silent, got: $POSTTOOL_OUT"
+  pass "the post-tool refresh exits 0 and stays silent through bad arguments and bad state"
+}
+
 # --- the turn-end banner stays worth reading ---------------------------------
 
 # Same contract as run_pretool: TURNEND_OUT and TURNEND_RC in the caller.
@@ -492,6 +588,10 @@ test_pretool_is_inert_under_away_mode
 test_pretool_is_inert_in_a_task_worktree
 test_pretool_never_fails_on_an_unrecognized_argument
 test_pretool_never_fails_on_an_internal_failure
+test_long_tool_call_is_not_read_as_a_parked_session
+test_idle_session_goes_overdue_on_the_same_schedule
+test_posttool_only_refreshes_the_activity_record
+test_posttool_never_fails
 test_turnend_banner_names_an_abandoned_handoff
 test_turnend_banner_omits_the_lapse_line_between_cycles
 test_guard_warning_names_the_unrecoverable_state

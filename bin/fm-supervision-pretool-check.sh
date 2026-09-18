@@ -37,6 +37,12 @@
 #     by itself: the call that speaks also refreshes it, so the predicate cannot
 #     hold again until the session has gone a whole window without a step - and
 #     a session that parks again must be told again.
+#   - The activity record is refreshed when a tool call RETURNS as well as when
+#     it starts (--post, registered on PostToolUse). Sampling only call starts
+#     would measure the gap between them, so one long-running call or an
+#     unanswered permission prompt inside a live turn would read as a parked
+#     session. The post path refreshes the record and does nothing else: it
+#     never reads the predicate, never speaks, never arms, never denies.
 #   - bin/fm-supervision-lib.sh owns the overdue predicate and the activity
 #     record; this wrapper only acquires the payload, renders the notice, and
 #     keeps the activity record current.
@@ -58,12 +64,14 @@ set -u
 trap 'exit 0' EXIT
 
 # --claude is accepted for transport parity with the other tracked hook entries
-# and changes nothing. Anything else is a misregistration: say so on stderr and
-# stand down without speaking.
+# and changes nothing. --post selects the PostToolUse path. Anything else is a
+# misregistration: say so on stderr and stand down without speaking.
+POST=0
 for arg in "$@"; do
   case "$arg" in
     --claude) ;;
-    *) echo "usage: $(basename "$0") [--claude]" >&2; exit 0 ;;
+    --post) POST=1 ;;
+    *) echo "usage: $(basename "$0") [--claude] [--post]" >&2; exit 0 ;;
   esac
 done
 
@@ -81,6 +89,11 @@ PAYLOAD=$(cat 2>/dev/null || true)
 . "$SCRIPT_DIR/fm-supervision-lib.sh" 2>/dev/null || exit 0
 
 [ -d "$STATE" ] || exit 0
+
+if [ "$POST" -eq 1 ]; then
+  fm_supervision_activity_touch "$STATE"
+  exit 0
+fi
 
 # The predicate reads the activity record, so it must run BEFORE this call
 # refreshes it: the whole point is how long the session had gone without taking
