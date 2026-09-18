@@ -91,6 +91,14 @@ validate_payload() {  # <data.json>
       or (.[$name]
         | type == "string"
           and test("^https://[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::[0-9]{1,5})?(?:[/?#][^[:space:]]*)?$"));
+    def todo_step:
+      type == "object" and (.text | nonempty_string)
+      and (.state == "done" or .state == "current" or .state == "blocked" or .state == "todo")
+      and ((has("by") | not) or (.by == "captain" or .by == "firstmate" or .by == "worker"));
+    def todos_list:
+      has("todos") and (.todos | type == "array") and (.todos | length > 0)
+      and ([.todos[] | todo_step] | all)
+      and ([.todos[] | select(.state == "current" or .state == "blocked")] | length <= 1);
     def call_item:
       type == "object"
       and (.key | slug(128))
@@ -115,10 +123,14 @@ validate_payload() {  # <data.json>
         or ((.recommend_value | slug(128))
           and ((.options | length) == 0
             or (.recommend_value as $recommend | [.options[].value] | index($recommend) != null))))
+      and ((has("blocks") | not)
+        or ((.blocks | type == "array") and ([.blocks[] | nonempty_string] | all)))
+      and todos_list
       and (if .type == "merge" then (.risk | nonempty_string) else true end);
     def underway_item:
       type == "object" and repo_marker and (.id | nonempty_string)
-      and (.state | nonempty_string) and (.doing | nonempty_string) and (.kind | nonempty_string);
+      and (.state | nonempty_string) and (.doing | nonempty_string) and (.kind | nonempty_string)
+      and optional_string("title") and todos_list;
     def landed_item:
       type == "object" and repo_marker and (.id | nonempty_string)
       and (.what | nonempty_string) and (.owner | nonempty_string)
@@ -137,7 +149,8 @@ validate_payload() {  # <data.json>
       and (.title | nonempty_string) and (.reason | type == "string")
       and (.dispatchable | type == "boolean")
       and ((has("kind") | not) or (.kind == "queued" or .kind == "warning"))
-      and (if .kind == "warning" then .dispatchable == false else true end);
+      and (if .kind == "warning" then .dispatchable == false else true end)
+      and todos_list;
     type == "object"
     and (.schema == $schema)
     and (.home | nonempty_string)
@@ -160,13 +173,58 @@ validate_payload() {  # <data.json>
   ' "$1" >/dev/null
 }
 
-command_build() {
-  local data=${1-} board json tmp sid extracted
-  [ "$#" -eq 1 ] || { usage >&2; exit 2; }
+# Name every malformed todos list, so a refused board says which item and which
+# step to fix instead of only that the payload failed the contract.
+todos_errors() {  # <data.json>
+  jq -r '
+    def where($section; $i): "\($section)[\($i)] (\(.key // .id // "no id"))";
+    def step_problems($w):
+      if (has("todos") | not) then "\($w) has no todos list; give it at least one step"
+      elif (.todos | type) != "array" then "\($w) todos is not a list"
+      elif (.todos | length) == 0 then "\($w) todos is empty; give it at least one step"
+      else
+        (.todos | to_entries[] | .key as $n | .value
+          | if type != "object" then "\($w) todos[\($n)] is not a step object"
+            elif ((.text | type) != "string" or (.text | length) == 0) then "\($w) todos[\($n)] has no text"
+            elif (.state | IN("done", "current", "blocked", "todo") | not) then
+              "\($w) todos[\($n)] state \(.state | tojson) is not one of done, current, blocked, todo"
+            elif has("by") and (.by | IN("captain", "firstmate", "worker") | not) then
+              "\($w) todos[\($n)] by \(.by | tojson) is not one of captain, firstmate, worker"
+            else empty end),
+        (if ([.todos[] | objects | select(.state == "current" or .state == "blocked")] | length) > 1
+         then "\($w) todos marks more than one step current or blocked; mark only the step the item is at"
+         else empty end)
+      end;
+    def section($name):
+      (.[$name] // []) | if type == "array" then to_entries[]
+        | .key as $i | .value | objects | step_problems(where($name; $i)) else empty end;
+    if type == "object" then section("captains_call"), section("underway"), section("charted") else empty end
+  ' "$1"
+}
+
+check_payload() {  # <data.json>
+  local data=$1 problems
   command -v jq >/dev/null 2>&1 || fail "jq is required"
   [ -f "$data" ] || fail "board data does not exist: $data"
   jq empty "$data" 2>/dev/null || fail "board data is not valid JSON: $data"
+  problems=$(todos_errors "$data") || fail "cannot read the board data todos: $data"
+  if [ -n "$problems" ]; then
+    printf '%s\n' "$problems" | sed 's/^/fm-bearings-board: /' >&2
+    fail "board data does not satisfy $BOARD_SCHEMA: malformed todos in $data"
+  fi
   validate_payload "$data" || fail "board data does not satisfy $BOARD_SCHEMA: $data"
+}
+
+command_validate() {
+  [ "$#" -eq 1 ] || { usage >&2; exit 2; }
+  check_payload "$1"
+  printf 'valid: %s\n' "$1"
+}
+
+command_build() {
+  local data=${1-} board json tmp sid extracted
+  [ "$#" -eq 1 ] || { usage >&2; exit 2; }
+  check_payload "$data"
   [ -f "$TEMPLATE" ] && [ ! -L "$TEMPLATE" ] || fail "board template is missing: $TEMPLATE"
   [ "$(grep -cxF "$PLACEHOLDER" "$TEMPLATE")" -eq 1 ] \
     || fail "board template does not carry exactly one data slot: $TEMPLATE"
@@ -222,6 +280,7 @@ command_build() {
 
 case "${1-}" in
   build) shift; command_build "$@" ;;
+  validate) shift; command_validate "$@" ;;
   path) board_path ;;
   -h|--help|help) usage ;;
   *) usage >&2; exit 2 ;;
