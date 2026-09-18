@@ -123,6 +123,11 @@ init_changed_fixture_repo() {
   done
   : >"$repo/tests/lib.sh"
   : >"$repo/tests/fm-backend-herdr-eventwait.test.py"
+  # A shared test asset driven by exactly ONE curated script: changing it must
+  # select that script rather than refusing the whole changed selection.
+  mkdir -p "$repo/tests/assets"
+  : >"$repo/tests/assets/example-harness.mjs"
+  printf '# tests/assets/example-harness.mjs\n' >>"$repo/tests/fm-bearings-snapshot.test.sh"
   : >"$repo/bin/fm-supervisor-target-lib.sh"
   : >"$repo/bin/fm-control-lib.sh"
   : >"$repo/bin/fm-timeout-lib.sh"
@@ -295,6 +300,15 @@ test_changed_dependency_selection_and_unmapped_failure() {
     "timeout library selects quota polling coverage"
   git -C "$repo" add bin/fm-timeout-lib.sh
   git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm timeout-lib-change
+
+  printf '\n' >>"$repo/tests/assets/example-harness.mjs"
+  listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD)
+  assert_contains "$listed" "tests/fm-bearings-snapshot.test.sh" \
+    "shared test asset selects the script that drives it"
+  [ "$(printf '%s\n' "$listed" | grep -c .)" -eq 1 ] \
+    || fail "a shared test asset widened beyond the script that drives it: $listed"
+  git -C "$repo" add tests/assets/example-harness.mjs
+  git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm test-asset-change
 
   printf '\n' >>"$repo/src/unmapped.ts"
   set +e
