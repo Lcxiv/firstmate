@@ -39,7 +39,10 @@ A stretch longer than the handoff window with no cycle is a lapse worth naming i
 `bin/fm-supervision-pretool-check.sh` is the path back that does not depend on the broken trigger.
 It runs on tool calls rather than turn ends, so the first thing a session does after a usage limit resets, or anything it does inside a turn that has been running blind, reaches the model with the diagnosis.
 It never denies a tool call, never arms a watcher itself - the arm belongs in the Stop hook's own process tree, where the harness owns the process group - and speaks once per park: the call that speaks refreshes the activity record, so it stays quiet while the session keeps working and speaks again only if the session parks again.
-The same script also runs with `--post` on `PostToolUse`, where it only refreshes `state/.session-activity`: the record is then current when a tool call returns as well as when it starts, so one long-running call or an unanswered permission prompt inside a live turn is not read as a parked session.
+The same script also runs with `--post` when a tool call ends, where it only refreshes `state/.session-activity`: the record is then current when a call ends as well as when it starts, so one long-running call inside a live turn is not read as a parked session.
+A call ends on one of three events and `--post` is registered on each: `PostToolUse` for a call that succeeded, `PostToolUseFailure` for one that failed - a Bash call run to its timeout is a failed call - and `PermissionDenied` as a best-effort touch.
+The installed Claude Code 2.1.276 carries a `PermissionDenied` hook event, but it was not confirmed to fire for a prompt left pending and then denied interactively, so that interactive-denial case may remain uncovered.
+If it is not covered, the residual cost is one non-blocking notice shown while a human is at the prompt.
 That post-tool refresh never reads the predicate, never speaks, never arms a watcher, and never denies or blocks.
 `bin/fm-turnend-guard.sh` and `bin/fm-guard.sh` report the same reading in their watcher-down banners, naming how long nothing has armed, so an operator can tell a routine gap between cycles from stopped continuity instead of learning to dismiss both.
 

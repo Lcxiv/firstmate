@@ -65,7 +65,8 @@ If `jq` is missing or hook stdin is empty, the guard exits 0 because it cannot s
   Do NOT widen this guard to `GROK_SESSION_ID`: Grok injects that into every child process, so it can survive into a Claude session that Grok launched and would silently disable Claude's own continuity.
   The same marker guard carries every tracked `.claude/settings.json` entry whose event Grok already covers through its own `.grok/hooks/` registration, which is both `Stop` entries, the `SessionStart` entry, and the two `PreToolUse` Bash entries.
   It also carries the catch-all `PreToolUse` entry for `bin/fm-supervision-pretool-check.sh`, for a different reason: a Grok home has no Claude auto-arm ledger, so that notice's predicate could never hold there.
-  The catch-all `PostToolUse` entry that runs the same script with `--post` carries it for the same reason: it only refreshes the activity record that predicate reads.
+  The three catch-all entries that run the same script with `--post` - on `PostToolUse`, `PostToolUseFailure`, and `PermissionDenied` - carry it for the same reason: they only refresh the activity record that predicate reads.
+  That makes nine guarded tracked entries and one unguarded exception.
   `bin/fm-subagent-pretool-check.sh` is the one deliberate unguarded exception because no Grok registration covers the subagent-spawn event, recorded in [`subagent-guard.md`](subagent-guard.md) "Known residual gap".
   `tests/fm-turnend-guard.test.sh` pins that inventory so neither the guarded set nor the exception can change silently.
 

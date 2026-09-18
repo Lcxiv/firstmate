@@ -37,12 +37,18 @@
 #     by itself: the call that speaks also refreshes it, so the predicate cannot
 #     hold again until the session has gone a whole window without a step - and
 #     a session that parks again must be told again.
-#   - The activity record is refreshed when a tool call RETURNS as well as when
-#     it starts (--post, registered on PostToolUse). Sampling only call starts
-#     would measure the gap between them, so one long-running call or an
-#     unanswered permission prompt inside a live turn would read as a parked
-#     session. The post path refreshes the record and does nothing else: it
-#     never reads the predicate, never speaks, never arms, never denies.
+#   - The activity record is refreshed when a tool call ENDS as well as when it
+#     starts (--post). Sampling only call starts would measure the gap between
+#     them, so one long-running call inside a live turn would read as a parked
+#     session. A call ends on one of three events and --post is registered on
+#     each: PostToolUse (it succeeded), PostToolUseFailure (it failed, which
+#     is what a Bash call run to its timeout is), and PermissionDenied as a
+#     best-effort touch. Claude Code 2.1.276 carries the PermissionDenied event
+#     but it was not confirmed to fire for a prompt left pending and then
+#     denied interactively, so that case may remain uncovered; its residual
+#     cost is one non-blocking notice shown while a human is at the prompt.
+#     The post path refreshes the record and does nothing else on any of them:
+#     it never reads the predicate, never speaks, never arms, never denies.
 #   - bin/fm-supervision-lib.sh owns the overdue predicate and the activity
 #     record; this wrapper only acquires the payload, renders the notice, and
 #     keeps the activity record current.
@@ -64,7 +70,7 @@ set -u
 trap 'exit 0' EXIT
 
 # --claude is accepted for transport parity with the other tracked hook entries
-# and changes nothing. --post selects the PostToolUse path. Anything else is a
+# and changes nothing. --post selects the activity-only path. Anything else is a
 # misregistration: say so on stderr and stand down without speaking.
 POST=0
 for arg in "$@"; do

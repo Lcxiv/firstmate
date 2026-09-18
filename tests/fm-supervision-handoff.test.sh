@@ -70,13 +70,17 @@ run_pretool() {
   return 0
 }
 
+POSTTOOL_SUCCESS='{"session_id":"sess-handoff","hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"true"},"tool_response":{}}'
+POSTTOOL_FAILURE='{"session_id":"sess-handoff","hook_event_name":"PostToolUseFailure","tool_name":"Bash","tool_input":{"command":"sleep 900"},"error":"Command timed out after 10m 0s","is_interrupt":false}'
+POSTTOOL_DENIED='{"session_id":"sess-handoff","hook_event_name":"PermissionDenied","tool_name":"Bash","tool_input":{"command":"true"},"reason":"denied"}'
+
 # The PostToolUse transport of the same script. Sets POSTTOOL_OUT and
 # POSTTOOL_RC; extra arguments replace the tracked "--claude --post" pair.
 run_posttool() {
   local dir=$1 rc=0
   shift
   [ "$#" -gt 0 ] || set -- --claude --post
-  POSTTOOL_OUT=$(printf '%s\n' '{"session_id":"sess-handoff","tool_name":"Bash","tool_input":{"command":"true"},"tool_response":{}}' \
+  POSTTOOL_OUT=$(printf '%s\n' "${POSTTOOL_PAYLOAD:-$POSTTOOL_SUCCESS}" \
     | FM_ROOT_OVERRIDE="$dir" FM_HOME="$dir" "$PRETOOL" "$@" 2>/dev/null) || rc=$?
   POSTTOOL_RC=$rc
   return 0
@@ -429,6 +433,59 @@ test_posttool_only_refreshes_the_activity_record() {
   pass "the post-tool refresh touches the activity record and nothing else"
 }
 
+# A failed call (a Bash call run to its timeout) and a denied call end the call
+# just as a successful one does, and arrive as their own events.
+test_posttool_refreshes_on_failed_and_denied_calls() {
+  local dir payload
+  dir=$(make_home posttool-other-events)
+  record_handoff "$dir"
+  park_session "$dir"
+  for payload in "$POSTTOOL_FAILURE" "$POSTTOOL_DENIED"; do
+    rm -f "$dir/state/.session-activity"
+    POSTTOOL_PAYLOAD=$payload run_posttool "$dir"
+    expect_code 0 "$POSTTOOL_RC" "the refresh must never fail: $payload"
+    [ -z "$POSTTOOL_OUT" ] || fail "the refresh must print nothing, got: $POSTTOOL_OUT"
+    assert_present "$dir/state/.session-activity" "a call that ended must refresh the activity record: $payload"
+  done
+  pass "the post-tool refresh covers failed and denied calls silently"
+}
+
+# Contract: .claude/settings.json is the registration Claude Code consumes. Each
+# event that ends a tool call must carry the activity-only touch under the same
+# matcher and guard as the PreToolUse notice, and running the registered command
+# must refresh the record and say nothing.
+test_settings_register_the_refresh_on_every_call_ending_event() {
+  local dir event pre cmd matcher out rc
+  command -v jq >/dev/null 2>&1 || fail "test host must provide jq"
+  dir=$(make_home posttool-settings)
+  record_handoff "$dir"
+  park_session "$dir"
+  pre=$(jq -r '.hooks.PreToolUse[] | select(.matcher == ".*") | .hooks[].command
+    | select(endswith("/bin/fm-supervision-pretool-check.sh --claude"))' "$ROOT/.claude/settings.json")
+  [ -n "$pre" ] || fail "the PreToolUse supervision entry is not registered under the catch-all matcher"
+  for event in PostToolUse PostToolUseFailure PermissionDenied; do
+    matcher=$(jq -r --arg e "$event" '.hooks[$e] | length as $n | if $n == 1 then .[0].matcher else "count=\($n)" end' "$ROOT/.claude/settings.json")
+    [ "$matcher" = ".*" ] || fail "$event must carry one catch-all group, saw: $matcher"
+    cmd=$(jq -r --arg e "$event" '.hooks[$e][0].hooks | if length == 1 then .[0].command else "" end' "$ROOT/.claude/settings.json")
+    [ "$cmd" = "$pre --post" ] || fail "$event must run the PreToolUse command plus --post under the same guard, saw: $cmd"
+    rm -f "$dir/state/.session-activity"
+    rc=0
+    out=$(printf '%s\n' "$POSTTOOL_FAILURE" \
+      | env -u GROK_AGENT -u GROK_HOOK_EVENT CLAUDE_PROJECT_DIR="$ROOT" FM_ROOT_OVERRIDE="$dir" FM_HOME="$dir" \
+        bash -c "$cmd" 2>/dev/null) || rc=$?
+    expect_code 0 "$rc" "the registered $event command must exit 0"
+    [ -z "$out" ] || fail "the registered $event command must print nothing, got: $out"
+    assert_present "$dir/state/.session-activity" "the registered $event command must refresh the activity record"
+    rm -f "$dir/state/.session-activity"
+    out=$(printf '%s\n' "$POSTTOOL_FAILURE" \
+      | env GROK_HOOK_EVENT=post_tool_use CLAUDE_PROJECT_DIR="$ROOT" FM_ROOT_OVERRIDE="$dir" FM_HOME="$dir" \
+        bash -c "$cmd" 2>/dev/null) || rc=$?
+    expect_code 0 "$rc" "the registered $event command must exit 0 under grok"
+    assert_absent "$dir/state/.session-activity" "the registered $event command must stay inert under grok"
+  done
+  pass "settings register the activity-only refresh on every call-ending event under the pre-tool guard"
+}
+
 test_posttool_never_fails() {
   local dir
   dir=$(make_home posttool-failures)
@@ -591,6 +648,8 @@ test_pretool_never_fails_on_an_internal_failure
 test_long_tool_call_is_not_read_as_a_parked_session
 test_idle_session_goes_overdue_on_the_same_schedule
 test_posttool_only_refreshes_the_activity_record
+test_posttool_refreshes_on_failed_and_denied_calls
+test_settings_register_the_refresh_on_every_call_ending_event
 test_posttool_never_fails
 test_turnend_banner_names_an_abandoned_handoff
 test_turnend_banner_omits_the_lapse_line_between_cycles
