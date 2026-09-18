@@ -1,0 +1,24 @@
+ok - auto-arm takes a new generation on every firing while preconditions hold
+ok - a fresh handoff with no running cycle is not overdue
+ok - a long turn with a stale beacon is not overdue while the session is active
+ok - a parked session with an abandoned handoff is overdue
+ok - a home with no work in flight is never overdue
+ok - a live arming claim is not treated as an abandoned handoff
+ok - an arming claim with a dead owner is overdue
+ok - a home with no auto-arm ledger reports no overdue handoff
+ok - the pre-tool notice is silent while supervision is healthy
+ok - the pre-tool notice reports an abandoned handoff on both channels without blocking the call
+ok - the pre-tool notice speaks once per handoff episode
+ok - the pre-tool notice speaks again after a fresh park
+ok - the pre-tool check keeps the session-activity record current
+ok - the notice stops once a cycle is armed again
+ok - the pre-tool notice stands down under away mode
+ok - the pre-tool notice stays inert inside a task worktree
+ok - the pre-tool check exits 0 and stays silent on an unrecognized argument
+ok - the pre-tool check exits 0 through an internal failure
+ok - the turn-end banner names an abandoned handoff
+ok - the turn-end banner does not claim a lapse between ordinary cycles
+ok - the watcher-down warning names the unrecoverable state
+ok - the watcher-down warning separates an ordinary gap from a lapse
+ok - the watcher-down warning keeps the handoff lines to the auto-arm model
+ok - the watcher-down warning keeps the Claude ledger out of a Cursor home
