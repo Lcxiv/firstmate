@@ -32,7 +32,7 @@ ANCIENT=202001010000
 
 # A genuine primary home: plain checkout, AGENTS.md, bin/, state/.
 make_home() {
-  local name=$1 dir="$TMP_ROOT/$1"
+  local dir="$TMP_ROOT/$1"
   mkdir -p "$dir/state" "$dir/config" "$dir/bin"
   git init -q "$dir"
   git -C "$dir" commit -q --allow-empty -m init
@@ -398,15 +398,14 @@ test_turnend_banner_omits_the_lapse_line_between_cycles() {
 # host runner's ancestry pick them: the handoff lines belong to the auto-arm
 # model, and the ledger-derived ones to a Claude primary only.
 run_guard() {
-  local dir=$1 model=${2:-autoarm} harness=${3:-claude} rc=0
+  local dir=$1 model=${2:-autoarm} harness=${3:-claude}
   local -a marker
   case "$harness" in
     cursor) marker=(CURSOR_AGENT=1) ;;
     *) marker=(CLAUDECODE=1) ;;
   esac
   GUARD_OUT=$(env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u CLAUDECODE "${marker[@]}" \
-    FM_ROOT_OVERRIDE="$dir" FM_HOME="$dir" FM_SUPERVISION_MODEL="$model" "$ROOT/bin/fm-guard.sh" 2>&1) || rc=$?
-  GUARD_RC=$rc
+    FM_ROOT_OVERRIDE="$dir" FM_HOME="$dir" FM_SUPERVISION_MODEL="$model" "$ROOT/bin/fm-guard.sh" 2>&1) || true
   return 0
 }
 
