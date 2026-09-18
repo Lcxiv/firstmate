@@ -1,0 +1,4 @@
+not ok - a crew parked at a validation gate was not absorbed: stale: test:fm-gateparked
+ok - a captain-held crew whose agent died at a parked run keeps the captain-held wording and the declared-wait cheap path
+ok - a run still parked after its decision was resolved is the worker's move, so it surfaces on the ordinary stale schedule
+ok - a crew whose endpoint died at a parked gate still surfaces a stale wake on the existing schedule

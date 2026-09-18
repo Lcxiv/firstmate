@@ -1,0 +1,18 @@
+ok - a crew parked at a gate with an open decision stops looping across pane churn, is recorded, then re-surfaced once per bounded cadence, never wedge-escalated
+ok - an open decision still admits the gate park when a routine note is the log's last line, because admission reads the durable fold
+ok - a crew whose endpoint died at a parked gate still surfaces a stale wake on the existing schedule
+ok - a gate park that ends cannot absorb past its bounded reconciliation window; it returns to the ordinary stale schedule
+ok - a run still parked after its decision was resolved is the worker's move, so it surfaces on the ordinary stale schedule
+ok - a captain-held crew whose agent died at a parked run keeps the captain-held wording and the declared-wait cheap path
+ok - a declared external wait superseded by later activity is no longer treated as an active wait
+ok - exited declared-pause and captain-held panes use bounded pause cadence while a live decision gate still surfaces once
+ok - a declared pause is absorbed on first sight, then re-surfaced as a recheck past the threshold, never wedge-escalated
+ok - provably-working non-terminal stale is absorbed on first sight, then wedge-escalated past the threshold
+ok - consecutive wedge escalations on the same pane accumulate and demand deep inspection at the threshold
+ok - a declared pause is periodically rechecked against authoritative active-run state
+ok - a paused status overridden by authoritative working preserves its wedge timer and escalates
+ok - a declared paused secondmate re-surfaces on the bounded normal-mode cadence
+ok - a captain-held secondmate re-surfaces on the bounded normal-mode cadence
+ok - unchanged stale hashes reclassify when a crew enters or leaves pause
+ok - a busy pane under a declared pause is rechecked on the long cadence, and lifting the pause restores the wedge escalation
+ok - AFK changed paused panes hand off plain stale identities for daemon-owned pause triage

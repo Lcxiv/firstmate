@@ -1,0 +1,37 @@
+== OPEN decision, run parked, endpoint alive; pane churns 5 times over ~55s ==
+watcher: still alive (no wake surfaced)
+stdout: []
+wake queue bytes: 0
+paused flag content: gate-park
+--- .watch-triage.log
+[2026-09-18T09:04:33-0700] absorbed stale (parked at a validation gate, awaiting firstmate, age 3s): test:fm-manual
+[2026-09-18T09:04:35-0700] absorbed stale (parked at a validation gate, awaiting firstmate, age 5s): test:fm-manual
+[2026-09-18T09:04:36-0700] absorbed stale (parked at a validation gate, awaiting firstmate, age 6s): test:fm-manual
+[2026-09-18T09:04:37-0700] absorbed stale (parked at a validation gate, awaiting firstmate, age 7s): test:fm-manual
+[2026-09-18T09:04:42-0700] absorbed stale (parked at a validation gate, awaiting firstmate, age 12s): test:fm-manual
+[2026-09-18T09:04:43-0700] absorbed stale (parked at a validation gate, awaiting firstmate, age 13s): test:fm-manual
+[2026-09-18T09:04:45-0700] absorbed stale (parked at a validation gate, awaiting firstmate, age 15s): test:fm-manual
+[2026-09-18T09:04:46-0700] absorbed stale (parked at a validation gate, awaiting firstmate, age 16s): test:fm-manual
+[2026-09-18T09:04:47-0700] absorbed stale (parked at a validation gate, awaiting firstmate, age 17s): test:fm-manual
+[2026-09-18T09:04:52-0700] absorbed stale (parked at a validation gate, awaiting firstmate, age 22s): test:fm-manual
+[2026-09-18T09:04:53-0700] absorbed stale (parked at a validation gate, awaiting firstmate, age 23s): test:fm-manual
+[2026-09-18T09:04:54-0700] absorbed stale (parked at a validation gate, awaiting firstmate, age 24s): test:fm-manual
+[2026-09-18T09:04:56-0700] absorbed stale (parked at a validation gate, awaiting firstmate, age 26s): test:fm-manual
+[2026-09-18T09:05:00-0700] absorbed stale (parked at a validation gate, awaiting firstmate, age 30s): test:fm-manual
+[2026-09-18T09:05:02-0700] absorbed stale (parked at a validation gate, awaiting firstmate, age 32s): test:fm-manual
+[2026-09-18T09:05:03-0700] absorbed stale (parked at a validation gate, awaiting firstmate, age 33s): test:fm-manual
+[2026-09-18T09:05:05-0700] absorbed stale (parked at a validation gate, awaiting firstmate, age 35s): test:fm-manual
+[2026-09-18T09:05:09-0700] absorbed stale (parked at a validation gate, awaiting firstmate, age 39s): test:fm-manual
+[2026-09-18T09:05:10-0700] absorbed stale (parked at a validation gate, awaiting firstmate, age 40s): test:fm-manual
+[2026-09-18T09:05:12-0700] absorbed stale (parked at a validation gate, awaiting firstmate, age 42s): test:fm-manual
+[2026-09-18T09:05:13-0700] absorbed stale (parked at a validation gate, awaiting firstmate, age 43s): test:fm-manual
+[2026-09-18T09:05:14-0700] absorbed stale (parked at a validation gate, awaiting firstmate, age 44s): test:fm-manual
+[2026-09-18T09:05:19-0700] absorbed stale (parked at a validation gate, awaiting firstmate, age 49s): test:fm-manual
+[2026-09-18T09:05:20-0700] absorbed stale (parked at a validation gate, awaiting firstmate, age 50s): test:fm-manual
+[2026-09-18T09:05:21-0700] absorbed stale (parked at a validation gate, awaiting firstmate, age 51s): test:fm-manual
+[2026-09-18T09:05:23-0700] absorbed stale (parked at a validation gate, awaiting firstmate, age 53s): test:fm-manual
+== decision RESOLVED while still parked (worker owes the move) ==
+watcher exited with: [stale: test:fm-manual]
+paused flag present after: no
+--- drain
+1789747527	1	stale	test:fm-manual	stale: test:fm-manual
