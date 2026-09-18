@@ -117,6 +117,10 @@ mkdir -p "$STATE"
 # worker while adding no uncovered file.
 # shellcheck source=/dev/null
 . "$SCRIPT_DIR/fm-merge-outcome-lib.sh"
+# Bounded runner for the merged-firstmate-PR self-update below, whose fetch can
+# otherwise hang on an unreachable origin and stall the poll loop.
+# shellcheck source=bin/fm-timeout-lib.sh
+. "$SCRIPT_DIR/fm-timeout-lib.sh"
 # shellcheck source=bin/fm-x-lib.sh
 . "$SCRIPT_DIR/fm-x-lib.sh"
 # shellcheck source=bin/fm-check-lib.sh
@@ -166,6 +170,8 @@ HEARTBEAT=${FM_HEARTBEAT:-600}        # base seconds between heartbeat scans
 HEARTBEAT_MAX=${FM_HEARTBEAT_MAX:-7200}  # heartbeat backoff cap
 CHECK_INTERVAL=${FM_CHECK_INTERVAL:-300}  # seconds between *.check.sh sweeps
 CHECK_TIMEOUT=${FM_CHECK_TIMEOUT:-30}     # seconds allowed per *.check.sh
+AUTO_UPDATE_TIMEOUT=${FM_AUTO_UPDATE_TIMEOUT:-120}  # seconds allowed per self-update sweep
+AUTO_UPDATE_FAIL_ALERT=${FM_AUTO_UPDATE_FAIL_ALERT:-3}  # failed attempts before firstmate is told
 HOME_SUMMARY_INTERVAL=${FM_HOME_SUMMARY_INTERVAL:-300}
 case "$HOME_SUMMARY_INTERVAL" in
   ''|*[!0-9]*|0) HOME_SUMMARY_INTERVAL=300 ;;
@@ -1456,6 +1462,89 @@ retire_merged_pr_poll() {  # <id>
   fi
 }
 
+# Self-update this home and its secondmates after a merged FIRSTMATE PR, so the
+# new instructions reach the fleet without anyone invoking /updatefirstmate.
+# bin/fm-update.sh owns every decision here - whether the merged PR is even this
+# repo's, whether the home is quiet enough to touch, and every fast-forward-only
+# guard - so this call adds no policy of its own and never forces anything.
+#
+# It queues nothing unless firstmate has something to act on: the durable
+# re-read wake for an instruction surface that just advanced underneath it. The
+# wake is only QUEUED here, never delivered, because the two call sites reach
+# it differently: the merged-PR path is already about to deliver its own merge
+# wake, while the deferred-retry path has no wake of its own and must deliver
+# this one itself. AUTO_UPDATE_WAKE_REASON carries that decision back.
+#
+# A run that fails or hits its time bound leaves fm-update.sh's pending record
+# behind, so the retry sweep picks the notification up again; nothing is lost.
+# What must not stay quiet is an update that keeps failing, so once the record's
+# attempt count reaches AUTO_UPDATE_FAIL_ALERT one durable wake tells firstmate.
+# The count only ever grows within one episode and resets with the record, so
+# the wake is queued exactly once per episode, not on every attempt.
+AUTO_UPDATE_WAKE_REASON=""
+auto_update_failing_alert() {  # <what happened>
+  local attempts
+  attempts=$(sed -n '2s/^attempts=//p' "$STATE/.auto-update-pending" 2>/dev/null)
+  case "$attempts" in ''|*[!0-9]*) return 0 ;; esac
+  [ "$attempts" -eq "$AUTO_UPDATE_FAIL_ALERT" ] || return 0
+  AUTO_UPDATE_WAKE_REASON="check: firstmate self-update after a merge keeps failing ($attempts attempts, last: $1); it retries on the check sweep until it completes"
+  fm_wake_append check firstmate-self-update-failing "$AUTO_UPDATE_WAKE_REASON"
+}
+auto_update_after_merge() {  # <pr-url>|--retry-after-merge
+  local out rc=0 skipped skipped_count
+  AUTO_UPDATE_WAKE_REASON=""
+  [ -x "$FM_ROOT/bin/fm-update.sh" ] || return 0
+  case "$1" in
+    --retry-after-merge) set -- --retry-after-merge ;;
+    *) set -- --after-merge "$1" ;;
+  esac
+  out=$(FM_HOME="$FM_HOME" FM_ROOT_OVERRIDE="$FM_ROOT" FM_STATE_OVERRIDE="$STATE" \
+    fm_run_timed "$AUTO_UPDATE_TIMEOUT" "$FM_ROOT/bin/fm-update.sh" "$@" 2>&1) || rc=$?
+  if [ "$rc" -eq 124 ]; then
+    triage_log "self-update after merge hit its time bound"
+    auto_update_failing_alert "hit its ${AUTO_UPDATE_TIMEOUT}s time bound" || return 1
+    return 0
+  fi
+  if [ "$rc" -ne 0 ]; then
+    triage_log "self-update after merge failed (rc=$rc)"
+    auto_update_failing_alert "failed (rc=$rc)" || return 1
+    return 0
+  fi
+  case "$out" in
+    *"after-merge: completed"*) ;;
+    *"after-merge: deferred"*)
+      triage_log "self-update after merge deferred until the home is quiet"
+      return 0
+      ;;
+    *"after-merge: skipped"*|*"after-merge: no pending update"*) return 0 ;;
+    *)
+      triage_log "self-update after merge did not complete: $(printf '%s' "$out" | tr '\n' ' ')"
+      auto_update_failing_alert "did not complete" || return 1
+      return 0
+      ;;
+  esac
+  # A home that could not be advanced safely is a normal outcome, but it is one
+  # only firstmate can act on (its own un-landed work, its own local edits), so
+  # it is surfaced by name and reason rather than left in this log. The list is
+  # bounded because a large fleet must not turn one wake into a wall of text. A
+  # remote secondmate's skip names the host it was skipped on, so both shapes
+  # are matched.
+  skipped=$(printf '%s\n' "$out" | grep -E ': skipped( on [^:]+)?: ' | head -3 | tr '\n' ';')
+  if [ -n "$skipped" ]; then
+    skipped_count=$(printf '%s\n' "$out" | grep -Ec ': skipped( on [^:]+)?: ')
+    skipped=${skipped%;}
+    if [ "$skipped_count" -gt 3 ]; then
+      skipped="$skipped; and $((skipped_count - 3)) more"
+    fi
+    fm_wake_append check firstmate-self-update-skipped \
+      "check: firstmate self-update after a merge left targets as-is: $skipped" || return 1
+    AUTO_UPDATE_WAKE_REASON="check: firstmate self-update after a merge left targets as-is: $skipped"
+  fi
+  printf '%s\n' "$out" | grep -q '^reread-firstmate: yes$' || return 0
+  AUTO_UPDATE_WAKE_REASON="check: firstmate updated itself to the latest after a merge - re-read AGENTS.md"
+  fm_wake_append check firstmate-self-update "$AUTO_UPDATE_WAKE_REASON" || return 1
+}
+
 resurface_after_downtime() {
   # Handling successors already have a predecessor-delivered wake on the way.
   # Re-announcing from this cycle is what turned a lost handshake into an
@@ -1594,6 +1683,7 @@ while :; do
             triage_log "absorbed duplicate merged PR poll result for $id"
             continue
           fi
+          auto_update_after_merge "$url" || exit 1
           wake "$reason"
         fi
         fm_wake_append check "$c" "$reason" || exit 1
@@ -1601,6 +1691,16 @@ while :; do
         wake "$reason"
       fi
     done
+    # A self-update deferred while this home was busy retries on the same slow
+    # cadence until the home is quiet. The retry costs nothing while the record
+    # is absent, and fm-update.sh re-reads the deferral conditions itself.
+    if [ -f "$STATE/.auto-update-pending" ]; then
+      auto_update_after_merge --retry-after-merge || exit 1
+      if [ -n "$AUTO_UPDATE_WAKE_REASON" ]; then
+        touch "$STATE/.last-check"
+        wake "$AUTO_UPDATE_WAKE_REASON"
+      fi
+    fi
     if [ -n "$rejected_checks" ]; then
       reason="check: rejected unauthenticated state checks:$rejected_checks"
       fm_wake_append check unauthenticated-state-checks "$reason" || exit 1

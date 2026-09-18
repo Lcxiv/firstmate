@@ -8,7 +8,8 @@
 # branch while passing a different repository to `gh pr create --repo`.
 # This check reads the public `no-mistakes status` surface and requires its
 # registered `remote:` PR base to identify the same repository as git origin.
-# Equivalent HTTPS and SSH spellings compare by normalized host/project identity.
+# Equivalent HTTPS and SSH spellings compare by normalized host/project identity
+# (bin/fm-pr-lib.sh's fm_pr_remote_identity).
 #
 # The human-readable `remote:` line of `no-mistakes status` is LOAD-BEARING here:
 # no-mistakes exposes no structured or JSON form of the stored PR base (neither
@@ -34,6 +35,12 @@
 # `no-mistakes init`, and then rerun this check.
 set -u
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# fm_pr_remote_identity is the single owner of host/project identity
+# normalization, so this check and the self-update comparison cannot drift.
+# shellcheck source=bin/fm-pr-lib.sh
+. "$SCRIPT_DIR/fm-pr-lib.sh"
+
 die() {
   printf 'fm-pr-target-check: %s\n' "$*" >&2
   exit 1
@@ -45,35 +52,6 @@ bounded_status() {
   text=${text# }
   text=${text% }
   printf '%s\n' "${text:-(no output)}"
-}
-
-normalize_remote_identity() {
-  local raw=$1 rest authority path identity
-  raw=${raw%/}
-  case "$raw" in
-    *://*)
-      rest=${raw#*://}
-      authority=${rest%%/*}
-      [ "$rest" != "$authority" ] || return 1
-      path=${rest#*/}
-      authority=${authority##*@}
-      identity="$authority/$path"
-      ;;
-    *:*)
-      authority=${raw%%:*}
-      path=${raw#*:}
-      authority=${authority##*@}
-      [ -n "$authority" ] && [ -n "$path" ] || return 1
-      identity="$authority/$path"
-      ;;
-    *)
-      identity=$raw
-      ;;
-  esac
-  identity=${identity%/}
-  identity=${identity%.git}
-  [ -n "$identity" ] || return 1
-  printf '%s\n' "$identity" | LC_ALL=C tr '[:upper:]' '[:lower:]'
 }
 
 [ "$#" -le 1 ] || die "usage: fm-pr-target-check.sh [worktree]"
@@ -98,9 +76,9 @@ case "$REGISTERED" in
   *$'\n'*) die "no-mistakes status reported more than one remote PR base" ;;
 esac
 
-ORIGIN_ID=$(normalize_remote_identity "$ORIGIN") \
+ORIGIN_ID=$(fm_pr_remote_identity "$ORIGIN") \
   || die "could not normalize origin URL: $ORIGIN"
-REGISTERED_ID=$(normalize_remote_identity "$REGISTERED") \
+REGISTERED_ID=$(fm_pr_remote_identity "$REGISTERED") \
   || die "could not normalize registered PR base: $REGISTERED"
 
 if [ "$ORIGIN_ID" != "$REGISTERED_ID" ]; then

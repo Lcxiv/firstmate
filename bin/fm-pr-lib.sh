@@ -207,6 +207,44 @@ fm_pr_url_parse() {
   FM_PR_NUMBER=${BASH_REMATCH[3]}
 }
 
+# Normalize a git remote URL to its bare host/project identity, lowercased and
+# stripped of scheme, userinfo, a trailing slash, and a trailing ".git", so that
+# equivalent HTTPS and SSH spellings of one repository compare equal. This is
+# the single owner of that comparison: bin/fm-pr-target-check.sh compares a
+# registered PR base against origin with it, and bin/fm-update.sh compares a
+# merged PR's identity against the firstmate repo's own origin with it.
+# The shape it prints is deliberately the same "<host>/<path>" that
+# fm_pr_url_parse yields as "$FM_PR_HOST/$FM_PR_PATH", so a parsed PR URL and a
+# remote URL are directly comparable after lowercasing.
+fm_pr_remote_identity() { # <remote-url>
+  local raw=${1-} rest authority path identity
+  raw=${raw%/}
+  case "$raw" in
+    *://*)
+      rest=${raw#*://}
+      authority=${rest%%/*}
+      [ "$rest" != "$authority" ] || return 1
+      path=${rest#*/}
+      authority=${authority##*@}
+      identity="$authority/$path"
+      ;;
+    *:*)
+      authority=${raw%%:*}
+      path=${raw#*:}
+      authority=${authority##*@}
+      [ -n "$authority" ] && [ -n "$path" ] || return 1
+      identity="$authority/$path"
+      ;;
+    *)
+      identity=$raw
+      ;;
+  esac
+  identity=${identity%/}
+  identity=${identity%.git}
+  [ -n "$identity" ] || return 1
+  printf '%s\n' "$identity" | LC_ALL=C tr '[:upper:]' '[:lower:]'
+}
+
 fm_pr_head_valid() {
   local head=${1-}
   local LC_ALL=C

@@ -420,6 +420,12 @@ The refresh also prunes local branches whose remote is gone and that no worktree
 For a remote route, the configured code root updates from its own origin on that host before the persistent home fast-forwards to the code-root commit.
 The update is fast-forward only: dirty, diverged, offline, and off-default targets are reported and left untouched.
 Local homes share the guarded fast-forward helper, while remote updates delegate the same safety decision to the configured host through the generic transport.
+
+A merged firstmate pull request runs that same guarded update on its own, so a landed change reaches the running fleet without anyone invoking the skill.
+The merged-PR notification a home already polls for is matched against that home's own origin, so a merge in any other project changes nothing.
+A home that still has firstmate work in flight in one of its own worktrees records the notification and completes it once that worker is gone, rather than moving the base underneath a task that is still building on it.
+Nothing about the fast-forward-only guarantee is relaxed for the automatic caller: a dirty, diverged, offline, or off-default home is skipped and reported exactly as it is for a person.
+Gitignored `data/` is never tracked, so no fast-forward carries it and the automatic path does not sync it either.
 The mechanics are owned by the `/updatefirstmate` skill and firstmate's operating manual in [`AGENTS.md`](../AGENTS.md) (self-update).
 
 ## Restart-proof
