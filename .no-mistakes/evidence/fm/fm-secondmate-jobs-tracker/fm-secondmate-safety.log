@@ -1,0 +1,82 @@
+ok - FM_HOME parameterizes data and state paths
+ok - fm-lock status is scoped per home
+ok - seed allows overlapping project clone lists and drops the owns/owner routing
+ok - home-seed validation rejects registry records no operational parser can consume
+ok - home seeding refuses broken registry symlinks before provisioning
+ok - home seeding refuses unreadable registries before provisioning
+ok - home seed validation rejects duplicate home routes
+ok - home seed validation rejects duplicate id routes
+ok - home seed validation rejects nested home routes
+leased worktree for dash
+ok - home seeding durably leases treehouse-acquired dash homes under the secondmate id
+ok - home seeding returns rejected acquired homes through treehouse
+ok - home seed rollback warns when treehouse-acquired return fails
+ok - home seeding leaves unsafe acquired active homes untouched
+ok - home seeding rolls back failed clone attempts without residue
+ok - home seeding refuses direct seed without filled charter text
+ok - home seeding refuses unfilled placeholder charters
+ok - home seeding refuses empty normalized charter fields
+ok - home seeding scaffolds, registers, and spawns a project-less home end to end
+ok - secondmate spawn resolves home validation and projects from punctuated registry fields
+ok - secondmate spawn refuses ambiguous, supplied-home, and metadata-home registry bindings
+ok - home seeding validates reused project-less charters before mutation
+ok - home seeding refuses project-less conversion of a populated home
+ok - home seeding refuses project-less homes whose projects directory cannot be inspected
+ok - home seeding refuses project-less homes with symlinked projects directories
+ok - home seeding refuses project-less homes with non-directory projects paths
+ok - home seeding refuses project-less homes whose project registry cannot be inspected
+ok - home seeding fails loudly on accidental project omission and rejects mixed --no-projects
+ok - home seeding refuses local-only projects
+ok - fm-project-mode reads +local-origin only on local-only entries
+ok - a local-only project seeds, delivers, and lands end to end as a local-origin mirror
+ok - local-origin seeding refuses every malformed or misapplied origin without creating anything
+ok - the main home lands only into its own recorded repository, never a rewritten mirror origin
+ok - main-home landing of a mirror's branch refuses every mismatched record and keeps its guards
+ok - home seeding refuses registry delimiter home paths
+ok - home seeding refuses active home and repo root
+ok - home seeding refuses homes marked for another id
+ok - home seeding refuses homes registered to another id
+ok - home seeding refuses same-id reassignment to a different home
+ok - home seeding refuses registered home overlaps
+ok - remote-backed subhome seeding requires a source origin
+ok - remote-backed subhome seeding validates existing destination origins
+ok - home seeding resolves relative source origins against the source project
+ok - home seeding skips initialized existing no-mistakes clones
+ok - home seeding refuses uninitialized existing no-mistakes clones
+ok - home seeding refuses project destinations outside the subhome
+ok - home seeding refuses operational directories outside the subhome
+ok - home seeding refuses symlinked and non-regular leaf files
+ok - home reseeding preserves and enforces the durable parent binding
+ok - secondmate spawn validates homes before launch
+ok - secondmate spawn refuses operational directories outside the subhome
+ok - fm-send refuses a bare firstmate window with no metadata in this home
+ok - secondmate teardown retires empty homes and releases routing
+ok - secondmate teardown refuses ambiguous and identity-mismatched registry bindings
+ok - normal secondmate teardown sweeps process events before removal
+ok - secondmate teardown preserves state when process-event sweeping is unavailable
+ok - later teardown refusals preserve active process-event sources
+ok - force teardown sweeps nested secondmate homes before deletion
+ok - force teardown preserves nested process-event restoration status and recovery state
+ok - secondmate teardown refuses to hide failed leased-home return
+ok - secondmate teardown raw-removes plain-clone homes
+ok - secondmate force teardown discards child work
+ok - secondmate force teardown preserves child worktree after unproven lock refusal
+ok - force teardown allows non-state operational directory symlinks inside the subhome
+ok - force teardown refuses operational directory symlinks outside the subhome
+ok - secondmate teardown refuses homes containing registered nested homes
+ok - secondmate teardown refuses nested homes from the child registry
+ok - force teardown validates subhome before child cleanup
+ok - forced teardown refuses a non-directory descendant state path
+ok - forced teardown refuses a symlinked descendant state path
+ok - forced teardown locks a descendant whose state directory was absent
+ok - forced teardown refuses while a fresh task is being published in the home
+ok - a fresh spawn refuses to publish while a forced teardown owns the task set
+ok - a fresh remote secondmate spawn refuses while the task set is owned
+ok - force teardown refuses child worktrees inside the active home
+ok - force teardown refuses child worktrees inside the firstmate repo
+ok - force teardown refuses unregistered child worktree paths
+ok - secondmate teardown path-boundary matrix refuses unmarked/ancestor/active-descendant/repo-descendant homes
+ok - idle kind=secondmate pane is healthy and not stale
+ok - secondmate charter brief is idle by default and does not self-initiate work
+ok - fm-backlog-handoff aborts atomically on unmatched, in-flight, and unregistered targets
+ok - fm-backlog-handoff refuses Done items under whitespace section headings and unsafe homes

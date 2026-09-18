@@ -1,0 +1,169 @@
+
+### S1 bare local-only name keeps its refusal, plus hint
+$ /Users/louiscondevaux/.no-mistakes/worktrees/71bad1a6f2bc/01M2TP78BD1GT95D07J90ECG50/bin/fm-home-seed.sh jt /private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/sub alpha
+error: project alpha is local-only; secondmate routes support only no-mistakes and direct-PR projects
+error: to give it a local-origin mirror instead, name the project's authoritative working repository: alpha=<absolute checkout path>
+[exit 1]
+$ test -e /private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/sub
+[exit 1]
+
+### S2 seed local-only project (no usable remote for the mirror) as local-origin mirror, beside remote-backed beta
+$ /Users/louiscondevaux/.no-mistakes/worktrees/71bad1a6f2bc/01M2TP78BD1GT95D07J90ECG50/bin/fm-home-seed.sh jt /private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/sub alpha=/private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/main/projects/alpha beta
+scaffolded: /private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/main/data/jt/brief.md (secondmate charter)
+home=/private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/sub
+[exit 0]
+$ git -C /private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/sub/projects/alpha remote -v
+origin	/private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/main/projects/alpha (fetch)
+origin	/private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/main/projects/alpha (push)
+[exit 0]
+$ git -C /private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/sub/projects/beta remote get-url origin
+/private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/beta.git
+[exit 0]
+$ cat /private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/main/data/jt/local-origins
+alpha	/private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/main/projects/alpha
+[exit 0]
+$ grep -E ^- (alpha|beta)  /private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/sub/data/projects.md
+- alpha [local-only +yolo +local-origin] - private local project (added 2026-09-18)
+- beta [direct-PR] - remote-backed project (added 2026-09-18)
+[exit 0]
+$ cat /private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/main/data/projects.md
+- alpha [local-only +yolo] - private local project (added 2026-09-18)
+- beta [direct-PR] - remote-backed project (added 2026-09-18)
+[exit 0]
+
+### S3 annotation is read
+$ /Users/louiscondevaux/.no-mistakes/worktrees/71bad1a6f2bc/01M2TP78BD1GT95D07J90ECG50/bin/fm-project-mode.sh --origin alpha
+local-origin
+[exit 0]
+$ /Users/louiscondevaux/.no-mistakes/worktrees/71bad1a6f2bc/01M2TP78BD1GT95D07J90ECG50/bin/fm-project-mode.sh alpha
+local-only on
+[exit 0]
+$ /Users/louiscondevaux/.no-mistakes/worktrees/71bad1a6f2bc/01M2TP78BD1GT95D07J90ECG50/bin/fm-project-mode.sh --origin beta
+default
+[exit 0]
+$ /Users/louiscondevaux/.no-mistakes/worktrees/71bad1a6f2bc/01M2TP78BD1GT95D07J90ECG50/bin/fm-project-mode.sh --origin alpha
+default
+[exit 0]
+
+### S4 privacy: nothing private anywhere in the secondmate home
+$ grep -rl -e SECRET- /private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/sub
+[exit 1]
+$ git -C /private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/sub/projects/alpha cat-file -e 9f6fa6bad8fedb8078391b5df938a6c250f8ece7
+[exit 1]
+$ ls -A /private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/sub/projects/alpha
+.git
+.gitignore
+README.md
+[exit 0]
+$ git -C /private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/sub/projects/alpha config --get fixture.secret
+[exit 1]
+$ test -e /private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/sub/projects/alpha/.git/hooks/pre-push
+[exit 1]
+$ test -e /private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/sub/data/jt/local-origins
+[exit 1]
+
+### S5 worker contract in mirror vs. authority home
+$ /Users/louiscondevaux/.no-mistakes/worktrees/71bad1a6f2bc/01M2TP78BD1GT95D07J90ECG50/bin/fm-brief.sh jt-task alpha --mode local-only
+scaffolded: /private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/sub/data/jt-task/brief.md (ship, mode=local-only; replace {TASK})
+[exit 0]
+$ grep -n -i -E push|origin|never read /private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/sub/data/jt-task/brief.md
+21:1. Push only your `fm/jt-task` work, only to `origin`, and only under a delivery name that does not exist there yet (`fm/jt-task`, then `fm/jt-task-r2`, `fm/jt-task-r3`, ... after a rebase). Never force-push in any form, never push to an existing branch, never open a PR, and never merge. The main firstmate lands the branch you report.
+60:This task ships **local-only** from a local-origin mirror: no PR, no pipeline, and the only remote is `origin`, the project's authoritative working repository.
+61:The task is complete only when committed on your branch `fm/jt-task` and that branch is pushed to `origin` with `git push origin fm/jt-task`. Push nothing else anywhere, do NOT open a PR, and do NOT merge.
+62:Never force-push, in any form: no `--force`, no `--force-with-lease`, no `+` refspec, and never delete a branch in `origin`. A branch name you have pushed is never pushed to again.
+63:Touch `origin` only through `git fetch`, `git ls-remote`, and those pushes: never read, copy, or write the files of the repository it points at.
+64:Keep your work a clean fast-forward onto `origin`'s default branch. If that branch has advanced after you pushed, fetch, rebase your local `fm/jt-task` onto it, and push the result under the next unused delivery name instead: `git push origin fm/jt-task:refs/heads/fm/jt-task-r2`, then `fm/jt-task-r3`, and so on. Check `git ls-remote --heads origin 'fm/jt-task*'` first so the name you pick does not exist yet.
+65:When it is implemented, committed, and pushed, append `done: ready in branch <exact branch name you last pushed> pushed to origin` to the status file (for example `done: ready in branch fm/jt-task pushed to origin`, or `fm/jt-task-r2` after one rebase) and stop.
+[exit 0]
+$ /Users/louiscondevaux/.no-mistakes/worktrees/71bad1a6f2bc/01M2TP78BD1GT95D07J90ECG50/bin/fm-brief.sh main-task alpha --mode local-only
+scaffolded: /private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/main/data/main-task/brief.md (ship, mode=local-only; replace {TASK})
+[exit 0]
+$ grep -n -i -E push /private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/main/data/main-task/brief.md
+21:1. Never push to any remote and never open a PR. Work only on your `fm/main-task` branch; firstmate handles the merge into local `main`.
+61:The task is complete only when committed on your branch `fm/main-task`. Do NOT push, do NOT open a PR, do NOT merge.
+[exit 0]
+
+### S6 worker pushes fm/jt-task; secondmate cannot land; main lands
+$ git -C /private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/sub/projects/alpha push origin fm/jt-task
+To /private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/main/projects/alpha
+ * [new branch]      fm/jt-task -> fm/jt-task
+[exit 0]
+$ /Users/louiscondevaux/.no-mistakes/worktrees/71bad1a6f2bc/01M2TP78BD1GT95D07J90ECG50/bin/fm-merge-local.sh jt-task
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  A cycle may simply not be running between turns yet; if this session is taking turns, the next turn end arms one.
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: alpha in this home is a local-origin mirror, not the project's authority; nothing lands here.
+Have the worker push fm/jt-task to origin, then the main firstmate lands it with: bin/fm-merge-local.sh --secondmate <this secondmate's id> [--branch <pushed branch>] jt-task
+[exit 1]
+authority main unchanged: yes
+
+### dirty-tree guard still fires on --secondmate
+$ /Users/louiscondevaux/.no-mistakes/worktrees/71bad1a6f2bc/01M2TP78BD1GT95D07J90ECG50/bin/fm-merge-local.sh --secondmate jt jt-task
+error: /private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/main/projects/alpha has a dirty working tree; refusing to merge into it
+[exit 1]
+$ /Users/louiscondevaux/.no-mistakes/worktrees/71bad1a6f2bc/01M2TP78BD1GT95D07J90ECG50/bin/fm-merge-local.sh --secondmate jt jt-task
+merged fm/jt-task into local main (50b6f17 -> 58061ff) in /private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/main/projects/alpha
+[exit 0]
+$ git -C /private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/main/projects/alpha log --oneline -3 main
+58061ff change
+50b6f17 initial
+[exit 0]
+$ cat /private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/main/projects/alpha/private/applications.csv
+SECRET-PERSONAL-ROW
+[exit 0]
+
+### S7 diverged: no force-push, retry branch -r2
+$ /Users/louiscondevaux/.no-mistakes/worktrees/71bad1a6f2bc/01M2TP78BD1GT95D07J90ECG50/bin/fm-merge-local.sh --secondmate jt t2
+REFUSED: fm/t2 is not a fast-forward of main (it has diverged).
+Have the crewmate rebase onto main and push the result under the next unused name (fm/t2-r2, fm/t2-r3, ...), never a force-push, then retry with --branch <that name>.
+[exit 1]
+$ git -C /private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/sub/projects/alpha push origin fm/t2
+To /private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/main/projects/alpha
+ ! [rejected]        fm/t2 -> fm/t2 (non-fast-forward)
+error: failed to push some refs to '/private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/main/projects/alpha'
+hint: Updates were rejected because the tip of your current branch is behind
+hint: its remote counterpart. If you want to integrate the remote changes,
+hint: use 'git pull' before pushing again.
+hint: See the 'Note about fast-forwards' in 'git push --help' for details.
+[exit 1]
+$ git -C /private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/sub/projects/alpha push origin fm/t2:refs/heads/fm/t2-r2
+To /private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/main/projects/alpha
+ * [new branch]      fm/t2 -> fm/t2-r2
+[exit 0]
+$ /Users/louiscondevaux/.no-mistakes/worktrees/71bad1a6f2bc/01M2TP78BD1GT95D07J90ECG50/bin/fm-merge-local.sh --secondmate jt --branch fm/other t2
+error: --branch fm/other is not a delivery branch of task t2; expected fm/t2 or fm/t2-r<N> with N >= 2
+[exit 1]
+$ /Users/louiscondevaux/.no-mistakes/worktrees/71bad1a6f2bc/01M2TP78BD1GT95D07J90ECG50/bin/fm-merge-local.sh --secondmate jt --branch fm/t2-r2 t2
+merged fm/t2-r2 into local main (b0a3e41 -> 33dbfeb) in /private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/main/projects/alpha
+[exit 0]
+
+### S8 adversarial: worker rewrites mirror origin to another real repo
+$ /Users/louiscondevaux/.no-mistakes/worktrees/71bad1a6f2bc/01M2TP78BD1GT95D07J90ECG50/bin/fm-merge-local.sh --secondmate jt evil
+REFUSED: secondmate jt's alpha clone has origin '/private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/other', but this home recorded its authoritative working repository as '/private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/main/projects/alpha'; nothing lands.
+[exit 1]
+other main unchanged: yes; authority main unchanged: yes
+$ /Users/louiscondevaux/.no-mistakes/worktrees/71bad1a6f2bc/01M2TP78BD1GT95D07J90ECG50/bin/fm-merge-local.sh --secondmate jt evil
+error: this home has no local-origin record for alpha in /private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/main/data/jt/local-origins; refusing to land a mirror's branch without it
+bin/fm-home-seed.sh writes that record when it seeds the mirror; reseed secondmate jt with alpha=<authoritative working repository>
+[exit 1]
+
+### S9 reseed idempotent; misapplied origin refused
+$ /Users/louiscondevaux/.no-mistakes/worktrees/71bad1a6f2bc/01M2TP78BD1GT95D07J90ECG50/bin/fm-home-seed.sh jt /private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/sub alpha=/private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/main/projects/alpha beta
+home=/private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/sub
+[exit 0]
+$ cat /private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/main/data/jt/local-origins
+alpha	/private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/main/projects/alpha
+[exit 0]
+$ grep -c -- - alpha  /private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/sub/data/projects.md
+1
+[exit 0]
+$ /Users/louiscondevaux/.no-mistakes/worktrees/71bad1a6f2bc/01M2TP78BD1GT95D07J90ECG50/bin/fm-home-seed.sh jt2 /private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/sub2 beta=/private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/main/projects/beta
+error: project beta is direct-PR; a local origin applies only to local-only projects, and beta clones from its own origin
+[exit 1]
+$ test -e /private/var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T/tmp.ys0mJrN8Ce/sub2
+[exit 1]
