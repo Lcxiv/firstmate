@@ -10,7 +10,8 @@
 # The consumers are bin/fm-fleet-sync.sh (skip local-only clones),
 # bin/fm-home-seed.sh (seed local-only only as a local-origin mirror, run
 # no-mistakes init), bin/fm-spawn.sh's advisory registry-deviation notice, and,
-# through --origin, bin/fm-brief.sh, bin/fm-promote.sh, and bin/fm-merge-local.sh.
+# through --origin, bin/fm-brief.sh, bin/fm-promote.sh, bin/fm-merge-local.sh,
+# and bin/fm-teardown.sh.
 #
 # Registry line format (data/projects.md):
 #   - <name> - <desc> (added <date>)                  -> no-mistakes off  (legacy default)
@@ -37,8 +38,8 @@
 #
 # --origin prints one word instead: the shape of this home's clone.
 #   local-origin  a local-only entry carrying +local-origin. This home's clone is
-#                 a mirror whose origin is the local checkout the main home lands
-#                 into; bin/fm-home-seed.sh writes the flag only for such a clone.
+#                 a mirror whose origin is the project's authoritative working
+#                 repository; bin/fm-home-seed.sh writes the flag only for such a clone.
 #                 It is not the project's authority: its workers push fm/<id> to
 #                 that origin, and only the main home lands the branch there.
 #   default       every other entry, including an unregistered project, whose

@@ -642,6 +642,62 @@ test_local_only_truly_unpushed_refuses() {
   pass "local-only worktree with truly unpushed work is refused (safety preserved)"
 }
 
+# A secondmate's local-origin mirror: origin is the project's authoritative
+# working repository, so a branch that was only pushed there is not landed. The
+# same pushed branch in a project this home does not register +local-origin
+# keeps passing, exactly as the fork-remote case above does.
+test_local_origin_pushed_branch_is_not_landed() {
+  local case_dir rc wt_head
+  case_dir=$(make_case local-origin-pushed)
+  write_meta "$case_dir" local-only ship
+  printf '%s\n' '- project [local-only +local-origin] - mirror (added 2026-09-18)' > "$case_dir/data/projects.md"
+  seed_backlog_in_flight "$case_dir"
+  wt_commit "$case_dir" "mirror work"
+  git -C "$case_dir/wt" push -q origin fm/task-x1
+  wt_head=$(git -C "$case_dir/wt" rev-parse HEAD)
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 1 "$rc" "local-origin-pushed: a merely pushed branch should refuse teardown"
+  assert_grep 'the main home has not landed yet' "$case_dir/stderr" \
+    "local-origin-pushed: the refusal did not say the main home has not landed the work"
+  [ -d "$case_dir/wt" ] || fail "local-origin-pushed: a refused teardown removed the worktree"
+  [ "$(backlog_row_state "$case_dir")" = in_flight ] \
+    || fail "local-origin-pushed: a refused teardown closed the backlog item"
+  assert_no_grep 'local main' "$case_dir/data/backlog.md" \
+    "local-origin-pushed: the backlog claimed a landing that has not happened"
+
+  # The main home lands the branch: origin's default branch now contains it.
+  git -C "$case_dir/origin.git" update-ref refs/heads/main "$wt_head"
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "local-origin-pushed: teardown should succeed once origin's default branch holds the work"
+  [ "$(backlog_row_state "$case_dir")" = "done" ] || fail "local-origin-pushed: a landed teardown left the backlog item open"
+  assert_grep 'local main' "$case_dir/data/backlog.md" "local-origin-pushed: a landed mirror task did not close as local main"
+  pass "a local-origin mirror's pushed branch refuses teardown until the main home lands it"
+}
+
+test_local_origin_forced_teardown_does_not_claim_a_landing() {
+  local case_dir
+  case_dir=$(make_case local-origin-forced)
+  write_meta "$case_dir" local-only ship
+  printf '%s\n' '- project [local-only +local-origin] - mirror (added 2026-09-18)' > "$case_dir/data/projects.md"
+  seed_backlog_in_flight "$case_dir"
+  wt_commit "$case_dir" "mirror work"
+  git -C "$case_dir/wt" push -q origin fm/task-x1
+
+  run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr" \
+    || fail "local-origin-forced: forced teardown failed: $(cat "$case_dir/stderr")"
+  [ "$(backlog_row_state "$case_dir")" = "done" ] || fail "local-origin-forced: forced teardown left the backlog item open"
+  assert_no_grep 'local main' "$case_dir/data/backlog.md" \
+    "local-origin-forced: a forced teardown of unlanded mirror work closed as local main"
+  pass "a forced local-origin teardown never records an unlanded branch as local main"
+}
+
 test_local_only_merged_to_local_main_allows() {
   local case_dir rc
   case_dir=$(make_case merged-main)
@@ -2881,6 +2937,8 @@ test_current_record_keeps_its_unmigrated_path
 test_teardown_closes_the_backlog_item_itself
 test_teardown_manual_backend_leaves_the_backlog_to_the_operator
 test_local_only_truly_unpushed_refuses
+test_local_origin_pushed_branch_is_not_landed
+test_local_origin_forced_teardown_does_not_claim_a_landing
 test_local_only_merged_to_local_main_allows
 test_no_mistakes_origin_remote_allows
 test_no_mistakes_truly_unpushed_refuses

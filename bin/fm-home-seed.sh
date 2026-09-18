@@ -25,13 +25,21 @@
 #       A local-only project is refused as a bare <project>, because its local
 #       default branch is its only authority and a second clone would be a
 #       second, unreconciled authority. It is seeded only when named as
-#       <project>=<checkout>: <checkout> is the absolute path of the working
-#       checkout the main home lands that project into (projects/<project>, or
-#       wherever it lives), on its default branch. The secondmate home then gets
+#       <project>=<checkout>: <checkout> is the absolute path of the project's
+#       authoritative working repository (projects/<project>, or wherever it
+#       lives), on its default branch. Where two diverged copies of a local-only
+#       project exist, the authoritative one must be established before a
+#       mirror is taken, because a mirror copies committed history and cannot
+#       be un-taken. The secondmate home then gets
 #       a local-origin mirror: a clone whose origin is that checkout, never the
 #       project's own remote, so nothing it does can publish the project. Its
 #       workers push fm/<id> back to that origin and the main home lands it with
 #       bin/fm-merge-local.sh --secondmate, so landing stays in exactly one home.
+#       The main home records each mirror's authoritative working repository in
+#       its own data/<id>/local-origins, one "<project><TAB><absolute path>"
+#       line each, written, rolled back, and re-seeded with the rest of this
+#       transaction. bin/fm-merge-local.sh --secondmate lands only into the
+#       path recorded there, never one read from the secondmate's clone.
 #       The mirror is cloned with --no-local, so it receives only the checkout's
 #       branches and tags and the objects they reach: never untracked or ignored
 #       files, unreachable objects, or the checkout's own git config and hooks. The child registry
@@ -477,13 +485,15 @@ EOF
 # Explicit local-origin checkouts named on the command line, one
 # "<project><TAB><checkout>" line each (Bash 3.2 has no associative arrays).
 SEED_LOCAL_ORIGINS=
+SEED_LOCAL_ORIGINS_RECORD=
+SEED_LOCAL_ORIGINS_RECORD_EXISTED=0
 
 seed_local_origin_for() {  # <project> -> the named checkout, or nothing
   [ -n "$SEED_LOCAL_ORIGINS" ] || return 0
   printf '%s\n' "$SEED_LOCAL_ORIGINS" | awk -F '\t' -v n="$1" '$1 == n { print $2; exit }'
 }
 
-local_origin_default_branch() {  # <checkout>; the branch the main home lands into
+local_origin_default_branch() {  # <checkout>; the authoritative repository's default branch
   local repo=$1 ref branch
   ref=$(git -C "$repo" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true)
   if [ -n "$ref" ]; then
@@ -499,8 +509,8 @@ local_origin_default_branch() {  # <checkout>; the branch the main home lands in
   return 1
 }
 
-# A local origin must be the working checkout bin/fm-merge-local.sh lands into:
-# the top of a non-bare checkout, sitting on its default branch, so the mirror's
+# A local origin must be the project's authoritative working repository, which
+# bin/fm-merge-local.sh lands into: the top of a non-bare checkout, sitting on its default branch, so the mirror's
 # origin/HEAD names the branch that landing advances. Prints its physical path.
 validate_local_origin_checkout() {  # <project> <checkout>
   local project=$1 checkout=$2 top abs_checkout abs_top current default
@@ -513,7 +523,7 @@ validate_local_origin_checkout() {  # <project> <checkout>
   esac
   [ -d "$checkout" ] || { echo "error: local origin for $project is not a directory: $checkout" >&2; return 1; }
   if [ "$(git -C "$checkout" rev-parse --is-bare-repository 2>/dev/null || true)" = true ]; then
-    echo "error: local origin for $project is a bare repository: $checkout; name the working checkout the main home lands into" >&2
+    echo "error: local origin for $project is a bare repository: $checkout; name the project's authoritative working repository" >&2
     return 1
   fi
   top=$(git -C "$checkout" rev-parse --show-toplevel 2>/dev/null) || {
@@ -566,6 +576,39 @@ clone_local_origin_project() {  # <project> <home> <checkout>
   # rewritten away but not yet collected), and the checkout's own config and
   # hooks never reach the secondmate home.
   git clone --quiet --no-local -- "$abs_checkout" "$dst"
+}
+
+# The main home's own record of each mirror's authoritative working repository.
+# A value the lower-privilege side (the secondmate and its workers) can write is
+# never the authority for an action the higher-privilege side (the main home)
+# takes, so bin/fm-merge-local.sh --secondmate lands only into the path recorded
+# here and treats the mirror's origin URL as a claim to check against it.
+# Lines for projects this seed does not name are kept; a project already
+# recorded against a different repository is refused rather than rebound.
+write_local_origins_record() {
+  local record=$SEED_LOCAL_ORIGINS_RECORD project checkout abs_checkout recorded tmp
+  [ -n "$SEED_LOCAL_ORIGINS" ] || return 0
+  tmp="$record.tmp.$$"
+  : > "$tmp" || return 1
+  if [ -f "$record" ]; then
+    printf '%s\n' "$SEED_LOCAL_ORIGINS" | awk -F '\t' '
+      NR == FNR { named[$1] = 1; next }
+      !($1 in named)
+    ' - "$record" > "$tmp" || { rm -f "$tmp"; return 1; }
+  fi
+  while IFS=$'\t' read -r project checkout; do
+    [ -n "$project" ] || continue
+    abs_checkout=$(validate_local_origin_checkout "$project" "$checkout") || { rm -f "$tmp"; return 1; }
+    recorded=
+    [ ! -f "$record" ] || recorded=$(awk -F '\t' -v n="$project" '$1 == n { print $2; exit }' "$record")
+    if [ -n "$recorded" ] && [ "$recorded" != "$abs_checkout" ]; then
+      echo "error: project $project is already recorded with authoritative working repository $recorded; refusing to rebind it to $abs_checkout" >&2
+      rm -f "$tmp"
+      return 1
+    fi
+    printf '%s\t%s\n' "$project" "$abs_checkout" >> "$tmp"
+  done <<< "$SEED_LOCAL_ORIGINS"
+  mv -f -- "$tmp" "$record"
 }
 
 clone_project() {
@@ -626,7 +669,7 @@ $(FM_HOME="$FM_HOME" FM_DATA_OVERRIDE="$DATA" "$FM_ROOT/bin/fm-project-mode.sh" 
 EOF
   if [ "$mode" = local-only ]; then
     echo "error: project $project is local-only; secondmate routes support only no-mistakes and direct-PR projects" >&2
-    echo "error: to give it a local-origin mirror instead, name the checkout the main home lands into: $project=<absolute checkout path>" >&2
+    echo "error: to give it a local-origin mirror instead, name the project's authoritative working repository: $project=<absolute checkout path>" >&2
     return 1
   fi
   url=$(git -C "$src" remote get-url origin 2>/dev/null || true)
@@ -763,6 +806,10 @@ seed_rollback() {
 
   if [ -n "${SEED_PARENT_BRIEF:-}" ] && [ "$SEED_PARENT_BRIEF_CREATED" = 1 ]; then
     rm -f "$SEED_PARENT_BRIEF" 2>/dev/null || true
+  fi
+  if [ -n "${SEED_BACKUP_DIR:-}" ] && [ -n "${SEED_LOCAL_ORIGINS_RECORD:-}" ]; then
+    rm -f "$SEED_LOCAL_ORIGINS_RECORD.tmp.$$" 2>/dev/null || true
+    restore_seed_file "$SEED_LOCAL_ORIGINS_RECORD_EXISTED" "$SEED_BACKUP_DIR/local-origins" "$SEED_LOCAL_ORIGINS_RECORD"
   fi
   if [ -n "${SEED_PARENT_BRIEF:-}" ] && [ "$SEED_PARENT_BRIEF_DIR_CREATED" = 1 ]; then
     rmdir "$(dirname "$SEED_PARENT_BRIEF")" 2>/dev/null || true
@@ -1035,6 +1082,19 @@ seed_home() {
     SEED_PARENT_REG_EXISTED=1
     cp "$REG" "$SEED_BACKUP_DIR/parent-secondmates.md"
   fi
+  SEED_LOCAL_ORIGINS_RECORD=
+  SEED_LOCAL_ORIGINS_RECORD_EXISTED=0
+  if [ -n "$SEED_LOCAL_ORIGINS" ]; then
+    if [ -L "$DATA/$id/local-origins" ] || { [ -e "$DATA/$id/local-origins" ] && [ ! -f "$DATA/$id/local-origins" ]; }; then
+      echo "error: local-origin record $DATA/$id/local-origins is not a regular file" >&2
+      return 1
+    fi
+    SEED_LOCAL_ORIGINS_RECORD="$DATA/$id/local-origins"
+    if [ -f "$SEED_LOCAL_ORIGINS_RECORD" ]; then
+      SEED_LOCAL_ORIGINS_RECORD_EXISTED=1
+      cp "$SEED_LOCAL_ORIGINS_RECORD" "$SEED_BACKUP_DIR/local-origins"
+    fi
+  fi
 
   if [ "$requested_home" = "-" ]; then
     SEED_HOME_ACQUIRED=1
@@ -1114,6 +1174,7 @@ seed_home() {
     clone_project "$project" "$home"
   done
   sync_project_registry "$home" "$@"
+  write_local_origins_record
   for project in "$@"; do
     project_dst=$(validate_project_destination "$home" "$project") || return 1
     if seed_project_was_created "$project_dst"; then

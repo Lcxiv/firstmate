@@ -251,7 +251,8 @@ Retirement or seed rollback returns the leased home; normal restart/recovery kee
 If returning the lease fails during teardown, firstmate leaves the route and home intact instead of hiding a still-held lease.
 Seeding is transactional: if validation, cloning, initialization, or registry update fails, generated briefs, new homes, new project clones, and registry edits are rolled back.
 When a `local-only` project may be routed to a mirror-backed second mate is owned by [`AGENTS.md`](../AGENTS.md) section 6.
-The one alternative mechanism is a local-origin mirror, whose contract `bin/fm-home-seed.sh` owns: the mirror's only remote is the main home's checkout, its workers push `fm/<id>` there, and landing and the project's uncommitted files stay with the main home.
+The one alternative mechanism is a local-origin mirror, whose contract `bin/fm-home-seed.sh` owns: the mirror's only remote is the project's authoritative working repository, its workers push `fm/<id>` there, and landing and the project's uncommitted files stay with the main home.
+The main home lands only into the repository its own `data/<secondmate-id>/local-origins` record names, never a path read from the secondmate's clone.
 The same project may appear in multiple secondmate homes when their scopes differ, such as issue triage versus feature development.
 Secondmates are idle by default: after startup recovery reconciles only work already in their own home, an empty queue waits silently for routed tasks, and they never self-initiate surveys or audits.
 When called with `FM_HOME=<this-firstmate-home>` or when `FM_HOME` is already set to the active firstmate home, metadata-routed `fm-send.sh` requests to a live `kind=secondmate` use the live-charter-compatible `from-firstmate` carrier owned by `bin/fm-operational-input.sh`, so the secondmate returns terse answers through status lines and detailed answers through docs plus status pointers instead of replying only in its own chat.

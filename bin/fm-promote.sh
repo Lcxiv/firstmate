@@ -134,7 +134,8 @@ grep -qx 'kind=scout' "$META" || { echo "error: task $ID is not a scout task (ki
 # promoted no-mistakes worker that never received the ask-user escalation rule or
 # the --yes ban is the delivery hole this file used to leave open.
 # A local-only promotion in a secondmate's local-origin mirror pushes fm/<id>
-# back to the main home's checkout rather than waiting for a merge here.
+# back to the project's authoritative working repository rather than waiting
+# for a merge here.
 ORIGIN=default
 if [ "$MODE" = local-only ]; then
   PROJ_NAME=$(basename "$(sed -n 's/^project=//p' "$META" | head -n 1)")

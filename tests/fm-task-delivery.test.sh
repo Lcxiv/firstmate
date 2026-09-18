@@ -416,8 +416,12 @@ STUB
   awk '/^# Definition of done$/ { emit=1 } emit' "$payload" > "$delivered_dod"
   cmp -s "$brief_dod" "$delivered_dod" \
     || fail "promotion and brief generation delivered different local-origin Definitions of done"
-  assert_grep "Push only your \`fm/$id\` branch, only to \`origin\`" "$home/data/$id/brief.md" \
+  assert_grep "Push only your \`fm/$id\` work, only to \`origin\`" "$home/data/$id/brief.md" \
     "mirror brief rule 1 still forbids the push its contract requires"
+  assert_grep "git push origin fm/$id:refs/heads/fm/$id-r2" "$payload" \
+    "promoted mirror worker was not told how to deliver a rebased retry without a force-push"
+  assert_grep "Never force-push in any form, never push to an existing branch" "$home/data/$id/brief.md" \
+    "mirror brief rule 1 does not forbid overwriting a pushed branch"
 
   FM_HOME="$home" "$BRIEF" authority-task authority-proj --mode local-only >/dev/null 2>&1 \
     || fail "authority brief generation should succeed"
