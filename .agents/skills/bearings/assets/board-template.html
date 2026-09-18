@@ -200,7 +200,8 @@ a { color: inherit; text-decoration: none; }
 .bb-item__now b { font-weight: 700; color: var(--text-strong); }
 .bb-item__side { flex: none; display: flex; align-items: center; gap: 8px; }
 .bb-held { font-size: var(--fs-xs); font-weight: 700; color: var(--rust-600); overflow-wrap: anywhere; }
-.bb-held a { text-decoration: underline; }
+a.bb-held { text-decoration: underline; }
+.bb-item { scroll-margin-top: 80px; }
 
 /* progress pips: the collapsed item's at-a-glance step summary */
 .bb-pips { display: inline-flex; gap: 3px; align-items: center; }
@@ -588,9 +589,11 @@ __FM_BEARINGS_BOARD_DATA__
   /* One owner for an item's head row and its collapsed step list. Rank is one
      sequence across all three bands, because the board is one list. */
   var rank = 0;
+  var anchorSeq = 0;
   var itemById = {};
   function todoItem(kind, t, title, pick) {
     var item = el("article", "bb-item bb-item--" + kind);
+    item.setAttribute("id", "bb-item-" + (++anchorSeq));
     var head = el("div", "bb-item__head");
     if (pick !== undefined) head.appendChild(pick || el("span", "bb-pick-spacer"));
     head.appendChild(el("span", "bb-item__rank", String(++rank)));
@@ -661,7 +664,15 @@ __FM_BEARINGS_BOARD_DATA__
     return row;
   }
 
-  data.captains_call.forEach(function (item) {
+  /* A call that holds up other work costs more to leave unanswered, so those
+     calls lead the list; the rest keep the composer's order. */
+  var calls = data.captains_call.map(function (item, i) { return { item: item, i: i }; });
+  calls.sort(function (a, b) {
+    var ab = Array.isArray(a.item.blocks) && a.item.blocks.length ? 0 : 1;
+    var bb = Array.isArray(b.item.blocks) && b.item.blocks.length ? 0 : 1;
+    return ab - bb || a.i - b.i;
+  });
+  calls.map(function (c) { return c.item; }).forEach(function (item) {
     var parts = todoItem("call", item, item.title);
     var card = parts.item;
     card.classList.add("bb-decision");
@@ -965,9 +976,12 @@ __FM_BEARINGS_BOARD_DATA__
     a.blocks.forEach(function (id) {
       var held = itemById[id];
       if (!held) return;
-      var h = el("span", "bb-held", "holds up #" + held.rank + ": " + held.title);
+      var h = el("a", "bb-held", "holds up #" + held.rank + ": " + held.title);
+      h.href = "#" + held.item.getAttribute("id");
       a.meta.appendChild(h);
-      held.meta.appendChild(el("span", "bb-held", "waits on your call #" + a.rank));
+      var back = el("a", "bb-held", "waits on your call #" + a.rank);
+      back.href = "#" + a.card.getAttribute("id");
+      held.meta.appendChild(back);
     });
   });
 
@@ -977,6 +991,7 @@ __FM_BEARINGS_BOARD_DATA__
   var ldToggleText = document.getElementById("bb-landed-toggle-text");
   document.getElementById("bb-landed-sub").textContent =
     data.landed.length ? data.landed.length + " done" : "No recent completions are in the current baseline.";
+  ldToggleText.textContent = "Show";
   if (!data.landed.length) ldToggle.hidden = true;
   data.landed.forEach(function (t) {
     var row = el("div", "bb-landed-row");

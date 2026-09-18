@@ -82,7 +82,8 @@ Board answers are acted on later under the normal authority rules; this skill's 
 ## Lavish board mode
 
 `/bearings lavish` adds one deliverable beside the unchanged chat digest: the interactive fleet board, a myfirstmate-styled Lavish page where the captain answers Captain's Call items directly instead of replying in chat.
-`bin/fm-bearings-board.sh` owns every board mechanic - the stable board path, fm-bearings-board.v1 payload validation, template injection, Lavish session establishment, the any-origin answer binding, and arm-if-absent registration - so the per-invocation work is composing the payload and running its `build`.
+`bin/fm-bearings-board.sh` owns every board mechanic - the stable board path, fm-bearings-board.v1 payload validation, step generation, template injection, Lavish session establishment, the any-origin answer binding, and arm-if-absent registration - so the per-invocation work is composing the payload, filling its steps, and running its `build`.
+The board is the captain's prioritized todo list: one numbered list of his calls, then the work firstmate has underway, then the queue, with every item carrying ordered steps he can expand.
 
 Compose the payload from the same snapshot with the same ranking judgment as the chat digest, plus these board rules:
 
@@ -91,14 +92,20 @@ Compose the payload from the same snapshot with the same ranking judgment as the
 - Decision cards carry agent-authored copy: a short noun-phrase title, one-line `about` and `decide` context rows, and option labels with hints, with the recommended option marked.
 - Give every card the answer values it expects back, in `options`, even when `allow_freeform` is set; the freeform box is an escape hatch beside the options, never a replacement for them.
   A card that genuinely offers no preset answers must still declare its `recommend_value`, which the board then renders as that card's one clickable answer.
-- The board's Queue-all control stages each card's `recommend_value` as an ordinary per-card answer, so a bulk answer arrives exactly like a single one and needs no separate routing.
+- One click on a card's option queues that answer for the captain's review, and the board's Queue-all control stages each card's `recommend_value` as an ordinary per-card answer, so a bulk answer arrives exactly like a single one and needs no separate routing.
 - Card `type` (decision, merge, credential) is your composing judgment from the row's content; no backlog field types a card for you.
 - When the card's task is a captain-gated WORK item (the answer should free it to proceed rather than complete it), set the card's `close: "release"` so the answer lifts the hold instead of closing the task; question-shaped items omit it.
 - A Charted Next row's optional `kind` separates work from alarms: omit it (or set `"queued"`) for real queued work, and set `"warning"` on every action-free fleet-integrity notice - the `(main-inventory)` gate, an unavailable secondmate home, and an inventory-mismatch repair notice. The board badges a warning row `needs repair` instead of `waiting` and leaves it out of the Charted Next count, so those rows never read as dispatchable queued work.
 - Compose the complete Charted Next list: every queued row and every warning row the snapshot carries, with no length cap of your own.
-  The board scrolls that list, so a long queue costs the captain a scroll rather than hiding its tail behind a summary.
+  The board grows with that list and the page scrolls, so a long queue costs the captain a scroll rather than hiding its tail behind a summary.
+  The snapshot bounds its queued rows by default and says so in `omitted`; when it does, gather again with a larger `FM_BEARINGS_GATES` bound (the snapshot header owns its bounds) rather than composing a partial queue.
 - `charted_more` counts omitted queued rows only, while `charted_warning_more` counts omitted warning rows only; keep both counts separate on the rare payload that still cannot carry every row.
 - The optional `maps` array carries one card per effort map under `data/maps/*.md`, which no fleet snapshot owns; `effort-maps` owns that file format. Read each map's heading as `title`, its Destination prose as `destination`, the item counts of its decisions and open-questions sections as `decided` and `open`, and its remaining-fog and out-of-scope items as `fog` and `out_of_scope`. Omit the key entirely for a home that keeps no maps; the board then renders no band.
+- Every Captain's Call item and every Underway and Charted Next row carries a `todos` list of ordered steps, generated rather than written by hand: save the snapshot you gathered (`--json`), compose the payload without `todos`, then run `bin/fm-bearings-board.sh todos <snapshot.json> <data.json>` and build from its output.
+  That command's header owns the fill rules: a call is the captain's answer then firstmate acting on it, underway work is its delivery lifecycle with the step it is at spelled out, and queued work shows only its real prerequisites before "Start".
+  Write your own `todos` on a row only when you know that item's steps more specifically than the lifecycle does, and keep one step `current` at most; the generator leaves a composed list untouched.
+- Give each Underway row a `title` naming the work in the captain's nouns, so the item reads as a todo rather than as the snapshot's activity detail, and never carry a snapshot title or summary that ends in an ellipsis onto the board: write the full short title from the task record instead.
+- A call whose task id blocks queued work carries `blocks`, which the generator fills from the snapshot's unresolved blockers; the board lists those calls first and links each to the work it holds up.
 - Every Captain's Call item and every Underway, Recently Landed, and Charted Next row carries an explicit `repo` field. Fill it from the snapshot and task records wherever known; use null or an empty string only as the deliberate genuinely-no-repo marker, in which case the template may show the internal id. Ids otherwise stay in the payload only as the routing channel, and composed reasons name blockers in plain words.
 
 Run `build` once after composing the payload.
