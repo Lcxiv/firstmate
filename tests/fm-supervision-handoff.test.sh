@@ -319,6 +319,40 @@ test_pretool_is_inert_in_a_task_worktree() {
   pass "the pre-tool notice stays inert inside a task worktree"
 }
 
+# A non-zero PreToolUse status can deny the call, so a misregistered flag must
+# stand down instead: exit 0 and say nothing on the channel the harness parses.
+test_pretool_never_fails_on_an_unrecognized_argument() {
+  local dir arg out rc
+  dir=$(make_home pretool-bad-arg)
+  record_handoff "$dir"
+  park_session "$dir"
+  for arg in --bogus --cursor; do
+    rc=0
+    out=$(printf '%s\n' '{"session_id":"sess-handoff","tool_name":"Bash"}' \
+      | FM_ROOT_OVERRIDE="$dir" FM_HOME="$dir" "$PRETOOL" "$arg" 2>/dev/null) || rc=$?
+    expect_code 0 "$rc" "$arg must never deny the tool call"
+    [ -z "$out" ] || fail "$arg must print nothing to stdout, got: $out"
+  done
+  pass "the pre-tool check exits 0 and stays silent on an unrecognized argument"
+}
+
+test_pretool_never_fails_on_an_internal_failure() {
+  local dir
+  dir=$(make_home pretool-internal-failure)
+  record_handoff "$dir"
+  park_session "$dir"
+  printf 'epoch=\x00\xff owner_pid=not-a-pid outcome= updated_at=never\n' > "$dir/state/.claude-autoarm-epoch"
+  touch -t "$ANCIENT" "$dir/state/.claude-autoarm-epoch"
+  run_pretool "$dir"
+  expect_code 0 "$PRETOOL_RC" "a corrupt ledger must never deny the tool call"
+  chmod 000 "$dir/state"
+  run_pretool "$dir"
+  chmod 755 "$dir/state"
+  expect_code 0 "$PRETOOL_RC" "an unreadable state directory must never deny the tool call"
+  [ -z "$PRETOOL_OUT" ] || fail "an unreadable state directory must stay silent, got: $PRETOOL_OUT"
+  pass "the pre-tool check exits 0 through an internal failure"
+}
+
 # --- the turn-end banner stays worth reading ---------------------------------
 
 # Same contract as run_pretool: TURNEND_OUT and TURNEND_RC in the caller.
@@ -457,6 +491,8 @@ test_pretool_records_session_activity
 test_pretool_recovery_path_goes_quiet_once_a_cycle_is_armed
 test_pretool_is_inert_under_away_mode
 test_pretool_is_inert_in_a_task_worktree
+test_pretool_never_fails_on_an_unrecognized_argument
+test_pretool_never_fails_on_an_internal_failure
 test_turnend_banner_names_an_abandoned_handoff
 test_turnend_banner_omits_the_lapse_line_between_cycles
 test_guard_warning_names_the_unrecoverable_state

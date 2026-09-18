@@ -42,7 +42,8 @@
 #     keeps the activity record current.
 #
 # Exit/output contract:
-#   exit 0 and no output  - nothing to say, or any uncertainty at all.
+#   exit 0 and no output  - nothing to say, an unknown argument, an internal
+#   failure, or any uncertainty at all.
 #   exit 0 with one JSON object on stdout carrying both
 #   hookSpecificOutput.additionalContext (model-visible) and systemMessage
 #   (operator-visible) - the notice. This is deliberately NOT the bare
@@ -50,18 +51,21 @@
 #   that precedent assumes a human is watching, and this hook cannot.
 set -u
 
-CLAUDE_MODE=0
-CURSOR_MODE=0
+# A non-zero PreToolUse status can deny the call, and under the catch-all
+# matcher that would lock the home out of the very calls needed to repair it.
+# Force a zero status for every way this script can end, including an unbound
+# variable under set -u or a sourced library that exits non-zero.
+trap 'exit 0' EXIT
+
+# --claude is accepted for transport parity with the other tracked hook entries
+# and changes nothing. Anything else is a misregistration: say so on stderr and
+# stand down without speaking.
 for arg in "$@"; do
   case "$arg" in
-    --claude) CLAUDE_MODE=1 ;;
-    --cursor) CURSOR_MODE=1 ;;
-    *) echo "usage: $(basename "$0") [--claude|--cursor]" >&2; exit 2 ;;
+    --claude) ;;
+    *) echo "usage: $(basename "$0") [--claude]" >&2; exit 0 ;;
   esac
 done
-# Accepted for transport parity with the other tracked hook entries; the notice
-# renders identically for every harness that reads the hook output object.
-: "$CLAUDE_MODE"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" || exit 0
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}" || exit 0
@@ -97,11 +101,11 @@ fm_supervision_activity_touch "$STATE"
 # never speak over it.
 [ -e "$STATE/.afk" ] && exit 0
 
-# A Cursor primary loads the tracked Claude settings too, and Cursor's own
-# registration owns its hooks; without --cursor this payload is that duplicate.
-# Checked here rather than on the hot path so an ordinary healthy tool call
-# never pays for jq.
-if [ "$CURSOR_MODE" -eq 0 ] && command -v jq >/dev/null 2>&1; then
+# A Cursor primary loads the tracked Claude settings too, but the ledger this
+# notice reads belongs to the Claude auto-arm alone, so a Cursor payload always
+# stands down. Checked here rather than on the hot path so an ordinary healthy
+# tool call never pays for jq.
+if command -v jq >/dev/null 2>&1; then
   # shellcheck source=bin/fm-hook-host-lib.sh
   . "$SCRIPT_DIR/fm-hook-host-lib.sh" 2>/dev/null || true
   if command -v fm_hook_payload_is_foreign_host >/dev/null 2>&1 \
