@@ -54,7 +54,10 @@
 #      firstmate_work_in_flight for why that case, and only that case, blocks
 #      it), prints "after-merge: deferred", and leaves the pending notification
 #      in state/.auto-update-pending so --retry-after-merge can finish it once
-#      that worker is gone. Deferring costs no network: both preconditions are
+#      that worker is gone. The record itself counts as supervision need
+#      (bin/fm-supervision-lib.sh), so the watcher whose check sweep runs that
+#      retry stays armed even after the home's last work has ended.
+#      Deferring costs no network: both preconditions are
 #      read from local state before any fetch. The same record is written
 #      BEFORE the fetch on every attempt, so a run killed at its caller's time
 #      bound (a fetch hanging on an unreachable origin) leaves the notification
@@ -62,6 +65,12 @@
 #   3. It sends the reread nudge to each advanced live secondmate itself, since
 #      no reader is there to send it, and prints reread-firstmate so its caller
 #      can queue the running firstmate's own re-read.
+#
+# The sweep only ever moves DOWN the tree: this home and the secondmates it
+# owns. A merge observed inside a secondmate home never fast-forwards that
+# home's parent, because a secondmate must not mutate its parent's home; the
+# parent learns of the merge through its own watcher or the child's charter
+# reply channel. That asymmetry is deliberate, not a gap to close.
 #
 # A deferral is a normal reportable outcome, never a failure to work around, and
 # nothing here relaxes any fast-forward-only guard for the automatic caller.

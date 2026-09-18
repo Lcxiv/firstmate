@@ -2019,6 +2019,65 @@ EOF
   pass "OpenCode watcher plugin requires session lock ownership"
 }
 
+test_opencode_primary_watch_plugin_arms_for_pending_update_record() {
+  local plugin repo home log out status
+  plugin="$ROOT/.opencode/plugins/fm-primary-watch-arm.js"
+  repo="$TMP_ROOT/opencode-pending-root"
+  home="$TMP_ROOT/opencode-pending-home"
+  log="$TMP_ROOT/opencode-pending.log"
+  mkdir -p "$repo/bin" "$home/state" "$home/config"
+  git init -q "$repo"
+  : > "$repo/AGENTS.md"
+  : > "$home/record-target"
+  ln -s "$home/record-target" "$home/state/.auto-update-pending"
+  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'arm\n' >> "${FM_ARM_LOG:?}"
+printf 'watcher: healthy pid=1 (beacon 0s)\n'
+SH
+  chmod +x "$repo/bin/fm-watch-arm.sh"
+  out=$(PLUGIN="$plugin" WORKTREE="$repo" FM_HOME="$home" FM_ARM_LOG="$log" node 2>&1 <<'EOF'
+import { existsSync, unlinkSync, writeFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+
+const mod = await import(pathToFileURL(process.env.PLUGIN).href);
+const client = { session: { promptAsync: async () => {} } };
+const hooks = await mod.FmPrimaryWatchArm({
+  client,
+  directory: process.env.WORKTREE,
+  worktree: process.env.WORKTREE,
+});
+const record = `${process.env.FM_HOME}/state/.auto-update-pending`;
+const event = { event: { type: "session.idle", properties: { sessionID: "session-test" } } };
+writeFileSync(`${process.env.FM_HOME}/state/.lock`, `${process.pid}\n`);
+await hooks.event(event);
+const quiet = await globalThis.__firstmateOpenCodeWatchArm.ensureArmed("session-test", client);
+if (quiet !== "not-needed") {
+  console.error(`expected a symlinked record to leave the home quiet, got ${quiet}`);
+  process.exit(1);
+}
+if (existsSync(process.env.FM_ARM_LOG)) {
+  console.error("watch arm ran for a symlinked pending record");
+  process.exit(1);
+}
+unlinkSync(record);
+writeFileSync(record, "pending\n");
+await hooks.event(event);
+for (let i = 0; i < 250 && !existsSync(process.env.FM_ARM_LOG); i += 1) {
+  await new Promise((resolve) => setTimeout(resolve, 20));
+}
+if (!existsSync(process.env.FM_ARM_LOG)) {
+  console.error("watch arm did not run for a regular pending record");
+  process.exit(1);
+}
+EOF
+)
+  status=$?
+  expect_code 0 "$status" "OpenCode watch plugin must arm for a regular pending-update record and never for a symlink"
+  [ -z "$out" ] || fail "OpenCode pending-update test printed output: $out"
+  pass "OpenCode watcher plugin arms for a regular pending-update record only"
+}
+
 test_opencode_watch_arm_coordinator_respects_primary_scope() {
   local plugin base repo home log out status
   plugin="$ROOT/.opencode/plugins/fm-primary-watch-arm.js"
@@ -2839,6 +2898,7 @@ test_opencode_primary_watch_plugin_uses_effective_state_home
 test_opencode_primary_watch_plugin_sources_x_config
 test_opencode_primary_watch_plugin_sources_phone_config
 test_opencode_primary_watch_plugin_requires_session_lock
+test_opencode_primary_watch_plugin_arms_for_pending_update_record
 test_opencode_watch_arm_coordinator_respects_primary_scope
 test_opencode_primary_watch_plugin_rearms_after_wake
 test_opencode_pre_ready_actionable_close_preserves_its_successor

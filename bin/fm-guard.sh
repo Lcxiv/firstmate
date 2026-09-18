@@ -150,10 +150,11 @@ fi
 
 # Compute supervision need and watcher-beacon freshness via the shared
 # grace-based predicate (bin/fm-supervision-lib.sh). Act when work, an event
-# source, or remote command polling needs supervision.
+# source, remote command polling, or a pending self-update needs supervision.
 fm_supervision_status "$STATE" "$GRACE"
 in_flight=$FM_SUP_IN_FLIGHT
 sources=$FM_SUP_SOURCES
+update_pending=$FM_SUP_UPDATE_PENDING
 needed=$FM_SUP_NEEDED
 beacon_desc=$FM_SUP_BEACON_DESC
 fm_watcher_supervision_verdict "$STATE" "$WATCH" "$GRACE" "$FM_HOME" "$FM_ROOT"
@@ -231,6 +232,8 @@ if [ "$watcher_healthy" = false ]; then
         printf '●  %s task(s) in flight, but %s.\n' "$in_flight" "$watcher_cause"
       elif [ "$sources" -gt 0 ]; then
         printf '●  %s process-event source(s) registered, but %s.\n' "$sources" "$watcher_cause"
+      elif [ "$update_pending" = true ]; then
+        printf '●  A firstmate self-update after a merge is still pending, but %s.\n' "$watcher_cause"
       else
         printf '●  Remote command polling needs supervision, but %s.\n' "$watcher_cause"
       fi
