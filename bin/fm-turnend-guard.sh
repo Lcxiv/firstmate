@@ -160,6 +160,13 @@ budget_reset() {
   fm_lock_release "$BUDGET_LOCK"
 }
 
+# Read the handoff BEFORE recording this turn end as activity: a turn end is
+# itself proof the session is taking turns, so touching first would erase the
+# very reading the banner needs.
+fm_supervision_handoff_status "$STATE" "$GRACE"
+HANDOFF_STALE=$FM_SUP_HANDOFF_STALE
+HANDOFF_AGE_DESC=$(fm_supervision_duration "$FM_SUP_HANDOFF_AGE")
+fm_supervision_activity_touch "$STATE"
 fm_supervision_status "$STATE" "$GRACE"
 if [ "$FM_SUP_NEEDED" = false ]; then
   [ -e "$FAILURE_NOTICE" ] || budget_reset
@@ -194,6 +201,16 @@ block_stop() {
     fi
     if [ "$CLAUDE_MODE" -eq 1 ]; then
       printf '●  The Stop-owned auto-arm did not claim this home either, so recovery is NOT already under way.\n'
+      # Separate the ordinary shape - no cycle runs while the model holds the
+      # turn, and this Stop is about to arm the next one - from the shape where
+      # nothing has armed for far longer than a turn takes. Saying which one this
+      # is, with the duration, is what keeps the banner worth reading instead of
+      # being dismissed as the routine between-cycles warning it looks like.
+      if [ "$HANDOFF_STALE" = true ]; then
+        printf '●  Nothing has armed a watcher for %s - longer than an ordinary gap between cycles, so this home has been running unsupervised for that whole stretch.\n' \
+          "$HANDOFF_AGE_DESC"
+        printf '●  The automatic re-arm runs only at a turn end, so a turn cut short (usage limit, expired login) leaves it with no trigger at all; confirm a cycle is actually running before trusting this session unattended.\n'
+      fi
     fi
     printf '●  %s\n' "$reason"
     printf '●%s\n' "$rule"

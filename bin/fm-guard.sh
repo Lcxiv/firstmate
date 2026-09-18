@@ -173,6 +173,27 @@ fi
 # bordered banner FIRST so it reads as an alarm, not a buried stderr line. Later
 # calls in the same episode get a one-line reminder only.
 if [ "$watcher_healthy" = false ]; then
+  # Only the down path reads these, and the status call is several stats, so
+  # leave an idle or healthy home paying nothing for them. The handoff ledger
+  # is a Claude auto-arm artifact that nothing removes, and only
+  # bin/fm-claude-stop-autoarm.sh ever advances it, so a home later re-spawned
+  # under another harness still carries a frozen one. Only a Claude primary may
+  # read it: a Cursor home shares the autoarm model but its stop-hook park never
+  # touches the ledger, so it keeps the generic between-cycles line, and a
+  # persistent-watcher home gets no handoff line at all.
+  handoff_model=0
+  handoff_stale=false
+  handoff_overdue=false
+  handoff_age_desc=""
+  if [ "$(fm_supervision_model)" = autoarm ]; then
+    handoff_model=1
+    if [ "$("$SCRIPT_DIR/fm-harness.sh" 2>/dev/null || printf unknown)" = claude ]; then
+      fm_supervision_handoff_status "$STATE" "$GRACE"
+      handoff_stale=$FM_SUP_HANDOFF_STALE
+      handoff_overdue=$FM_SUP_HANDOFF_OVERDUE
+      handoff_age_desc=$(fm_supervision_duration "$FM_SUP_HANDOFF_AGE")
+    fi
+  fi
   episode_key=$(fm_guard_stale_episode_key "$watcher_down_reason")
   episode_key=${episode_key%$'\n'}
   print_full_banner=0
@@ -213,6 +234,20 @@ if [ "$watcher_healthy" = false ]; then
       else
         printf '●  Remote command polling needs supervision, but %s.\n' "$watcher_cause"
       fi
+      # Say WHICH of the two shapes this is. Under the Claude auto-arm model no
+      # watcher runs while the model holds the turn, so a stale beacon on its
+      # own is the ordinary between-cycles shape and reads as a false alarm; the
+      # dangerous shape is a handoff that was expected and never happened, which
+      # no turn end is going to clear because none is coming.
+      if [ "$handoff_overdue" = true ]; then
+        printf '●  Nothing has armed a watcher for %s, and this session was not taking turns for that whole stretch - continuity itself has stopped.\n' \
+          "$handoff_age_desc"
+        printf '●  The automatic re-arm runs only at a turn end, so a turn cut short (usage limit, expired login) leaves it with no trigger; it cannot recover on its own and waiting will not help.\n'
+      elif [ "$handoff_stale" = true ]; then
+        printf '●  Nothing has armed a watcher for %s - longer than an ordinary gap between cycles.\n' "$handoff_age_desc"
+      elif [ "$handoff_model" -eq 1 ]; then
+        printf '●  A cycle may simply not be running between turns yet; if this session is taking turns, the next turn end arms one.\n'
+      fi
       if [ "$READ_ONLY" -eq 1 ]; then
         printf '●  This read-only session should report the lapse, not repair it.\n'
       else
@@ -223,8 +258,13 @@ if [ "$watcher_healthy" = false ]; then
       printf '●%s\n' "$rule"
     } >&2
   else
-    printf 'WARNING: watcher still down (same stale episode; last beat: %s, grace %ss) - full banner already printed this episode.\n' \
-      "$beacon_desc" "$GRACE" >&2
+    if [ "$handoff_stale" = true ]; then
+      printf 'WARNING: watcher still down and nothing has armed one for %s (same stale episode; last beat: %s, grace %ss) - full banner already printed this episode.\n' \
+        "$handoff_age_desc" "$beacon_desc" "$GRACE" >&2
+    else
+      printf 'WARNING: watcher still down (same stale episode; last beat: %s, grace %ss) - full banner already printed this episode.\n' \
+        "$beacon_desc" "$GRACE" >&2
+    fi
   fi
 else
   # Healthy again while work is still in flight: end the episode so a later
