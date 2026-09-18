@@ -1995,6 +1995,38 @@ EOF
   pass "main and secondmate captain actionability use the same blocker readiness"
 }
 
+test_gate_ids_and_dates_are_projected_exactly() {
+  local home fakebin json ids expected
+  home=$(make_home long-blocker-ids)
+  : > "$home/data/secondmates.md"
+  ids=$(for n in 1 2 3 4 5 6; do printf 'a-rather-long-prerequisite-task-identifier-number-%s\n' "$n"; done)
+  expected=$(printf '%s' "$ids" | paste -sd, -)
+  {
+    printf '## In flight\n\n## Queued\n'
+    printf '%s\n' "$ids" | while IFS= read -r id; do
+      printf -- '- [ ] %s - Prerequisite (repo: firstmate) (kind: ship)\n' "$id"
+    done
+    printf -- '- [ ] held-work - Held work'
+    printf '%s\n' "$ids" | while IFS= read -r id; do printf ' blocked-by: %s' "$id"; done
+    printf ' (repo: firstmate) (kind: ship)\n'
+    printf -- '- [ ] dated-work - Dated work (repo: firstmate) (kind: ship) (hold: after the quarterly release is out and the vendor has countersigned) (hold-kind: external) (hold-until: 2099-01-31)\n'
+    printf -- '- [ ] due-work - Due work (repo: firstmate) (kind: ship) (hold: its date has passed) (hold-kind: external) (hold-until: 2020-01-31)\n'
+    printf '\n## Done\n'
+  } > "$home/data/backlog.md"
+  fakebin=$(make_fakebin "$home")
+  json=$(run "$home" "$fakebin" --json)
+  [ "${#expected}" -gt 120 ] || fail "the blocker list fixture is too short to prove anything"
+  printf '%s' "$json" | jq -e --arg expected "$expected" '
+    ([.gates[] | select(.id == "held-work") | .blocked_by] == [$expected])
+      and ([.gates[] | select(.id == "held-work") | .blocker_ids] == [$expected | split(",")])
+      and ([.gates[] | select(.id == "held-work") | .until] == [null])
+      and ([.gates[] | select(.id == "dated-work") | .until] == ["2099-01-31"])
+      and ([.gates[] | select(.id == "dated-work") | .blocker_ids] == [[]])
+      and ([.gates[] | select(.id == "due-work") | .until] == [null])
+  ' >/dev/null || fail "gate blocker ids or the hold-until date were not projected exactly: $json"
+  pass "gate rows carry exact blocker ids and the exact future hold-until date"
+}
+
 test_domain_alpha_stale_parent_event_does_not_become_current_work
 test_gnu_stat_uses_file_formats_without_bsd_fallback_pollution
 test_parent_activity_evidence_is_bounded_and_disclosed
@@ -2025,6 +2057,7 @@ test_main_unstructured_current_is_disclosed_with_structured_sibling
 test_main_orphan_counterfactual_meta_clears_inventory_warning
 test_mixed_secondmate_roles_partial_state_and_captain_readiness
 test_main_captain_readiness_matches_secondmate_projection
+test_gate_ids_and_dates_are_projected_exactly
 test_completed_scout_report_not_pending
 test_open_decision_surfaces_end_to_end
 test_report_pointers_surface

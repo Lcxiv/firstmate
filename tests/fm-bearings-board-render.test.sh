@@ -32,7 +32,8 @@ render() {  # <home> <charted-json> [charted_more] [charted_warning_more]
   jq -n --argjson charted "$charted" --argjson more "$more" --argjson warning_more "$warning_more" '{
     schema:"fm-bearings-board.v1", home:"render-home", generated:"2026-08-26T00:00Z",
     prs_live:false, captains_call:[], underway:[], landed:[],
-    charted:$charted, charted_more:$more, charted_warning_more:$warning_more}' > "$data"
+    charted:$charted, charted_more:$more, charted_warning_more:$warning_more}
+    | .charted |= '"$WITH_TODOS" > "$data"
   PATH="$home/fakebin:$PATH" FM_HOME="$home" \
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
     FM_PROCEVENT_CLAIM_ROOT="$home/procevent-claims" \
@@ -65,7 +66,8 @@ render_call() {  # <home> <captains-call-json> [action...]
   shift 2
   jq -n --argjson call "$call" '{
     schema:"fm-bearings-board.v1", home:"render-home", generated:"2026-08-26T00:00Z",
-    prs_live:false, captains_call:$call, underway:[], landed:[], charted:[]}' > "$data"
+    prs_live:false, captains_call:$call, underway:[], landed:[], charted:[]}
+    | .captains_call |= '"$WITH_TODOS" > "$data"
   PATH="$home/fakebin:$PATH" FM_HOME="$home" \
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
     FM_PROCEVENT_CLAIM_ROOT="$home/procevent-claims" \
@@ -74,8 +76,12 @@ render_call() {  # <home> <captains-call-json> [action...]
     || fail "the built board could not be rendered"
 }
 
+# Every call, underway, and charted item carries a todos list; fixtures that are
+# about something else get a one-step list so they still build.
+WITH_TODOS='map(if has("todos") then . else .todos = [{"text":"Start","state":"todo"}] end)'
+
 charted_next_count() {  # <render-json>
-  printf '%s' "$1" | jq -r '.stats[] | select(.label == "charted next") | .n'
+  printf '%s' "$1" | jq -r '.stats[] | select(.label == "queued next") | .n'
 }
 
 test_a_warning_row_reads_as_a_repair_not_as_queued_work() {
@@ -190,7 +196,7 @@ test_a_freeform_release_card_still_renders_an_answer_control() {
 test_that_recommended_answer_is_the_one_that_gets_queued() {
   local home out
   home=$(make_home freeform-release-answer)
-  out=$(render_call "$home" "$RELEASE_CARD" pick:0:0 submit:0)
+  out=$(render_call "$home" "$RELEASE_CARD" answer:0:0)
   printf '%s' "$out" | jq -e '
     (.queued | length) == 1
       and (.queued[0] | .question == "held-item" and .answer == "release" and .close == "release")
@@ -256,7 +262,7 @@ BULK_CARDS='[
 test_an_ordinary_card_keeps_rendering_and_queueing_exactly_as_before() {
   local home out
   home=$(make_home single-answer)
-  out=$(render_call "$home" "$BULK_CARDS" pick:0:1 submit:0)
+  out=$(render_call "$home" "$BULK_CARDS" answer:0:1)
   printf '%s' "$out" | jq -e '
     ([.call.cards[0].options[] | .label] == ["Land it", "Hold"])
       and ([.call.cards[0].options[] | .rec] == [true, false])
@@ -320,7 +326,7 @@ test_confirming_a_queue_all_queues_every_recommendation_and_sends_nothing() {
 test_queue_all_never_queues_a_card_the_captain_already_answered() {
   local home out
   home=$(make_home bulk-skip-answered)
-  out=$(render_call "$home" "$BULK_CARDS" pick:0:1 submit:0 bulk-open bulk-confirm)
+  out=$(render_call "$home" "$BULK_CARDS" answer:0:1 bulk-open bulk-confirm)
   printf '%s' "$out" | jq -e '
     (.queued | length) == 2
       and ([.queued[] | .question] == ["land-it", "held-item"])
@@ -332,7 +338,7 @@ test_queue_all_never_queues_a_card_the_captain_already_answered() {
 test_an_answer_given_while_staged_is_never_overwritten_on_confirm() {
   local home out
   home=$(make_home bulk-stale-stage)
-  out=$(render_call "$home" "$BULK_CARDS" bulk-open pick:0:1 submit:0 bulk-open bulk-confirm)
+  out=$(render_call "$home" "$BULK_CARDS" bulk-open answer:0:1 bulk-open bulk-confirm)
   printf '%s' "$out" | jq -e '
     (.queued | length) == 2
       and ([.queued[] | .question] == ["land-it", "held-item"])
@@ -347,7 +353,7 @@ test_an_answer_given_while_staged_is_never_overwritten_on_confirm() {
 test_answering_a_card_closes_an_open_queue_all_stage() {
   local home out
   home=$(make_home bulk-stage-closes)
-  out=$(render_call "$home" "$BULK_CARDS" bulk-open pick:0:1 submit:0)
+  out=$(render_call "$home" "$BULK_CARDS" bulk-open answer:0:1)
   printf '%s' "$out" | jq -e '
     .bulk.staging == false
       and (.bulk.staged | length) == 0
@@ -357,7 +363,7 @@ test_answering_a_card_closes_an_open_queue_all_stage() {
       and (.bulk.staged | length) == 0
       and .bulk.canQueueAll == true
   ' >/dev/null || fail "answering a card left a stale staged list open: $out"
-  out=$(render_call "$home" "$BULK_CARDS" bulk-open pick:0:1 submit:0 bulk-confirm)
+  out=$(render_call "$home" "$BULK_CARDS" bulk-open answer:0:1 bulk-confirm)
   printf '%s' "$out" | jq -e '
     (.queued | length) == 1
       and (.queued[0] | .question == "land-it" and .answer == "hold")
@@ -384,33 +390,31 @@ test_a_long_queue_keeps_every_row_reachable() {
   rows=$(jq -nc '[range(0; 23) | {
     id: ("queued-" + (. | tostring)), repo: "sample",
     title: ("Queued item " + (. | tostring)), reason: "waiting on prep",
-    dispatchable: false }]')
+    dispatchable: true }]')
   home=$(make_home long-queue)
   out=$(render "$home" "$rows")
   printf '%s' "$out" | jq -e '
     (.charted | length) == 23
+      and ([.charted[].title] == [range(0; 23) | "Queued item " + tostring])
       and (.more | length) == 0
-      and (.chartedRegion | .scroll == true and .focusable == true
-        and (.label | test("scroll")))
-      and (.chartedRegion.sub | test("23 queued"))
-  ' >/dev/null || fail "a long queue was truncated or left unreachable: $out"
+      and .chartedRegion.sub == "23 queued"
+      and .chartedRegion.dispatchShown == true
+  ' >/dev/null || fail "a long queue was truncated or hidden behind a count: $out"
   [ "$(charted_next_count "$out")" = 23 ] \
-    || fail "the charted next tally disagreed with the rendered rows: $out"
-  pass "every row of a long queue renders and stays reachable by scrolling"
+    || fail "the queued next tally disagreed with the rendered rows: $out"
+  pass "every row of a long queue renders on the page, with the dispatch bar still offered"
 }
 
-test_a_short_queue_does_not_become_a_scroll_region() {
+test_a_short_queue_says_how_many_are_queued() {
   local home out
   home=$(make_home short-queue)
   out=$(render "$home" '[
     {"id":"one","repo":"sample","title":"One","reason":"gated","dispatchable":true},
     {"id":"two","repo":"sample","title":"Two","reason":"gated","dispatchable":true}
   ]')
-  printf '%s' "$out" | jq -e '
-    .chartedRegion.scroll == false
-      and (.chartedRegion.sub == "2 queued")
-  ' >/dev/null || fail "a short queue was turned into a scroll region: $out"
-  pass "a short queue stays a plain list"
+  printf '%s' "$out" | jq -e '.chartedRegion.sub == "2 queued" and (.charted | length) == 2' >/dev/null \
+    || fail "a short queue did not report its own size: $out"
+  pass "a short queue says how many items are queued"
 }
 
 test_an_effort_map_renders_its_destination_counts_and_fog() {
@@ -479,6 +483,160 @@ test_more_than_one_effort_map_each_gets_its_own_card() {
   pass "each effort map gets its own card"
 }
 
+# Build the board from a whole payload document and render it after driving
+# <action>... through the rendered controls.
+render_board() {  # <home> <payload-json> [action...]
+  local home=$1 data="$1/payload.json"
+  printf '%s' "$2" > "$data"
+  shift 2
+  PATH="$home/fakebin:$PATH" FM_HOME="$home" \
+    FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
+    FM_PROCEVENT_CLAIM_ROOT="$home/procevent-claims" \
+    "$BOARD" build "$data" >/dev/null || fail "the board did not build"
+  node "$HARNESS" "$home/.lavish/bearings-board.html" "$@" \
+    || fail "the built board could not be rendered"
+}
+
+# One of each item type, each with its own ordered steps, and a call that
+# holds up a queued item listed AFTER a call that holds up nothing.
+TODO_BOARD='{"schema":"fm-bearings-board.v1","home":"render-home","generated":"2026-09-18T00:00Z",
+ "prs_live":false,
+ "captains_call":[
+  {"key":"naming","type":"decision","repo":"sample","title":"Pick a naming scheme",
+   "options":[{"value":"short","label":"Short"},{"value":"long","label":"Long"}],
+   "todos":[{"text":"Your call: naming","state":"current","by":"captain"},
+            {"text":"Firstmate acts on your answer","state":"todo","by":"firstmate"}]},
+  {"key":"scratch","type":"decision","repo":"sample","title":"Delete the parked scratch",
+   "options":[{"value":"delete","label":"Delete"},{"value":"keep","label":"Keep"}],
+   "blocks":["pool-fix"],
+   "todos":[{"text":"Scratch moved aside","state":"done","by":"firstmate"},
+            {"text":"Your call: delete or keep","state":"current","by":"captain"},
+            {"text":"Act on your answer","state":"todo","by":"firstmate"}]}],
+ "underway":[
+  {"id":"build-it","repo":"sample","kind":"ship","state":"failed","doing":"run cancelled",
+   "title":"Build the widget",
+   "todos":[{"text":"Instructions written, worker started","state":"done","by":"firstmate"},
+            {"text":"Build the change","state":"done","by":"worker"},
+            {"text":"Validate: the validation run was cancelled","state":"blocked","by":"worker"},
+            {"text":"Your merge word","state":"todo","by":"captain"}]}],
+ "landed":[{"id":"shipped","repo":"sample","what":"Shipped thing","owner":"firstmate",
+   "pr_url":"https://github.com/example/sample/pull/9"}],
+ "charted":[
+  {"id":"pool-fix","repo":"sample","title":"Free the worker pool","reason":"waits on your scratch call",
+   "dispatchable":true,
+   "todos":[{"text":"Waits on your call: delete the parked scratch","state":"blocked","by":"captain"},
+            {"text":"Start: dispatch a worker","state":"todo","by":"firstmate"}]}]}'
+
+test_every_item_type_renders_its_steps_collapsed_behind_a_toggle() {
+  local home out
+  home=$(make_home todos-collapsed)
+  out=$(render_board "$home" "$TODO_BOARD")
+  printf '%s' "$out" | jq -e '
+    .error == ""
+      and ([.call.cards[], .underway[], .charted[] | .todos.collapsed] | all)
+      and ([.call.cards[], .underway[], .charted[] | .todos.expanded] | any | not)
+      and ([.call.cards[].todos.toggle] == ["3 steps", "2 steps"])
+      and (.underway[0].todos.toggle == "4 steps")
+      and (.charted[0].todos.toggle == "2 steps")
+  ' >/dev/null || fail "an item did not start with its steps collapsed behind a toggle: $out"
+  pass "every call, underway, and queued item starts with its steps collapsed behind a toggle"
+}
+
+test_a_collapsed_item_still_says_where_it_stands() {
+  local home out
+  home=$(make_home todos-summary)
+  out=$(render_board "$home" "$TODO_BOARD")
+  printf '%s' "$out" | jq -e '
+    (.underway[0].todos | .pips == ["done", "done", "blocked", "todo"]
+      and .summary == "2 of 4 done · blocked: Validate: the validation run was cancelled")
+      and (.charted[0].todos.summary == "0 of 2 done · blocked: Waits on your call: delete the parked scratch")
+      and (.call.cards[1].todos.summary == "0 of 2 done · now: Your call: naming")
+  ' >/dev/null || fail "a collapsed item did not summarize its progress: $out"
+  pass "a collapsed item shows one pip per step and the step it is at"
+}
+
+test_the_toggle_opens_the_ordered_steps_with_their_states() {
+  local home out
+  home=$(make_home todos-expand)
+  out=$(render_board "$home" "$TODO_BOARD" expand:underway:0)
+  printf '%s' "$out" | jq -e '
+    (.underway[0].todos | .collapsed == false and .expanded == true and .toggle == "Hide steps"
+      and ([.steps[].state] == ["done", "done", "blocked", "todo"])
+      and ([.steps[].you] == [false, false, false, true])
+      and (.steps[2].text == "Validate: the validation run was cancelled"))
+      and (.charted[0].todos.collapsed == true)
+  ' >/dev/null || fail "expanding an item did not open exactly its ordered steps: $out"
+  out=$(render_board "$home" "$TODO_BOARD" expand:underway:0 expand:underway:0)
+  printf '%s' "$out" | jq -e '.underway[0].todos.collapsed == true and .underway[0].todos.toggle == "4 steps"' \
+    >/dev/null || fail "a second press did not collapse the steps again: $out"
+  pass "the toggle opens an item's ordered steps with their states, and closes them again"
+}
+
+test_the_board_reads_top_to_bottom_in_priority_order() {
+  local home out
+  home=$(make_home priority-order)
+  out=$(render_board "$home" "$TODO_BOARD")
+  printf '%s' "$out" | jq -e '
+    ([.call.cards[].rank, .underway[].rank, .charted[].rank] == ["1", "2", "3", "4"])
+      and ([.call.cards[].key] == ["scratch", "naming"])
+  ' >/dev/null || fail "the board did not number calls, then underway, then queued, with blocking calls first: $out"
+  pass "one numbered list runs calls, then underway, then queued, with calls that hold up work first"
+}
+
+test_a_call_and_the_work_it_holds_up_point_at_each_other() {
+  local home out
+  home=$(make_home held-links)
+  out=$(render_board "$home" "$TODO_BOARD")
+  printf '%s' "$out" | jq -e '
+    (.call.cards[0].held == [{"text": "holds up #4: Free the worker pool", "href": ("#" + .charted[0].id)}])
+      and (.charted[0].held == [{"text": "waits on your call #1", "href": ("#" + .call.cards[0].id)}])
+      and (.call.cards[1].held == [])
+  ' >/dev/null || fail "a blocking call and its held work did not link to each other: $out"
+  pass "a call names the work it holds up, and that work links back to the call"
+}
+
+test_one_click_on_an_option_queues_the_answer() {
+  local home out
+  home=$(make_home one-click)
+  out=$(render_board "$home" "$TODO_BOARD" answer:0:0)
+  printf '%s' "$out" | jq -e '
+    (.queued | length) == 1
+      and (.queued[0] | .question == "scratch" and .answer == "delete")
+      and .sent == 0
+      and (.call.cards[0] | .queued == true and .queuedText == "queued for review: delete"
+        and ([.options[].picked] == [true, false]))
+  ' >/dev/null || fail "one option click did not queue that answer for review: $out"
+  pass "one click on an option queues that answer for review and sends nothing"
+}
+
+test_a_long_step_list_renders_every_step() {
+  local home out board
+  home=$(make_home long-steps)
+  board=$(printf '%s' "$TODO_BOARD" | jq -c '.underway[0].todos = [range(0; 40) | {text: ("Step " + tostring), state: "todo"}]')
+  out=$(render_board "$home" "$board" expand:underway:0)
+  printf '%s' "$out" | jq -e '
+    (.underway[0].todos | (.steps | length) == 40 and .steps[39].text == "Step 39"
+      and .toggle == "Hide steps" and (.pips | length) == 40)
+  ' >/dev/null || fail "a long step list was cut short: $out"
+  pass "a long step list renders every step"
+}
+
+test_recently_landed_folds_away_under_its_own_toggle() {
+  local home out
+  home=$(make_home landed-folded)
+  out=$(render_board "$home" "$TODO_BOARD")
+  printf '%s' "$out" | jq -e '
+    ([.stats[] | .label] == ["need you", "underway", "queued next", "landed recently"])
+      and .landed.open == false and .landed.toggle == "Show" and .landed.sub == "1 done"
+  ' >/dev/null || fail "recently landed did not start folded after the todo bands: $out"
+  out=$(render_board "$home" "$TODO_BOARD" landed-toggle)
+  printf '%s' "$out" | jq -e '
+    .landed.open == true and .landed.toggle == "Hide"
+      and .landed.rows == [{"what": "Shipped thing", "pr": "https://github.com/example/sample/pull/9"}]
+  ' >/dev/null || fail "opening recently landed did not show its full-URL rows: $out"
+  pass "recently landed starts folded after the todo bands and opens to full PR URLs"
+}
+
 test_a_freeform_release_card_still_renders_an_answer_control
 test_that_recommended_answer_is_the_one_that_gets_queued
 test_an_answerless_submit_says_so_instead_of_doing_nothing
@@ -492,7 +650,7 @@ test_an_answer_given_while_staged_is_never_overwritten_on_confirm
 test_answering_a_card_closes_an_open_queue_all_stage
 test_a_board_with_no_recommendations_offers_no_queue_all
 test_a_long_queue_keeps_every_row_reachable
-test_a_short_queue_does_not_become_a_scroll_region
+test_a_short_queue_says_how_many_are_queued
 test_a_warning_row_reads_as_a_repair_not_as_queued_work
 test_warnings_are_excluded_from_the_charted_next_count
 test_a_board_of_only_warnings_still_reports_nothing_queued
@@ -502,3 +660,11 @@ test_an_effort_map_renders_its_destination_counts_and_fog
 test_a_map_with_no_fog_says_the_remaining_work_is_sharp
 test_a_home_with_no_effort_maps_renders_no_band_at_all
 test_more_than_one_effort_map_each_gets_its_own_card
+test_every_item_type_renders_its_steps_collapsed_behind_a_toggle
+test_a_collapsed_item_still_says_where_it_stands
+test_the_toggle_opens_the_ordered_steps_with_their_states
+test_the_board_reads_top_to_bottom_in_priority_order
+test_a_call_and_the_work_it_holds_up_point_at_each_other
+test_one_click_on_an_option_queues_the_answer
+test_a_long_step_list_renders_every_step
+test_recently_landed_folds_away_under_its_own_toggle

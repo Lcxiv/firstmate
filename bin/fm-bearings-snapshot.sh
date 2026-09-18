@@ -119,8 +119,12 @@ Default fields: schema, home, generated, prs, in_flight{id,kind,state,doing},
   secondmates{id,state,doing,provenance,freshness,age_seconds,contradiction,reason},
   secondmate_reconcile{id,spawn_gen,host,kind,ids},
   decisions_open{id,key,verb,summary,owner}, landed{id,what,artifact,owner},
-  gates{id,title,blocked_by,reason,owner}, reports{id,path}, recorded_prs{id,url},
+  gates{id,title,blocked_by,blocker_ids,until,reason,owner}, reports{id,path},
+  recorded_prs{id,url},
   unhealthy_endpoints{...} (only when non-empty), omitted{surface,reveal}.
+gates blocked_by and reason are shortened display strings for the chat digest;
+  blocker_ids is the exact unresolved blocker id list and until is the exact
+  hold-until date while it is still in the future, null otherwise.
 landed merges this home's Done with registered secondmate homes' Done, bounded by
   a per-home cap (FM_BEARINGS_LANDED_PER_HOME) and an overall cap (FM_BEARINGS_LANDED),
   with omitted[] disclosure. Default selection is balanced across deterministic home
@@ -426,6 +430,8 @@ MODEL=$(printf '%s' "$SNAP" | jq \
         [{id:"(main-inventory)",
           title:((.main_inventory.reason // "main inventory invalid") | trunc(60)),
           blocked_by:"-",
+          blocker_ids:[],
+          until:null,
           reason:"main inventory",
           owner:"(main)"}]
       else [] end)
@@ -438,7 +444,9 @@ MODEL=$(printf '%s' "$SNAP" | jq \
          | select(($all_queued == 1) or (.deferred_marker != true)
                   or ((.hold_until // null) != null and .hold_until > $today))
          | {id, title:(.title | trunc(60)),
-            blocked_by:((.unresolved_blocker_ids // []) | if length > 0 then join(",") else "-" end | trunc(120)),
+            blocked_by:((.unresolved_blocker_ids // []) | if length > 0 then join(",") else "-" end),
+            blocker_ids:(.unresolved_blocker_ids // []),
+            until:(if (.hold_until // null) != null and .hold_until > $today then .hold_until else null end),
             reason:((if (.hold_until // null) != null and .hold_until > $today
                      then ("until " + .hold_until + ": " + (.hold_reason // .blocked_reason // "-"))
                      else (.hold_reason // .blocked_reason // "-") end) | trunc(40)),owner:"(main)"} ]
@@ -449,7 +457,9 @@ MODEL=$(printf '%s' "$SNAP" | jq \
          | select(($all_queued == 1) or (.deferred_marker != true)
                   or ((.hold_until // null) != null and .hold_until > $today))
          | {id,title:(.title | trunc(60)),
-            blocked_by:((.unresolved_blocker_ids // []) | if length > 0 then join(",") else "-" end | trunc(120)),
+            blocked_by:((.unresolved_blocker_ids // []) | if length > 0 then join(",") else "-" end),
+            blocker_ids:(.unresolved_blocker_ids // []),
+            until:(if (.hold_until // null) != null and .hold_until > $today then .hold_until else null end),
             reason:((if (.hold_until // null) != null and .hold_until > $today
                      then ("until " + .hold_until + ": " + (.hold_reason // .blocked_reason // "-"))
                      else (.hold_reason // .blocked_reason // "-") end) | trunc(40)),owner:$m.id} ]) as $gates_all
@@ -525,7 +535,7 @@ fi
 
 # --- TOON renderer (output boundary; parity with the JSON model) ------------
 # The model is a flat object of scalar fields plus arrays of uniform scalar
-# objects, so the encoder only needs object scalars, the tabular array form
+# objects (a gate row's blocker_ids id list renders as one quoted cell), so the encoder only needs object scalars, the tabular array form
 # (key[N]{fields}: + comma rows at +2 indent), and the empty-array form (key: []),
 # per the TOON spec. Quoting follows the spec exactly.
 TOON=$(printf '%s\n' "$MODEL" | jq -r '

@@ -54,8 +54,7 @@
 /* Every board chrome class below sets an explicit `display`, which outranks the
    user-agent `[hidden] { display: none }` rule. Without this the renderer's
    `hidden = true` is silently ignored and the captain sees empty scaffolding -
-   an Effort Maps heading with no band under it, a dead dispatch bar, stack
-   arrows with no cards. */
+   an Effort Maps heading with no band under it, a dead dispatch bar. */
 [hidden] { display: none !important; }
 html, body { margin: 0; padding: 0; }
 body {
@@ -119,144 +118,181 @@ a { color: inherit; text-decoration: none; }
 .fm-ico { width: 1.15em; height: 1.15em; flex: none; vertical-align: -0.18em; }
 
 /* ============================================================
-   Board chrome (bb-*) - built on the same tokens
+   Board chrome (bb-*) - built on the same tokens.
+   The board is ONE prioritized todo list read top to bottom: the captain's
+   calls, then what firstmate is doing, then what is queued. Every item carries
+   an ordered step list that starts collapsed behind one toggle, so the list
+   stays scannable and the detail is one click away. Nothing on the board is
+   truncated: long text wraps, and long lists grow the page, which scrolls.
    ============================================================ */
 .bb-nav {
   position: sticky; top: 0; z-index: 20;
-  background: color-mix(in srgb, var(--paper-100) 86%, transparent);
+  background: color-mix(in srgb, var(--paper-100) 88%, transparent);
   backdrop-filter: saturate(150%) blur(10px);
   border-bottom: 1px solid var(--border-default);
 }
 .bb-nav__inner {
-  max-width: var(--container-app); margin: 0 auto; padding: 0 28px; height: 64px;
-  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  max-width: var(--container-todo); margin: 0 auto; padding: 10px 24px;
+  display: flex; align-items: center; justify-content: space-between; gap: 10px 16px; flex-wrap: wrap;
 }
 .bb-brand { display: inline-flex; align-items: center; gap: 12px; }
 .bb-brand__disc {
-  display: grid; place-items: center; width: 34px; height: 34px; flex: none;
+  display: grid; place-items: center; width: 32px; height: 32px; flex: none;
   border-radius: 999px; background: var(--rust-500); color: var(--paper-000);
   border: 2px solid var(--ink-900); box-shadow: var(--shadow-hard-sm);
 }
 .bb-brand__disc svg { width: 60%; height: 60%; }
-.bb-brand__wm { font-family: var(--font-display); font-size: 23px; color: var(--text-strong); line-height: 1; }
-.bb-meta-mono { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-faint); white-space: nowrap; }
+.bb-brand__wm { font-family: var(--font-display); font-size: 22px; color: var(--text-strong); line-height: 1; }
+.bb-meta-mono { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-faint); overflow-wrap: anywhere; }
+
+/* the tally: one line that says how much of the list is whose */
+.bb-stats { display: flex; flex-wrap: wrap; gap: 6px; }
+.bb-stat {
+  display: inline-flex; align-items: baseline; gap: 5px; padding: 4px 10px;
+  background: var(--surface-card-warm); border: 1px solid var(--border-soft); border-radius: var(--radius-pill);
+}
+.bb-stat--call { background: var(--rust-050); border: 1.5px solid var(--rust-500); }
+.bb-stat__num { font-family: var(--font-mono); font-size: var(--fs-sm); font-weight: 700; color: var(--text-strong); }
+.bb-stat--call .bb-stat__num { color: var(--rust-600); }
+.bb-stat__label { font-size: var(--fs-2xs); font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
 
 .bb-main {
-  max-width: var(--container-app); margin: 0 auto;
-  padding: 26px 28px 72px; display: flex; flex-direction: column; gap: 22px;
+  max-width: var(--container-todo); margin: 0 auto;
+  padding: 22px 24px 72px; display: flex; flex-direction: column; gap: 26px;
 }
+:root { --container-todo: 880px; }
 
-/* stat strip */
-.bb-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
-.bb-stat {
-  display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; min-width: 0;
-  background: var(--surface-card-warm); border: 1px solid var(--border-soft); border-radius: var(--radius-md);
+/* ---- priority bands ---- */
+.bb-band { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.bb-band__head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.bb-band__num {
+  display: inline-grid; place-items: center; width: 26px; height: 26px; flex: none; align-self: center;
+  font-family: var(--font-mono); font-size: var(--fs-xs); font-weight: 700;
+  border: 2px solid var(--ink-900); border-radius: 999px; background: var(--paper-000); color: var(--ink-900);
 }
-.bb-stat--call { background: var(--rust-050); border: 2px solid var(--rust-500); }
-.bb-stat__num { font-family: var(--font-mono); font-size: var(--fs-h3); font-weight: 600; line-height: 1; color: var(--text-strong); }
-.bb-stat--call .bb-stat__num { color: var(--rust-600); }
-.bb-stat__label { font-family: var(--font-mono); font-size: var(--fs-2xs); letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
+.bb-band--call .bb-band__num { background: var(--rust-500); color: var(--paper-000); }
+.bb-band__title { margin: 0; font-size: var(--fs-h4); font-weight: 800; color: var(--text-strong); line-height: 1.2; }
+.bb-band__sub { font-size: var(--fs-xs); color: var(--text-muted); }
+.bb-list { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.bb-empty { padding: 14px 16px; font-size: var(--fs-sm); color: var(--text-muted);
+  background: var(--surface-card-warm); border: 1px dashed var(--border-default); border-radius: var(--radius-md); }
 
-.bb-section { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
-.bb-section__head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
-.bb-cols { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 22px; }
+/* ---- one todo item ---- */
+.bb-item {
+  background: var(--surface-card); border: 1px solid var(--border-default);
+  border-radius: var(--radius-md); box-shadow: var(--shadow-sm); min-width: 0;
+}
+.bb-item--call { border: 2px solid var(--ink-900); box-shadow: var(--shadow-hard-sm); }
+.bb-item--warning { border-left: 4px solid var(--rust-600); }
+.bb-item.is-queued { border-color: var(--sea-500); }
+.bb-item__head { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; min-width: 0; }
+.bb-item__rank {
+  flex: none; min-width: 22px; padding-top: 1px; text-align: right;
+  font-family: var(--font-mono); font-size: var(--fs-xs); font-weight: 700; color: var(--text-faint);
+}
+.bb-item__main { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.bb-item__title { margin: 0; font-size: var(--fs-base); font-weight: 700; color: var(--text-strong); line-height: 1.3; overflow-wrap: anywhere; }
+.bb-item--call .bb-item__title { font-size: var(--fs-h4); font-weight: 800; }
+.bb-item__meta { display: flex; align-items: center; gap: 6px 10px; flex-wrap: wrap; font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.35; }
+.bb-item__repo { font-family: var(--font-mono); font-size: var(--fs-2xs); color: var(--text-faint); overflow-wrap: anywhere; }
+.bb-item__now { color: var(--text-body); overflow-wrap: anywhere; }
+.bb-item__now b { font-weight: 700; color: var(--text-strong); }
+.bb-item__side { flex: none; display: flex; align-items: center; gap: 8px; }
+.bb-held { font-size: var(--fs-xs); font-weight: 700; color: var(--rust-600); overflow-wrap: anywhere; }
+a.bb-held { text-decoration: underline; }
+.bb-item { scroll-margin-top: 80px; }
 
-/* ---- Captain's Call: one card at a time, dealt off a visible stack ---- */
-.bb-callwrap { display: flex; flex-direction: column; gap: 12px; }
-/* extra top margin clears the pile edges that poke below the active card */
-.bb-stacknav { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
-.bb-stacknav__count { flex: 1 1 auto; font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-muted); }
-.bb-stacknav__btn {
-  display: inline-grid; place-items: center; width: 34px; height: 34px; cursor: pointer;
-  background: var(--surface-card); color: var(--text-strong);
-  border: 1.5px solid var(--border-default); border-radius: var(--radius-sm);
-  transition: background 120ms, border-color 120ms;
+/* progress pips: the collapsed item's at-a-glance step summary */
+.bb-pips { display: inline-flex; flex-wrap: wrap; gap: 3px; align-items: center; }
+.bb-pip { width: 9px; height: 9px; border-radius: 999px; border: 1.5px solid var(--ink-300); background: transparent; }
+.bb-pip--done { background: var(--sea-500); border-color: var(--sea-500); }
+.bb-pip--current { background: var(--gold-500); border-color: var(--ink-900); }
+.bb-pip--blocked { background: var(--rust-500); border-color: var(--ink-900); }
+
+/* the expand control */
+.bb-toggle {
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer; flex: none;
+  font-family: var(--font-sans); font-size: var(--fs-xs); font-weight: 800; color: var(--text-body);
+  background: var(--paper-000); border: 1.5px solid var(--border-default); border-radius: var(--radius-sm);
+  padding: 5px 9px;
 }
-.bb-stacknav__btn:hover { background: var(--paper-100); border-color: var(--ink-500); }
-.bb-stacknav__btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-.bb-stacknav__btn[disabled] { opacity: 0.4; cursor: not-allowed; }
-.bb-stacknav__btn svg { width: 16px; height: 16px; }
-/* the stack: a squared-up paper pile - solid card faces at slight opposing
-   rotations, like dealt cards, not translucent offset rectangles. The pile
-   thins as cards are answered: two edges, then one, then none on the last. */
-.bb-call { position: relative; display: grid; }
-.bb-call::before, .bb-call::after {
-  content: ""; position: absolute; inset: 0; z-index: 0;
-  background: var(--surface-card); border: 2px solid var(--ink-900);
-  border-radius: var(--radius-md); box-shadow: var(--shadow-hard-sm);
+.bb-toggle:hover { border-color: var(--ink-500); }
+.bb-toggle:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.bb-toggle svg { width: 13px; height: 13px; transition: transform 120ms; }
+.bb-toggle[aria-expanded="true"] svg { transform: rotate(90deg); }
+
+/* the step list */
+.bb-steps { list-style: none; margin: 0; padding: 4px 14px 14px 46px; display: flex; flex-direction: column; gap: 2px; }
+.bb-step { display: flex; align-items: flex-start; gap: 9px; padding: 5px 0; font-size: var(--fs-sm); color: var(--text-body); line-height: 1.4; min-width: 0; }
+.bb-step__mark {
+  flex: none; width: 18px; height: 18px; margin-top: 1px; border-radius: 999px; display: grid; place-items: center;
+  border: 1.5px solid var(--ink-300); background: var(--surface-card); color: var(--paper-000);
 }
-.bb-call::before { transform: rotate(1.3deg) translate(4px, 5px); }
-.bb-call::after  { transform: rotate(-1.1deg) translate(-3px, 9px); }
-.bb-call--penult::after { display: none; }
-.bb-call--last::before, .bb-call--last::after,
-.bb-call--empty::before, .bb-call--empty::after { display: none; }
-.bb-call > .bb-decision { grid-area: 1 / 1; z-index: 1; }
-.bb-call > .bb-decision[hidden] { display: none; }
-.bb-decision { display: flex; flex-direction: column; }
-.bb-decision__pad { padding: 18px 20px 16px; display: flex; flex-direction: column; gap: 12px; flex: 1; }
-.bb-decision__top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.bb-decision__repo { font-family: var(--font-mono); font-size: var(--fs-2xs); color: var(--text-faint); white-space: nowrap; }
-.bb-decision__title { margin: 0; font-size: var(--fs-h4); font-weight: 800; color: var(--text-strong); line-height: 1.25; }
-.bb-decision__detail { margin: 0; font-size: var(--fs-sm); color: var(--text-muted); line-height: 1.45; }
-/* about / decide / recommended - three scannable context rows */
-.bb-ctx { display: flex; flex-direction: column; gap: 6px; }
-.bb-ctx__row { display: grid; grid-template-columns: 78px minmax(0,1fr); gap: 8px; align-items: baseline; }
+.bb-step__mark svg { width: 11px; height: 11px; }
+.bb-step__text { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.bb-step--done .bb-step__text { color: var(--text-muted); text-decoration: line-through; text-decoration-color: var(--ink-300); }
+.bb-step--done .bb-step__mark { background: var(--sea-500); border-color: var(--sea-500); }
+.bb-step--current .bb-step__mark { background: var(--gold-500); border-color: var(--ink-900); color: var(--ink-900); }
+.bb-step--current .bb-step__text { font-weight: 700; color: var(--text-strong); }
+.bb-step--blocked .bb-step__mark { background: var(--rust-500); border-color: var(--ink-900); }
+.bb-step--blocked .bb-step__text { font-weight: 700; color: var(--rust-700); }
+.bb-step__who { flex: none; font-size: var(--fs-2xs); font-weight: 800; text-transform: uppercase; letter-spacing: 0.07em;
+  color: var(--navy-700); background: var(--gold-300); border: 1px solid var(--gold-600); border-radius: var(--radius-xs); padding: 2px 6px 1px; }
+
+/* ---- a call's answer area: always visible, never behind the toggle ---- */
+.bb-call-body { padding: 0 14px 14px 46px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.bb-ctx { display: flex; flex-direction: column; gap: 4px; }
+.bb-ctx__row { display: grid; grid-template-columns: 64px minmax(0,1fr); gap: 8px; align-items: baseline; }
 .bb-ctx__k { font-family: var(--font-mono); font-size: var(--fs-2xs); letter-spacing: 0.04em;
-  text-transform: uppercase; color: var(--text-faint); white-space: nowrap; }
-.bb-ctx__v { font-size: var(--fs-sm); color: var(--text-muted); line-height: 1.4; min-width: 0; }
-.bb-decision__link { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--ocean-600); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+  text-transform: uppercase; color: var(--text-faint); }
+.bb-ctx__v { font-size: var(--fs-sm); color: var(--text-muted); line-height: 1.4; min-width: 0; overflow-wrap: anywhere; }
+.bb-decision__link { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--ocean-600); font-weight: 600; overflow-wrap: anywhere; }
 .bb-decision__link:hover { text-decoration: underline; }
-/* One rhythm owner: the answer form is a flex column with the same 12px gap as
-   the card pad, and the foot rides margin-top:auto so every Queue answer button
-   sits on the same baseline with identical breathing room. */
-.bb-decision form { display: flex; flex-direction: column; gap: 12px; flex: 1 1 auto; }
-.bb-opts { display: flex; flex-direction: column; gap: 7px; }
+.bb-answer { display: flex; flex-direction: column; gap: 8px; margin: 0; }
+/* one click on an option queues that answer for review; nothing sends */
+.bb-opts { display: flex; flex-wrap: wrap; gap: 7px; }
 .bb-opt {
-  display: flex; align-items: flex-start; gap: 10px; padding: 9px 12px; cursor: pointer;
-  background: var(--surface-card-warm); border: 1.5px solid var(--border-default);
-  border-radius: var(--radius-sm); transition: border-color 120ms, background 120ms;
+  display: inline-flex; flex-direction: column; align-items: flex-start; gap: 1px; max-width: 100%;
+  padding: 7px 12px; cursor: pointer; text-align: left; font-family: var(--font-sans);
+  background: var(--surface-card-warm); border: 1.5px solid var(--border-default); border-radius: var(--radius-sm);
+  transition: border-color 120ms, background 120ms;
 }
-.bb-opt:hover { border-color: var(--ink-300); }
-.bb-opt input { accent-color: var(--rust-500); margin-top: 3px; flex: none; }
-.bb-opt__body { min-width: 0; flex: 1 1 auto; }
-.bb-opt__label { display: block; font-size: var(--fs-sm); font-weight: 700; color: var(--text-strong); line-height: 1.3; }
-.bb-opt__hint { display: block; font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.35; margin-top: 1px; }
-.bb-opt__rec { flex: none; align-self: center; font-size: var(--fs-2xs); font-weight: 800; text-transform: uppercase;
+.bb-opt:hover { border-color: var(--ink-500); background: var(--paper-000); }
+.bb-opt:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.bb-opt--rec { border-color: var(--ink-900); box-shadow: 2px 2px 0 var(--ink-900); }
+.bb-opt.is-picked { border-color: var(--sea-500); background: var(--sea-050); box-shadow: inset 0 0 0 1px var(--sea-500); }
+.bb-opt__label { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-sm); font-weight: 700; color: var(--text-strong); line-height: 1.3; overflow-wrap: anywhere; }
+.bb-opt__hint { display: block; font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.3; overflow-wrap: anywhere; }
+.bb-opt__rec { flex: none; font-size: var(--fs-2xs); font-weight: 800; text-transform: uppercase;
   letter-spacing: 0.07em; color: var(--navy-700); background: var(--gold-300);
-  border: 1px solid var(--gold-600); border-radius: var(--radius-xs); padding: 3px 7px 2px; }
-.bb-opt:has(input:checked) { border-color: var(--rust-500); background: var(--rust-050); box-shadow: inset 0 0 0 1px var(--rust-500); }
-.bb-decision__foot { display: flex; align-items: center; gap: 10px; margin-top: auto; }
+  border: 1px solid var(--gold-600); border-radius: var(--radius-xs); padding: 2px 6px 1px; }
+.bb-opt-none { font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.4;
+  border: 1.5px dashed var(--border-default); border-radius: var(--radius-sm); padding: 8px 12px; }
+.bb-ff { display: flex; gap: 8px; flex-wrap: wrap; }
+.bb-freeform { flex: 1 1 220px; min-width: 0; font-family: var(--font-sans); font-size: var(--fs-sm); color: var(--text-strong);
+  background: var(--surface-card); border: 1.5px solid var(--border-default); border-radius: var(--radius-sm); padding: 7px 11px; }
+.bb-freeform:focus { outline: none; border-color: var(--rust-400); box-shadow: var(--focus-ring); }
+.bb-decision__foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.bb-decision__foot:empty { display: none; }
 .bb-queued {
-  display: none; align-items: center; gap: 6px;
-  font-size: var(--fs-2xs); font-weight: 800; text-transform: uppercase; letter-spacing: 0.07em;
-  color: var(--sea-700); background: var(--sea-050); border: 1.5px solid var(--sea-200);
-  border-radius: var(--radius-xs); padding: 5px 9px 4px;
+  display: none; align-items: center; gap: 6px; max-width: 100%;
+  font-size: var(--fs-xs); font-weight: 700; color: var(--sea-700); background: var(--sea-050);
+  border: 1.5px solid var(--sea-200); border-radius: var(--radius-xs); padding: 4px 9px; overflow-wrap: anywhere;
 }
 .is-queued .bb-queued { display: inline-flex; }
 .bb-limit { display: none; font-size: var(--fs-xs); font-weight: 700; color: var(--status-danger); }
 .bb-limit.is-visible { display: inline; }
-.bb-freeform { width: 100%; font-family: var(--font-sans); font-size: var(--fs-sm); color: var(--text-strong);
-  background: var(--surface-card); border: 1.5px solid var(--border-default); border-radius: var(--radius-sm); padding: 8px 11px; }
-.bb-freeform:focus { outline: none; border-color: var(--rust-400); box-shadow: var(--focus-ring); }
-/* Said out loud on a card that carries no preset answers, so an options-free
-   card reads as "type it" instead of as a card with its controls missing. */
-.bb-opt-none { font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.4;
-  border: 1.5px dashed var(--border-default); border-radius: var(--radius-sm); padding: 9px 12px; }
 
-/* ---- Captain's Call bulk staging ---- */
-/* Two steps on purpose: the first collects the recommended answers into a list
-   the captain can read and cancel, and only the second puts them in the review
-   panel. Nothing here ever sends. */
+/* ---- bulk staging of recommended answers: two steps, never sends ---- */
 .bb-bulk { display: flex; flex-direction: column; gap: 10px; }
-.bb-bulk__head { display: flex; align-items: center; gap: 10px; }
-.bb-bulk__count { flex: 1 1 auto; font-size: var(--fs-xs); font-weight: 800; color: var(--text-muted);
-  text-transform: uppercase; letter-spacing: 0.07em; }
+.bb-bulk__head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.bb-bulk__count { flex: 1 1 auto; font-size: var(--fs-xs); font-weight: 700; color: var(--text-muted); }
 .bb-bulk__stage { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px;
   background: var(--surface-card-warm); border: 1.5px solid var(--ink-900);
   border-radius: var(--radius-sm); box-shadow: var(--shadow-hard-sm); }
 .bb-bulk__lead { font-size: var(--fs-xs); font-weight: 700; color: var(--text-strong); line-height: 1.4; }
 .bb-bulk__list { display: flex; flex-direction: column; gap: 5px; margin: 0; padding: 0; list-style: none; }
-.bb-bulk__item { font-size: var(--fs-xs); color: var(--text-body); line-height: 1.35; min-width: 0; }
+.bb-bulk__item { font-size: var(--fs-xs); color: var(--text-body); line-height: 1.35; min-width: 0; overflow-wrap: anywhere; }
 .bb-bulk__title { font-weight: 700; color: var(--text-strong); }
 .bb-bulk__answer { font-family: var(--font-mono); font-weight: 700; color: var(--rust-600); }
 .bb-bulk__acts { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
@@ -266,66 +302,51 @@ a { color: inherit; text-decoration: none; }
 .bb-bulk__cancel:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .bb-bulk__note { margin: 0; font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.4; }
 
-/* ---- compact rows (Underway / Landed / Charted) ---- */
-.bb-rows { display: flex; flex-direction: column; }
-/* Charted Next carries the WHOLE queue, however long it is: the card scrolls
-   rather than the board hiding the tail behind a "showing N of M" summary. The
-   dispatch bar sits outside this region, so it stays put while the list moves. */
-.bb-rows--scroll { max-height: 30rem; overflow-y: auto; overscroll-behavior: contain; }
-.bb-rows--scroll:focus-visible { outline: none; box-shadow: inset var(--focus-ring); }
-.bb-row {
-  display: flex; align-items: center; gap: 12px; padding: 11px 18px;
-  border-top: 1px solid var(--border-soft); min-width: 0;
-}
-.bb-row:first-child { border-top: none; }
-.bb-row__main { min-width: 0; flex: 1 1 auto; }
-.bb-row__title { font-size: var(--fs-sm); font-weight: 700; color: var(--text-strong); line-height: 1.3;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.bb-row__sub { font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.3; margin-top: 1px;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.bb-row__id { font-family: var(--font-mono); font-size: var(--fs-2xs); color: var(--text-faint); white-space: nowrap; }
-.bb-row__pr { font-family: var(--font-mono); font-size: var(--fs-xs); font-weight: 600; color: var(--ocean-600); white-space: nowrap; }
-.bb-row__pr:hover { text-decoration: underline; }
-.bb-row__check { width: 26px; height: 26px; border-radius: var(--radius-sm); display: grid; place-items: center; flex: none;
-  background: var(--status-online-soft); color: var(--status-online); border: 1.5px solid var(--sea-200); }
-.bb-row__check svg { width: 15px; height: 15px; }
-.bb-morechip {
-  display: inline-flex; align-items: center; gap: 6px; margin: 10px 18px 12px;
-  font-size: var(--fs-xs); font-weight: 800; color: var(--text-muted);
-  border: 1.5px dashed var(--ink-300); border-radius: var(--radius-pill); padding: 5px 12px; width: fit-content;
-}
-.bb-empty { padding: 18px; font-size: var(--fs-sm); color: var(--text-muted); }
-
-/* ---- Effort maps ---- */
-/* One card per data/maps/*.md. Destination and the fog/out-of-scope notes are
-   prose that must stay readable, so unlike the fleet rows these wrap instead of
-   truncating to one ellipsised line. */
-.bb-maps { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 12px; }
-.bb-map { border-left: 3px solid var(--ocean-500); padding: 12px 16px; min-width: 0; }
-.bb-map__title { font-size: var(--fs-sm); font-weight: 700; color: var(--text-strong); line-height: 1.3;
-  overflow-wrap: anywhere; }
-.bb-map__dest { font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.4; margin-top: 4px;
-  overflow-wrap: anywhere; }
-.bb-map__badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-.bb-map__note { font-size: var(--fs-2xs); color: var(--text-faint); line-height: 1.4; margin-top: 6px;
-  overflow-wrap: anywhere; }
-
-/* ---- Charted Next dispatch picker ---- */
-/* margin:0 kills the UA default checkbox margin so picker rows and spacer rows
-   share one text left edge */
-.bb-pick { accent-color: var(--rust-500); width: 16px; height: 16px; flex: none; cursor: pointer; margin: 0; }
+/* ---- queued: dispatch picker ---- */
+.bb-pick { accent-color: var(--rust-500); width: 16px; height: 16px; flex: none; cursor: pointer; margin: 3px 0 0; }
 .bb-pick-spacer { width: 16px; flex: none; }
+/* the dispatch bar rides the bottom of the viewport while the queue scrolls
+   past, so a pick made far down a long queue is still one click from queued */
 .bb-dispatch {
-  display: flex; align-items: center; gap: 12px; padding: 12px 18px;
-  border-top: 1.5px solid var(--border-default); background: var(--paper-100);
+  position: sticky; bottom: 12px; z-index: 5;
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 14px;
+  background: var(--paper-000); border: 2px solid var(--ink-900); border-radius: var(--radius-sm); box-shadow: var(--shadow-hard-sm);
 }
 .bb-dispatch__count { flex: 1 1 auto; font-size: var(--fs-xs); font-weight: 800; color: var(--text-muted);
   text-transform: uppercase; letter-spacing: 0.07em; }
+.bb-morechip {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: var(--fs-xs); font-weight: 800; color: var(--text-muted);
+  border: 1.5px dashed var(--ink-300); border-radius: var(--radius-pill); padding: 5px 12px; width: fit-content;
+}
+
+/* ---- recently landed: not a todo, so it folds away under its own toggle ---- */
+.bb-landed-row { display: flex; align-items: flex-start; gap: 10px; padding: 9px 14px; border-top: 1px solid var(--border-soft); min-width: 0; }
+.bb-landed-row:first-child { border-top: none; }
+.bb-landed-row__main { flex: 1 1 auto; min-width: 0; }
+.bb-landed-row__what { font-size: var(--fs-sm); font-weight: 700; color: var(--text-strong); line-height: 1.3; overflow-wrap: anywhere; }
+.bb-landed-row__sub { font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.3; overflow-wrap: anywhere; }
+.bb-row__pr { font-family: var(--font-mono); font-size: var(--fs-xs); font-weight: 600; color: var(--ocean-600); overflow-wrap: anywhere; }
+.bb-row__pr:hover { text-decoration: underline; }
+.bb-row__check { width: 22px; height: 22px; border-radius: var(--radius-sm); display: grid; place-items: center; flex: none;
+  background: var(--status-online-soft); color: var(--status-online); border: 1.5px solid var(--sea-200); }
+.bb-row__check svg { width: 13px; height: 13px; }
+
+/* ---- Effort maps ---- */
+.bb-maps { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 10px; }
+.bb-map { border-left: 3px solid var(--ocean-500); padding: 12px 16px; min-width: 0; background: var(--surface-card); border-radius: var(--radius-sm); }
+.bb-map__title { font-size: var(--fs-sm); font-weight: 700; color: var(--text-strong); line-height: 1.3; overflow-wrap: anywhere; }
+.bb-map__dest { font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.4; margin-top: 4px; overflow-wrap: anywhere; }
+.bb-map__badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.bb-map__note { font-size: var(--fs-2xs); color: var(--text-faint); line-height: 1.4; margin-top: 6px; overflow-wrap: anywhere; }
 
 .bb-foot { display: flex; justify-content: flex-end; border-top: 1px solid var(--border-default); padding-top: 14px; }
 
-@media (max-width: 900px) {
-  .bb-cols { grid-template-columns: 1fr; }
+@media (max-width: 640px) {
+  .bb-nav__inner, .bb-main { padding-left: 16px; padding-right: 16px; }
+  .bb-item__head { flex-wrap: wrap; }
+  .bb-item__side { width: 100%; padding-left: 32px; }
+  .bb-steps, .bb-call-body { padding-left: 14px; }
 }
 </style>
 </head>
@@ -341,107 +362,78 @@ a { color: inherit; text-decoration: none; }
       </span>
       <span class="bb-brand__wm">bearings</span>
     </span>
+    <div class="bb-stats" id="bb-stats"></div>
   </div>
 </header>
 
 <main class="bb-main">
 
-  <div class="bb-stats" id="bb-stats"></div>
-
-  <section class="bb-section" id="bb-maps-section" hidden>
-    <div class="bb-section__head">
-      <span class="fm-sign fm-sign--eyebrow">
-        <svg class="fm-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.106 5.553a2 2 0 0 0 1.788 0l3.659-1.83A1 1 0 0 1 21 4.619v12.764a1 1 0 0 1-.553.894l-4.553 2.277a2 2 0 0 1-1.788 0l-4.212-2.106a2 2 0 0 0-1.788 0l-3.659 1.83A1 1 0 0 1 3 19.381V6.618a1 1 0 0 1 .553-.894l4.553-2.277a2 2 0 0 1 1.788 0z"/><path d="M15 5.764v15"/><path d="M9 3.236v15"/></svg>
-        Effort Maps
-      </span>
-      <span class="fm-sign fm-sign--muted" id="bb-maps-sub"></span>
+  <section class="bb-band bb-band--call" aria-labelledby="bb-call-title">
+    <div class="bb-band__head">
+      <span class="bb-band__num">1</span>
+      <h2 class="bb-band__title" id="bb-call-title">Your calls</h2>
+      <span class="bb-band__sub" id="bb-call-sub"></span>
     </div>
-    <div class="fm-card"><div class="bb-maps" id="bb-maps"></div></div>
-  </section>
-
-  <div class="bb-cols">
-  <section class="bb-section">
-    <div class="bb-section__head">
-      <span class="fm-sign fm-sign--eyebrow">
-        <svg class="fm-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></svg>
-        Captain's Call
-      </span>
-      <span class="fm-sign fm-sign--muted" id="bb-call-sub"></span>
-    </div>
-    <div class="bb-callwrap">
-      <div class="bb-call" id="bb-call"></div>
-      <!-- nav sits under the stack so the active card's top edge aligns with
-           the Charted Next card across the row -->
-      <div class="bb-stacknav">
-        <span class="bb-stacknav__count" id="bb-stack-count">-</span>
-        <button type="button" class="bb-stacknav__btn" id="bb-stack-prev" aria-label="Previous card">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
-        </button>
-        <button type="button" class="bb-stacknav__btn" id="bb-stack-next" aria-label="Next card">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
-        </button>
+    <div class="bb-list" id="bb-call"></div>
+    <div class="bb-bulk" id="bb-bulk" hidden>
+      <div class="bb-bulk__head">
+        <span class="bb-bulk__count" id="bb-bulk-count"></span>
+        <button type="button" class="fm-btn fm-btn--sm fm-btn--gold" id="bb-bulk-btn">Queue all recommended</button>
       </div>
-      <div class="bb-bulk" id="bb-bulk" hidden>
-        <div class="bb-bulk__head">
-          <span class="bb-bulk__count" id="bb-bulk-count"></span>
-          <button type="button" class="fm-btn fm-btn--sm fm-btn--gold" id="bb-bulk-btn">Queue all recommended</button>
+      <div class="bb-bulk__stage" id="bb-bulk-stage" hidden>
+        <span class="bb-bulk__lead" id="bb-bulk-lead"></span>
+        <ul class="bb-bulk__list" id="bb-bulk-list"></ul>
+        <div class="bb-bulk__acts">
+          <button type="button" class="fm-btn fm-btn--sm fm-btn--primary" id="bb-bulk-confirm">Queue these answers</button>
+          <button type="button" class="bb-bulk__cancel" id="bb-bulk-cancel">Cancel - queue nothing</button>
         </div>
-        <div class="bb-bulk__stage" id="bb-bulk-stage" hidden>
-          <span class="bb-bulk__lead" id="bb-bulk-lead"></span>
-          <ul class="bb-bulk__list" id="bb-bulk-list"></ul>
-          <div class="bb-bulk__acts">
-            <button type="button" class="fm-btn fm-btn--sm fm-btn--primary" id="bb-bulk-confirm">Queue these answers</button>
-            <button type="button" class="bb-bulk__cancel" id="bb-bulk-cancel">Cancel - queue nothing</button>
-          </div>
-        </div>
-        <p class="bb-bulk__note" id="bb-bulk-note" hidden></p>
       </div>
+      <p class="bb-bulk__note" id="bb-bulk-note" hidden></p>
     </div>
   </section>
 
-  <section class="bb-section">
-    <div class="bb-section__head">
-      <span class="fm-sign fm-sign--eyebrow">
-        <svg class="fm-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>
-        Charted Next
-      </span>
-      <span class="fm-sign fm-sign--muted" id="bb-charted-sub"></span>
+  <section class="bb-band bb-band--underway" aria-labelledby="bb-underway-title">
+    <div class="bb-band__head">
+      <span class="bb-band__num">2</span>
+      <h2 class="bb-band__title" id="bb-underway-title">Firstmate is on it</h2>
+      <span class="bb-band__sub" id="bb-underway-sub"></span>
     </div>
-    <div class="fm-card fm-card--warm">
-      <div class="bb-rows" id="bb-charted"></div>
-      <div class="bb-dispatch" id="bb-dispatch" hidden>
-        <span class="bb-dispatch__count" id="bb-dispatch-count">nothing picked</span>
-        <span class="bb-queued" id="bb-dispatch-queued">
-          <svg class="fm-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
-          queued
-        </span>
-        <button type="button" class="fm-btn fm-btn--sm fm-btn--gold" id="bb-dispatch-btn">Queue dispatch order</button>
-      </div>
+    <div class="bb-list" id="bb-underway"></div>
+  </section>
+
+  <section class="bb-band bb-band--charted" aria-labelledby="bb-charted-title">
+    <div class="bb-band__head">
+      <span class="bb-band__num">3</span>
+      <h2 class="bb-band__title" id="bb-charted-title">Queued next</h2>
+      <span class="bb-band__sub" id="bb-charted-sub"></span>
+    </div>
+    <div class="bb-list" id="bb-charted"></div>
+    <div class="bb-dispatch" id="bb-dispatch" hidden>
+      <span class="bb-dispatch__count" id="bb-dispatch-count">nothing picked</span>
+      <span class="bb-queued" id="bb-dispatch-queued">queued for review</span>
+      <button type="button" class="fm-btn fm-btn--sm fm-btn--gold" id="bb-dispatch-btn">Queue dispatch order</button>
     </div>
   </section>
-  </div>
 
-  <div class="bb-cols">
-    <section class="bb-section">
-      <div class="bb-section__head">
-        <span class="fm-sign fm-sign--eyebrow">
-          <svg class="fm-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 10.189V14"/><path d="M12 2v3"/><path d="M19 13V7a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v6"/><path d="M19.38 20A11.6 11.6 0 0 0 21 14l-8.188-3.639a2 2 0 0 0-1.624 0L3 14a11.6 11.6 0 0 0 2.81 7.76"/><path d="M2 21c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1s1.2 1 2.5 1c2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1"/></svg>
-          Underway
-        </span>
-      </div>
-      <div class="fm-card"><div class="bb-rows" id="bb-underway"></div></div>
-    </section>
+  <section class="bb-band bb-band--landed" aria-labelledby="bb-landed-title">
+    <div class="bb-band__head">
+      <h2 class="bb-band__title" id="bb-landed-title">Recently landed</h2>
+      <span class="bb-band__sub" id="bb-landed-sub"></span>
+      <button type="button" class="bb-toggle" id="bb-landed-toggle" aria-expanded="false" aria-controls="bb-landed">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+        <span id="bb-landed-toggle-text">Show</span>
+      </button>
+    </div>
+    <div class="bb-item" id="bb-landed" hidden></div>
+  </section>
 
-    <section class="bb-section">
-      <div class="bb-section__head">
-        <span class="fm-sign fm-sign--eyebrow">
-          <svg class="fm-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.801 10A10 10 0 1 1 17 3.335"/><path d="m9 11 3 3L22 4"/></svg>
-          Recently Landed
-        </span>
-      </div>
-      <div class="fm-card"><div class="bb-rows" id="bb-landed"></div></div>
-    </section>
-  </div>
+  <section class="bb-band" id="bb-maps-section" hidden>
+    <div class="bb-band__head">
+      <h2 class="bb-band__title">Effort maps</h2>
+      <span class="bb-band__sub" id="bb-maps-sub"></span>
+    </div>
+    <div class="bb-maps" id="bb-maps"></div>
+  </section>
 
   <footer class="bb-foot">
     <span class="bb-meta-mono" id="bb-provenance">-</span>
@@ -466,14 +458,14 @@ __FM_BEARINGS_BOARD_DATA__
     var main = document.querySelector(".bb-main");
     main.innerHTML = "";
     var card = document.createElement("div");
-    card.className = "fm-card fm-card--poster bb-decision";
+    card.className = "bb-item bb-item--call";
     var pad = document.createElement("div");
-    pad.className = "bb-decision__pad";
+    pad.className = "bb-item__head";
     var h = document.createElement("h3");
-    h.className = "bb-decision__title";
+    h.className = "bb-item__title";
     h.textContent = "This board could not load";
     var d = document.createElement("p");
-    d.className = "bb-decision__detail";
+    d.className = "bb-item__meta";
     d.textContent = msg + " - ask firstmate to rebuild the board.";
     pad.appendChild(h);
     pad.appendChild(d);
@@ -513,27 +505,127 @@ __FM_BEARINGS_BOARD_DATA__
     return n;
   }
   function badge(tone, text) { return el("span", "fm-badge fm-badge--" + tone, text); }
-  /* Warnings ride the charted feed for layout only; they are alarms, not work,
+  /* Warnings ride the queued feed for layout only; they are alarms, not work,
      so every count of queued work excludes them. */
   function isWarning(t) { return t && t.kind === "warning"; }
   function chartedQueued(rows) { return (rows || []).filter(function (t) { return !isWarning(t); }); }
   var chartedMoreQueued = data.charted_more || 0;
   var chartedMoreWarnings = data.charted_warning_more || 0;
-  /* Rows past this many turn Charted Next into a scroll region rather than
-     stretching the board; every row stays in the DOM and reachable. */
-  var CHARTED_SCROLL_AFTER = 8;
   function utf8ByteLength(text) { return new TextEncoder().encode(text).length; }
-  var CHECK_SVG = '<svg class="fm-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+  var CHEVRON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>';
+  var CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+  var BLOCK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M6 12h12"/></svg>';
 
   document.getElementById("bb-provenance").textContent = data.schema + " · " + data.generated;
 
-  /* stat strip */
+  /* ---- todos: the ordered step list every item carries ---- */
+  function todosOf(t) { return Array.isArray(t && t.todos) ? t.todos : []; }
+  /* The step the item is AT: the first blocked or current step, else the first
+     step still to do. Done-only lists are at their end. */
+  function stepAt(todos) {
+    var i;
+    for (i = 0; i < todos.length; i++) {
+      if (todos[i].state === "blocked" || todos[i].state === "current") return todos[i];
+    }
+    for (i = 0; i < todos.length; i++) if (todos[i].state === "todo") return todos[i];
+    return null;
+  }
+  function doneCount(todos) {
+    return todos.filter(function (s) { return s.state === "done"; }).length;
+  }
+  /* One line that says where the item stands without opening it. */
+  function stepSummary(todos) {
+    if (!todos.length) return "";
+    var at = stepAt(todos);
+    var head = doneCount(todos) + " of " + todos.length + " done";
+    if (!at) return head;
+    var verb = at.state === "blocked" ? "blocked" : at.state === "current" ? "now" : "next";
+    return head + " · " + verb + ": " + at.text;
+  }
+  function pips(todos) {
+    var p = el("span", "bb-pips");
+    p.setAttribute("aria-hidden", "true");
+    todos.forEach(function (s) { p.appendChild(el("span", "bb-pip bb-pip--" + s.state)); });
+    return p;
+  }
+  function stepList(todos) {
+    var list = el("ol", "bb-steps");
+    todos.forEach(function (s) {
+      var li = el("li", "bb-step bb-step--" + s.state);
+      var mark = el("span", "bb-step__mark");
+      if (s.state === "done") mark.innerHTML = CHECK_SVG;
+      else if (s.state === "blocked") mark.innerHTML = BLOCK_SVG;
+      li.appendChild(mark);
+      li.appendChild(el("span", "bb-step__text", s.text));
+      if (s.by === "captain") li.appendChild(el("span", "bb-step__who", "you"));
+      list.appendChild(li);
+    });
+    return list;
+  }
+  var itemSeq = 0;
+  /* The expand control. Collapsed is the default so the list stays scannable;
+     the toggle names how many steps sit behind it. */
+  function wireToggle(item, list, count) {
+    var btn = el("button", "bb-toggle");
+    btn.type = "button";
+    var id = "bb-steps-" + (++itemSeq);
+    list.setAttribute("id", id);
+    btn.setAttribute("aria-controls", id);
+    var label = el("span", "bb-toggle__text");
+    function set(open) {
+      list.hidden = !open;
+      btn.setAttribute("aria-expanded", open ? "true" : "false");
+      item.classList.toggle("is-open", open);
+      label.textContent = open ? "Hide steps" : count + (count === 1 ? " step" : " steps");
+    }
+    btn.innerHTML = CHEVRON_SVG;
+    btn.appendChild(label);
+    btn.addEventListener("click", function () { set(list.hidden); });
+    set(false);
+    return btn;
+  }
+
+  /* One owner for an item's head row and its collapsed step list. Rank is one
+     sequence across all three bands, because the board is one list. */
+  var rank = 0;
+  var anchorSeq = 0;
+  var itemById = {};
+  function todoItem(kind, t, title, pick) {
+    var item = el("article", "bb-item bb-item--" + kind);
+    item.setAttribute("id", "bb-item-" + (++anchorSeq));
+    var head = el("div", "bb-item__head");
+    if (pick !== undefined) head.appendChild(pick || el("span", "bb-pick-spacer"));
+    head.appendChild(el("span", "bb-item__rank", String(++rank)));
+    var main = el("div", "bb-item__main");
+    main.appendChild(el(kind === "call" ? "h3" : "div", "bb-item__title", title));
+    var meta = el("div", "bb-item__meta");
+    main.appendChild(meta);
+    head.appendChild(main);
+    var side = el("div", "bb-item__side");
+    head.appendChild(side);
+    item.appendChild(head);
+
+    var todos = todosOf(t);
+    if (todos.length) {
+      meta.appendChild(pips(todos));
+      meta.appendChild(el("span", "bb-item__now", stepSummary(todos)));
+    }
+    var list = stepList(todos);
+    var toggle = wireToggle(item, list, todos.length);
+    side.appendChild(toggle);
+    var id = t.id || t.key;
+    if (id) itemById[id] = { item: item, meta: meta, rank: rank, title: title };
+    return { item: item, head: head, meta: meta, side: side, list: list };
+  }
+  function repoLabel(t) { return t.repo || t.id || t.key || ""; }
+
+  /* ---- the tally ---- */
   var callTotal = data.captains_call.length;
   var stats = [
     { n: callTotal, l: "need you", call: true },
     { n: data.underway.length, l: "underway" },
-    { n: data.landed.length, l: "landed recently" },
-    { n: chartedQueued(data.charted).length + chartedMoreQueued, l: "charted next" }
+    { n: chartedQueued(data.charted).length + chartedMoreQueued, l: "queued next" },
+    { n: data.landed.length, l: "landed recently" }
   ];
   var strip = document.getElementById("bb-stats");
   stats.forEach(function (s) {
@@ -543,13 +635,14 @@ __FM_BEARINGS_BOARD_DATA__
     strip.appendChild(t);
   });
   document.getElementById("bb-call-sub").textContent =
-    callTotal ? callTotal + " item" + (callTotal === 1 ? "" : "s") + " wait on you, captain" : "nothing needs you, captain";
+    callTotal ? callTotal + " wait" + (callTotal === 1 ? "s" : "") + " on you, captain · one click queues an answer for review, nothing sends from here"
+      : "nothing needs you, captain";
 
-  /* Captain's Call deck: every item renders as the same full card */
+  /* ---- 1. Your calls: every call listed, answer controls always visible ---- */
   var deck = document.getElementById("bb-call");
-  /* Every card the captain can actually answer, in deck order, each carrying
-     its recommended value and the one function that stages its answer. The
-     bulk control reads this list; nothing else does. */
+  /* Every call the captain can answer, in list order, each carrying its
+     recommended value and the one function that stages its answer. The bulk
+     control reads this list; nothing else does. */
   var answerable = [];
 
   /* The answer values a card offers. A composer that leans on the freeform box
@@ -563,91 +656,60 @@ __FM_BEARINGS_BOARD_DATA__
     }
     return [];
   }
-  function ctxRow(k, v, rec) {
-    var row = el("div", "bb-ctx__row" + (rec ? " bb-ctx__row--rec" : ""));
+  function ctxRow(k, v) {
+    var row = el("div", "bb-ctx__row");
     row.appendChild(el("span", "bb-ctx__k", k));
     row.appendChild(el("span", "bb-ctx__v", v));
     return row;
   }
 
-  data.captains_call.forEach(function (item) {
-    var card = el("div", "fm-card fm-card--poster bb-decision");
-    var pad = el("div", "bb-decision__pad");
-
-    var top = el("div", "bb-decision__top");
+  /* A call that holds up other work costs more to leave unanswered, so those
+     calls lead the list; the rest keep the composer's order. */
+  var calls = data.captains_call.map(function (item, i) { return { item: item, i: i }; });
+  calls.sort(function (a, b) {
+    var ab = Array.isArray(a.item.blocks) && a.item.blocks.length ? 0 : 1;
+    var bb = Array.isArray(b.item.blocks) && b.item.blocks.length ? 0 : 1;
+    return ab - bb || a.i - b.i;
+  });
+  calls.map(function (c) { return c.item; }).forEach(function (item) {
+    var parts = todoItem("call", item, item.title);
+    var card = parts.item;
+    card.classList.add("bb-decision");
     if (item.type === "merge") {
-      top.appendChild(badge("online", "checks green"));
-      top.appendChild(badge(item.risk === "low" ? "neutral" : "warn", "risk " + item.risk));
+      parts.meta.insertBefore(badge(item.risk === "low" ? "neutral" : "warn", "risk " + item.risk), parts.meta.children[0] || null);
+      parts.meta.insertBefore(badge("online", "checks green"), parts.meta.children[0] || null);
     } else {
-      top.appendChild(badge("solid", "decision"));
-      top.appendChild(el("span", "bb-decision__repo", item.repo));
+      parts.meta.insertBefore(badge("solid", item.type), parts.meta.children[0] || null);
     }
-    pad.appendChild(top);
+    parts.meta.insertBefore(el("span", "bb-item__repo", repoLabel(item)), parts.meta.children[1] || null);
 
-    pad.appendChild(el("h3", "bb-decision__title", item.title));
-
-    if (item.type === "merge") {
-      if (item.detail) pad.appendChild(el("p", "bb-decision__detail", item.detail));
-      if (item.pr_url) {
-        var pr = el("a", "bb-decision__link", item.pr_url);
-        pr.href = item.pr_url; pr.target = "_blank"; pr.rel = "noopener";
-        pad.appendChild(pr);
-      }
-    } else {
-      /* the rec marker on the option itself carries the recommendation */
-      var ctx = el("div", "bb-ctx");
-      if (item.about) ctx.appendChild(ctxRow("about", item.about));
-      if (item.decide) ctx.appendChild(ctxRow("decide", item.decide));
-      pad.appendChild(ctx);
+    var body = el("div", "bb-call-body");
+    var ctx = el("div", "bb-ctx");
+    if (item.about) ctx.appendChild(ctxRow("about", item.about));
+    if (item.decide) ctx.appendChild(ctxRow("decide", item.decide));
+    if (item.detail) ctx.appendChild(ctxRow("detail", item.detail));
+    if (ctx.children.length) body.appendChild(ctx);
+    if (item.pr_url) {
+      var pr = el("a", "bb-decision__link", item.pr_url);
+      pr.href = item.pr_url; pr.target = "_blank"; pr.rel = "noopener";
+      body.appendChild(pr);
     }
 
     var form = document.createElement("form");
+    form.className = "bb-answer";
     form.setAttribute("data-lavish-question", item.key);
     var opts = el("div", "bb-opts");
     var options = cardOptions(item);
-    options.forEach(function (o) {
-      var lab = el("label", "bb-opt");
-      var input = document.createElement("input");
-      input.type = "radio"; input.name = "answer"; input.value = o.value;
-      lab.appendChild(input);
-      var body = el("span", "bb-opt__body");
-      body.appendChild(el("span", "bb-opt__label", o.label));
-      if (o.hint) body.appendChild(el("span", "bb-opt__hint", o.hint));
-      lab.appendChild(body);
-      if (item.recommend_value && o.value === item.recommend_value) {
-        lab.appendChild(el("span", "bb-opt__rec", "rec"));
-      }
-      opts.appendChild(lab);
-    });
-    if (!options.length) {
-      opts.appendChild(el("div", "bb-opt-none",
-        "This card carries no preset answers - type your answer below."));
-    }
-    form.appendChild(opts);
-
-    if (item.allow_freeform) {
-      var ff = document.createElement("input");
-      ff.type = "text"; ff.name = "note"; ff.className = "bb-freeform";
-      ff.placeholder = item.freeform_hint || "or answer in your own words…";
-      form.appendChild(ff);
-    }
-
-    var foot = el("div", "bb-decision__foot");
-    var btn = el("button", "fm-btn fm-btn--sm " + (item.type === "merge" ? "fm-btn--gold" : "fm-btn--primary"), "Queue answer");
-    btn.type = "submit";
-    foot.appendChild(btn);
+    var ff = null;
+    var optButtons = [];
     var q = el("span", "bb-queued");
-    q.innerHTML = CHECK_SVG + " queued";
-    foot.appendChild(q);
     var answerLimit = el("span", "bb-limit");
     answerLimit.setAttribute("role", "alert");
-    foot.appendChild(answerLimit);
-    form.appendChild(foot);
 
-    /* One owner for what a staged answer looks like, so a single Queue answer
-       click and the bulk control put identical records in the review panel.
+    /* One owner for what a staged answer looks like, so a single option click
+       and the bulk control put identical records in the review panel.
        Queueing is never sending: Lavish holds these until the captain sends. */
-    function stageAnswer(answer) {
+    function stageAnswer(answer, value) {
       if (window.lavish && window.lavish.queuePrompt) {
         /* close carries the composer-declared close mode: "release" frees a
            captain-gated work item instead of completing a question task */
@@ -659,24 +721,16 @@ __FM_BEARINGS_BOARD_DATA__
             data: ctxData }
         );
       }
+      optButtons.forEach(function (b) { b.classList.toggle("is-picked", b.value === value); });
+      q.textContent = "queued for review: " + answer;
       card.classList.add("is-queued");
     }
-
-    answerable.push({
-      key: item.key, title: item.title, card: card, stage: stageAnswer,
-      recommend: options.length && typeof item.recommend_value === "string" ? item.recommend_value : ""
-    });
-
-    form.addEventListener("submit", function (ev) {
-      ev.preventDefault();
+    /* picked option, optionally annotated; a bare note is itself the answer */
+    function answerWith(value) {
       answerLimit.classList.remove("is-visible");
-      var fd = new FormData(form);
-      var value = fd.get("answer");
-      var note = (fd.get("note") || "").trim();
-      /* picked option, optionally annotated; a bare note is itself the answer */
+      var note = ff ? (ff.value || "").trim() : "";
       var answer = value ? (note ? value + " - " + note : value) : note;
       if (!answer) {
-        /* an empty submit used to do nothing at all, which reads as a dead card */
         answerLimit.textContent = options.length
           ? "Pick an option or type an answer before queueing it."
           : "Type an answer before queueing it.";
@@ -688,53 +742,73 @@ __FM_BEARINGS_BOARD_DATA__
         answerLimit.classList.add("is-visible");
         return;
       }
-      stageAnswer(answer);
+      stageAnswer(answer, value);
       if (staged.length) closeStage();
-      /* deal the next card once this one is answered */
-      setTimeout(function () { showCard(active < cards.length - 1 ? active + 1 : active); }, 450);
-    });
+    }
 
-    pad.appendChild(form);
-    card.appendChild(pad);
+    options.forEach(function (o) {
+      var b = el("button", "bb-opt");
+      b.type = "button";
+      b.value = o.value;
+      var isRec = item.recommend_value && o.value === item.recommend_value;
+      if (isRec) b.classList.add("bb-opt--rec");
+      var lab = el("span", "bb-opt__label", o.label);
+      if (isRec) lab.appendChild(el("span", "bb-opt__rec", "rec"));
+      b.appendChild(lab);
+      if (o.hint) b.appendChild(el("span", "bb-opt__hint", o.hint));
+      b.addEventListener("click", function () { answerWith(o.value); });
+      optButtons.push(b);
+      opts.appendChild(b);
+    });
+    if (!options.length) {
+      opts.appendChild(el("div", "bb-opt-none",
+        "This call carries no preset answers - type your answer below."));
+    }
+    form.appendChild(opts);
+
+    if (item.allow_freeform) {
+      var ffRow = el("div", "bb-ff");
+      ff = document.createElement("input");
+      ff.type = "text"; ff.name = "note"; ff.className = "bb-freeform";
+      ff.placeholder = item.freeform_hint || (options.length
+        ? "optional note, then click an option"
+        : "type your answer");
+      ffRow.appendChild(ff);
+      var ffBtn = el("button", "fm-btn fm-btn--sm fm-btn--primary", "Queue typed answer");
+      ffBtn.type = "submit";
+      ffRow.appendChild(ffBtn);
+      form.appendChild(ffRow);
+    }
+    var foot = el("div", "bb-decision__foot");
+    foot.appendChild(q);
+    foot.appendChild(answerLimit);
+    form.appendChild(foot);
+    form.addEventListener("submit", function (ev) {
+      ev.preventDefault();
+      answerWith("");
+    });
+    body.appendChild(form);
+    card.appendChild(body);
+    card.appendChild(parts.list);
+
+    answerable.push({
+      key: item.key, title: item.title, card: card,
+      stage: function (v) { stageAnswer(v, v); },
+      recommend: options.length && typeof item.recommend_value === "string" ? item.recommend_value : "",
+      blocks: Array.isArray(item.blocks) ? item.blocks : [],
+      rank: rank, meta: parts.meta
+    });
     deck.appendChild(card);
   });
-
-  /* stack navigation: one card at a time, dealt off the pile */
-  var cards = Array.prototype.slice.call(deck.children);
-  var active = 0;
-  var stackCount = document.getElementById("bb-stack-count");
-  var stackPrev = document.getElementById("bb-stack-prev");
-  var stackNext = document.getElementById("bb-stack-next");
-  var stackNav = stackCount.parentNode;
-  function showCard(i) {
-    active = Math.max(0, Math.min(cards.length - 1, i));
-    cards.forEach(function (c, j) { c.hidden = j !== active; });
-    var answered = deck.querySelectorAll(".is-queued").length;
-    stackCount.textContent = "card " + (active + 1) + " of " + cards.length +
-      (answered ? " · " + answered + " answered" : "");
-    stackPrev.disabled = active === 0;
-    stackNext.disabled = active === cards.length - 1;
-    /* the pile thins as the deal approaches the bottom */
-    deck.classList.toggle("bb-call--penult", active === cards.length - 2);
-    deck.classList.toggle("bb-call--last", active === cards.length - 1);
-  }
-  if (cards.length) {
-    stackPrev.addEventListener("click", function () { showCard(active - 1); });
-    stackNext.addEventListener("click", function () { showCard(active + 1); });
-    showCard(0);
-  } else {
-    deck.classList.add("bb-call--empty");
-    deck.appendChild(el("div", "bb-empty", "Nothing needs your action right now."));
-    stackNav.hidden = true;
-  }
+  if (!callTotal) deck.appendChild(el("div", "bb-empty", "Nothing needs your action right now."));
 
   /* Bulk staging for the recommended answers.
      Its value is bulk and so is its risk, so it takes two deliberate steps: the
      first only builds a readable list of exactly what would be queued, and can
      be cancelled outright; the second puts those answers in the review panel
-     beside a single Queue answer click. Neither step sends anything - the
-     captain still presses Send in the review panel, and can drop any answer
-     there or re-answer its card to replace it. */
+     beside a single option click. Neither step sends anything - the captain
+     still presses Send in the review panel, and can drop any answer there or
+     re-answer its call to replace it. */
   var bulkHost = document.getElementById("bb-bulk");
   var bulkCount = document.getElementById("bb-bulk-count");
   var bulkBtn = document.getElementById("bb-bulk-btn");
@@ -760,7 +834,7 @@ __FM_BEARINGS_BOARD_DATA__
     bulkList.textContent = "";
     bulkBtn.disabled = !bulkPending().length;
     bulkCount.textContent = recommended.length +
-      " of " + answerable.length + " cards carry a recommended answer";
+      " of " + answerable.length + " calls carry a recommended answer";
   }
 
   if (recommended.length) {
@@ -797,77 +871,26 @@ __FM_BEARINGS_BOARD_DATA__
       sent.forEach(function (a) { a.stage(a.recommend); });
       closeStage();
       if (!sent.length) return;
-      showCard(active);
       bulkSay(sent.length + " recommended answer" + (sent.length === 1 ? " is" : "s are") +
         " waiting in the review panel - nothing has been sent yet. Drop any of them there," +
-        " or answer that card again to replace its queued answer.");
+        " or answer that call again to replace its queued answer.");
     });
   }
 
-  /* Underway */
+  /* ---- 2. Firstmate is on it ---- */
   var uw = document.getElementById("bb-underway");
   if (!data.underway.length) uw.appendChild(el("div", "bb-empty", "Nothing is underway."));
   data.underway.forEach(function (t) {
-    var row = el("div", "bb-row");
-    row.appendChild(badge(t.state === "working" ? "online" : "info", t.state));
-    var main = el("div", "bb-row__main");
-    main.appendChild(el("div", "bb-row__title", t.doing));
-    /* captain-facing rows name the repo; the internal task id shows only when
-       no repo is known */
-    main.appendChild(el("div", "bb-row__sub", t.kind + " · " + (t.repo || t.id)));
-    row.appendChild(main);
-    uw.appendChild(row);
+    var parts = todoItem("underway", t, t.title || t.doing);
+    parts.meta.insertBefore(badge(t.state === "working" ? "online" : t.state === "failed" ? "danger" : "info", t.state), parts.meta.children[0] || null);
+    parts.meta.insertBefore(el("span", "bb-item__repo", t.kind + " · " + repoLabel(t)), parts.meta.children[1] || null);
+    parts.item.appendChild(parts.list);
+    uw.appendChild(parts.item);
   });
+  document.getElementById("bb-underway-sub").textContent =
+    data.underway.length ? data.underway.length + " in progress, nothing needed from you" : "";
 
-  /* Landed */
-  var ld = document.getElementById("bb-landed");
-  if (!data.landed.length) ld.appendChild(el("div", "bb-empty", "No recent completions are in the current baseline."));
-  data.landed.forEach(function (t) {
-    var row = el("div", "bb-row");
-    var chk = el("span", "bb-row__check");
-    chk.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
-    row.appendChild(chk);
-    var main = el("div", "bb-row__main");
-    main.appendChild(el("div", "bb-row__title", t.what));
-    main.appendChild(el("div", "bb-row__sub", (t.repo || t.id) + " · " + t.owner));
-    row.appendChild(main);
-    if (t.pr_url) {
-      var a = el("a", "bb-row__pr", "#" + t.pr_url.split("/").pop());
-      a.href = t.pr_url; a.title = t.pr_url; a.target = "_blank"; a.rel = "noopener";
-      row.appendChild(a);
-    }
-    ld.appendChild(row);
-  });
-
-  /* Effort maps: absent key and empty array both mean no band at all. */
-  var maps = Array.isArray(data.maps) ? data.maps : [];
-  if (maps.length) {
-    var mapsHost = document.getElementById("bb-maps");
-    maps.forEach(function (m) {
-      var card = el("div", "bb-map");
-      card.appendChild(el("div", "bb-map__title", m.title));
-      if (m.destination) {
-        card.appendChild(el("div", "bb-map__dest", m.destination));
-      }
-      var badges = el("div", "bb-map__badges");
-      badges.appendChild(badge("online", m.decided + " decided"));
-      badges.appendChild(badge("warn", m.open + " open"));
-      card.appendChild(badges);
-      var fog = Array.isArray(m.fog) ? m.fog : [];
-      card.appendChild(el("div", "bb-map__note",
-        fog.length ? "Fog: " + fog.join("; ") : "Fog: none - remaining work is sharp"));
-      var oos = Array.isArray(m.out_of_scope) ? m.out_of_scope : [];
-      if (oos.length) {
-        card.appendChild(el("div", "bb-map__note", "Out of scope: " + oos.join("; ")));
-      }
-      mapsHost.appendChild(card);
-    });
-    document.getElementById("bb-maps-sub").textContent =
-      maps.length + (maps.length === 1 ? " effort" : " efforts");
-    document.getElementById("bb-maps-section").hidden = false;
-  }
-
-  /* Charted Next + dispatch picker */
+  /* ---- 3. Queued next + dispatch picker ---- */
   var ch = document.getElementById("bb-charted");
   var bar = document.getElementById("bb-dispatch");
   var barCount = document.getElementById("bb-dispatch-count");
@@ -879,7 +902,7 @@ __FM_BEARINGS_BOARD_DATA__
   }
   function refreshBar(limitMessage) {
     var n = pickedIds().length;
-    barCount.textContent = limitMessage || (n ? n + " picked for dispatch" : "pick queued work to dispatch");
+    barCount.textContent = limitMessage || (n ? n + " picked to start now" : "tick queued work to start it now");
     barBtn.disabled = !n;
   }
 
@@ -887,12 +910,12 @@ __FM_BEARINGS_BOARD_DATA__
     ch.appendChild(el("div", "bb-empty", "Nothing is queued."));
   }
   data.charted.forEach(function (t) {
-    var row = el("div", "bb-row");
+    var pick = null;
     if (t.dispatchable && !isWarning(t)) {
       anyPickable = true;
-      var pick = document.createElement("input");
+      pick = document.createElement("input");
       pick.type = "checkbox"; pick.className = "bb-pick"; pick.value = t.id;
-      pick.setAttribute("aria-label", "Pick " + t.id + " for dispatch");
+      pick.setAttribute("aria-label", "Pick " + t.title + " to start now");
       pick.addEventListener("change", function () {
         if (pick.checked && utf8ByteLength(pickedIds().join(",")) > 512) {
           pick.checked = false;
@@ -901,35 +924,21 @@ __FM_BEARINGS_BOARD_DATA__
         }
         refreshBar();
       });
-      row.appendChild(pick);
-    } else {
-      row.appendChild(el("span", "bb-pick-spacer"));
     }
-    var main = el("div", "bb-row__main");
-    main.appendChild(el("div", "bb-row__title", t.title));
-    /* second line keeps the title uncrowded in the half-width column */
-    var chSub = t.repo || t.id;
-    main.appendChild(el("div", "bb-row__sub", t.reason ? t.reason + " · " + chSub : chSub));
-    row.appendChild(main);
-    if (isWarning(t)) row.appendChild(badge("danger", "needs repair"));
-    else if (t.reason) row.appendChild(badge("warn", "waiting"));
-    ch.appendChild(row);
+    var parts = todoItem(isWarning(t) ? "warning" : "queued", t, t.title, pick);
+    parts.item.classList.add("bb-row");
+    if (isWarning(t)) parts.side.insertBefore(badge("danger", "needs repair"), parts.side.children[0]);
+    else if (t.reason) parts.side.insertBefore(badge("warn", "waiting"), parts.side.children[0]);
+    parts.meta.insertBefore(el("span", "bb-item__repo", repoLabel(t)), parts.meta.children[0] || null);
+    if (t.reason) parts.meta.insertBefore(el("span", "bb-item__reason", t.reason), parts.meta.children[1] || null);
+    parts.item.appendChild(parts.list);
+    ch.appendChild(parts.item);
   });
   var chartedShown = chartedQueued(data.charted).length;
   var chartedTotal = chartedShown + chartedMoreQueued;
-  /* The list scrolls instead of stopping short, so every row the payload
-     carries stays reachable however long the queue gets. */
-  var chartedScrolls = data.charted.length > CHARTED_SCROLL_AFTER;
-  if (chartedScrolls) {
-    ch.classList.add("bb-rows--scroll");
-    ch.setAttribute("tabindex", "0");
-    ch.setAttribute("role", "region");
-    ch.setAttribute("aria-label", "Charted Next queue - scroll for the whole list");
-  }
   document.getElementById("bb-charted-sub").textContent =
     chartedMoreQueued ? "showing " + chartedShown + " of " + chartedTotal
-      : chartedTotal ? chartedTotal + " queued" + (chartedScrolls ? " · scroll for all" : "")
-      : "";
+      : chartedTotal ? chartedTotal + " queued" : "";
   if (chartedMoreQueued) {
     ch.appendChild(el("span", "bb-morechip", "+" + chartedMoreQueued + " more queued - ask firstmate for the full chart"));
   }
@@ -958,6 +967,80 @@ __FM_BEARINGS_BOARD_DATA__
       }
       bar.classList.add("is-queued");
     });
+  }
+
+  /* A call that holds up other work says so, and the held item points back at
+     the call by its rank, so the priority link reads in both directions. */
+  answerable.forEach(function (a) {
+    a.blocks.forEach(function (id) {
+      var held = itemById[id];
+      if (!held) return;
+      var h = el("a", "bb-held", "holds up #" + held.rank + ": " + held.title);
+      h.href = "#" + held.item.getAttribute("id");
+      a.meta.appendChild(h);
+      var back = el("a", "bb-held", "waits on your call #" + a.rank);
+      back.href = "#" + a.card.getAttribute("id");
+      held.meta.appendChild(back);
+    });
+  });
+
+  /* ---- Recently landed, folded ---- */
+  var ld = document.getElementById("bb-landed");
+  var ldToggle = document.getElementById("bb-landed-toggle");
+  var ldToggleText = document.getElementById("bb-landed-toggle-text");
+  document.getElementById("bb-landed-sub").textContent =
+    data.landed.length ? data.landed.length + " done" : "No recent completions are in the current baseline.";
+  ldToggleText.textContent = "Show";
+  if (!data.landed.length) ldToggle.hidden = true;
+  data.landed.forEach(function (t) {
+    var row = el("div", "bb-landed-row");
+    var chk = el("span", "bb-row__check");
+    chk.innerHTML = CHECK_SVG;
+    row.appendChild(chk);
+    var main = el("div", "bb-landed-row__main");
+    main.appendChild(el("div", "bb-landed-row__what", t.what));
+    main.appendChild(el("div", "bb-landed-row__sub", repoLabel(t) + " · " + t.owner));
+    if (t.pr_url) {
+      var a = el("a", "bb-row__pr", t.pr_url);
+      a.href = t.pr_url; a.target = "_blank"; a.rel = "noopener";
+      main.appendChild(a);
+    }
+    row.appendChild(main);
+    ld.appendChild(row);
+  });
+  ldToggle.addEventListener("click", function () {
+    var open = ld.hidden;
+    ld.hidden = !open;
+    ldToggle.setAttribute("aria-expanded", open ? "true" : "false");
+    ldToggleText.textContent = open ? "Hide" : "Show";
+  });
+
+  /* Effort maps: absent key and empty array both mean no band at all. */
+  var maps = Array.isArray(data.maps) ? data.maps : [];
+  if (maps.length) {
+    var mapsHost = document.getElementById("bb-maps");
+    maps.forEach(function (m) {
+      var card = el("div", "bb-map");
+      card.appendChild(el("div", "bb-map__title", m.title));
+      if (m.destination) {
+        card.appendChild(el("div", "bb-map__dest", m.destination));
+      }
+      var badges = el("div", "bb-map__badges");
+      badges.appendChild(badge("online", m.decided + " decided"));
+      badges.appendChild(badge("warn", m.open + " open"));
+      card.appendChild(badges);
+      var fog = Array.isArray(m.fog) ? m.fog : [];
+      card.appendChild(el("div", "bb-map__note",
+        fog.length ? "Fog: " + fog.join("; ") : "Fog: none - remaining work is sharp"));
+      var oos = Array.isArray(m.out_of_scope) ? m.out_of_scope : [];
+      if (oos.length) {
+        card.appendChild(el("div", "bb-map__note", "Out of scope: " + oos.join("; ")));
+      }
+      mapsHost.appendChild(card);
+    });
+    document.getElementById("bb-maps-sub").textContent =
+      maps.length + (maps.length === 1 ? " effort" : " efforts");
+    document.getElementById("bb-maps-section").hidden = false;
   }
   } catch (e) {
     renderBoardError("The board data could not be rendered");

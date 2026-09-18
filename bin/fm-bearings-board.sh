@@ -8,6 +8,8 @@
 # agent never authors board UI at invocation time.
 #
 # Usage:
+#   fm-bearings-board.sh todos <snapshot.json|-> <data.json>
+#   fm-bearings-board.sh validate <data.json>
 #   fm-bearings-board.sh build <data.json>
 #   fm-bearings-board.sh path
 #
@@ -26,6 +28,10 @@
 #              armed: <source-id>            (first registration)
 #              already-armed: <source-id>    (registration already present)
 # path       Print the stable board path for this home.
+# validate   Run build's payload checks alone and print `valid: <path>`.
+# todos      Print <data.json> with every row's todos (and each call's blocks)
+#            generated from a `fm-bearings-snapshot.sh --json` snapshot; the
+#            fill rules are documented above command_todos below.
 #
 # The optional `maps` array carries one card per hand-maintained effort map
 # under data/maps/*.md - destination, decided and open counts, remaining fog,
@@ -91,6 +97,14 @@ validate_payload() {  # <data.json>
       or (.[$name]
         | type == "string"
           and test("^https://[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::[0-9]{1,5})?(?:[/?#][^[:space:]]*)?$"));
+    def todo_step:
+      type == "object" and (.text | nonempty_string)
+      and (.state == "done" or .state == "current" or .state == "blocked" or .state == "todo")
+      and ((has("by") | not) or (.by == "captain" or .by == "firstmate" or .by == "worker"));
+    def todos_list:
+      has("todos") and (.todos | type == "array") and (.todos | length > 0)
+      and ([.todos[] | todo_step] | all)
+      and ([.todos[] | select(.state == "current")] | length <= 1);
     def call_item:
       type == "object"
       and (.key | slug(128))
@@ -115,10 +129,14 @@ validate_payload() {  # <data.json>
         or ((.recommend_value | slug(128))
           and ((.options | length) == 0
             or (.recommend_value as $recommend | [.options[].value] | index($recommend) != null))))
+      and ((has("blocks") | not)
+        or ((.blocks | type == "array") and ([.blocks[] | nonempty_string] | all)))
+      and todos_list
       and (if .type == "merge" then (.risk | nonempty_string) else true end);
     def underway_item:
       type == "object" and repo_marker and (.id | nonempty_string)
-      and (.state | nonempty_string) and (.doing | nonempty_string) and (.kind | nonempty_string);
+      and (.state | nonempty_string) and (.doing | nonempty_string) and (.kind | nonempty_string)
+      and optional_string("title") and todos_list;
     def landed_item:
       type == "object" and repo_marker and (.id | nonempty_string)
       and (.what | nonempty_string) and (.owner | nonempty_string)
@@ -137,7 +155,8 @@ validate_payload() {  # <data.json>
       and (.title | nonempty_string) and (.reason | type == "string")
       and (.dispatchable | type == "boolean")
       and ((has("kind") | not) or (.kind == "queued" or .kind == "warning"))
-      and (if .kind == "warning" then .dispatchable == false else true end);
+      and (if .kind == "warning" then .dispatchable == false else true end)
+      and todos_list;
     type == "object"
     and (.schema == $schema)
     and (.home | nonempty_string)
@@ -160,13 +179,185 @@ validate_payload() {  # <data.json>
   ' "$1" >/dev/null
 }
 
-command_build() {
-  local data=${1-} board json tmp sid extracted
-  [ "$#" -eq 1 ] || { usage >&2; exit 2; }
+# Name every malformed todos list, so a refused board says which item and which
+# step to fix instead of only that the payload failed the contract.
+todos_errors() {  # <data.json>
+  jq -r '
+    def where($section; $i): "\($section)[\($i)] (\(.key // .id // "no id"))";
+    def step_problems($w):
+      if (has("todos") | not) then "\($w) has no todos list; give it at least one step"
+      elif (.todos | type) != "array" then "\($w) todos is not a list"
+      elif (.todos | length) == 0 then "\($w) todos is empty; give it at least one step"
+      else
+        (.todos | to_entries[] | .key as $n | .value
+          | if type != "object" then "\($w) todos[\($n)] is not a step object"
+            elif ((.text | type) != "string" or (.text | length) == 0) then "\($w) todos[\($n)] has no text"
+            elif (.state | IN("done", "current", "blocked", "todo") | not) then
+              "\($w) todos[\($n)] state \(.state | tojson) is not one of done, current, blocked, todo"
+            elif has("by") and (.by | IN("captain", "firstmate", "worker") | not) then
+              "\($w) todos[\($n)] by \(.by | tojson) is not one of captain, firstmate, worker"
+            else empty end),
+        (if ([.todos[] | objects | select(.state == "current")] | length) > 1
+         then "\($w) todos marks more than one step current; mark only the step the item is at"
+         else empty end)
+      end;
+    def blocks_problems($w):
+      if has("blocks") and ((.blocks | type) != "array"
+          or ([.blocks[] | type == "string" and length > 0] | all | not))
+      then "\($w) blocks is not a list of ids" else empty end;
+    def section($name):
+      (.[$name] // []) | if type == "array" then to_entries[]
+        | .key as $i | .value | objects | where($name; $i) as $w
+        | step_problems($w), (if $name == "captains_call" then blocks_problems($w) else empty end)
+        else empty end;
+    if type == "object" then section("captains_call"), section("underway"), section("charted") else empty end
+  ' "$1"
+}
+
+check_payload() {  # <data.json>
+  local data=$1 problems
   command -v jq >/dev/null 2>&1 || fail "jq is required"
   [ -f "$data" ] || fail "board data does not exist: $data"
   jq empty "$data" 2>/dev/null || fail "board data is not valid JSON: $data"
+  problems=$(todos_errors "$data") || fail "cannot read the board data todos: $data"
+  if [ -n "$problems" ]; then
+    printf '%s\n' "$problems" | sed 's/^/fm-bearings-board: /' >&2
+    fail "board data does not satisfy $BOARD_SCHEMA: malformed todos in $data"
+  fi
   validate_payload "$data" || fail "board data does not satisfy $BOARD_SCHEMA: $data"
+}
+
+# Fill each Captain's Call, Underway, and Charted Next row's `todos` - and each
+# call's `blocks` - from the fm-bearings.v1 snapshot, so steps are generated
+# from structured records instead of hand-authored. A row that already carries
+# its own todos or blocks keeps them. The fill rules:
+#   call        decision/credential: "Your call: <title>" (current, captain),
+#               then firstmate acting on the answer. merge.<id>: checks green
+#               (done), the captain's merge word (current), merge and clean up.
+#   sources     prose comes only from the composer's own row text (an underway
+#               `doing`, a queued `reason`), never from the snapshot's shortened
+#               display strings. Dates and ids come only from the snapshot's
+#               structured fields (a gate's `until` and `blocker_ids`), never
+#               from parsing `reason` or splitting `blocked_by`.
+#   underway    the kind's lifecycle. ship: instructions and worker, build,
+#               validate, PR open with checks green, the captain's merge word,
+#               merge and clean up. scout: instructions and worker, investigate,
+#               report written, findings relayed. The step it is AT is: done ->
+#               merge word (ship) or relay (scout); a recorded PR -> PR step; a
+#               parked state or a detail naming validation -> validate; else
+#               build/investigate. That step's text carries the row's `doing`;
+#               working is current, paused is current with its outside wait, and
+#               parked, blocked, failed, and unknown are blocked. A secondmate
+#               row is one current step naming its child work.
+#   charted     prerequisites only: one blocked step per unresolved blocker id
+#               (a blocker that is an open call reads "your call" and is owned
+#               by the captain), then "Waits until <date>: <row reason>" for a
+#               gate with an `until` date, or "Held: <row reason>" for a gate
+#               that carries a hold with no date (either without the reason
+#               when the row gives none), then "Start: dispatch a worker". A
+#               warning row is one repair step.
+#   blocks      a call's key is added to the blocks of every call whose task id
+#               appears in a queued row's unresolved blockers.
+command_todos() {  # <snapshot.json|-> <payload.json>
+  [ "$#" -eq 2 ] || { usage >&2; exit 2; }
+  command -v jq >/dev/null 2>&1 || fail "jq is required"
+  local snap=$1 data=$2
+  [ -f "$data" ] || fail "board data does not exist: $data"
+  jq empty "$data" 2>/dev/null || fail "board data is not valid JSON: $data"
+  if [ "$snap" = - ]; then snap=/dev/stdin
+  else [ -f "$snap" ] || fail "snapshot does not exist: $snap"; fi
+  jq -n --slurpfile snapdoc "$snap" --slurpfile board "$data" '
+    ($snapdoc[0] // {}) as $snap
+    | $board[0] as $b
+    | def step($text; $state; $by): {text: $text, state: $state, by: $by};
+      ($snap.recorded_prs // [] | map(.id)) as $pr_ids
+    | ($b.captains_call // [] | map({key: .key, value: .title}) | from_entries) as $call_titles
+    | ([$b.underway[]?, $b.charted[]?] | map({key: .id, value: (.title // .doing // .id)}) | from_entries) as $row_titles
+    | ($snap.gates // [] | map({key: .id, value: .}) | from_entries) as $gates
+    | ($snap.in_flight // [] | map({key: .id, value: .}) | from_entries) as $flight
+    | def plain($d):
+        if ($d | test("^harness busy")) then "the worker is active"
+        elif $d == "harness idle" then "the worker is idle"
+        elif $d == "run cancelled" then "the validation run was cancelled"
+        else $d end;
+      def blockers($g): $g.blocker_ids // [];
+      def lifecycle($names; $bys; $at; $state; $detail):
+        [range(0; $names | length) as $i
+          | if $i < $at then step($names[$i]; "done"; $bys[$i])
+            elif $i > $at then step($names[$i]; "todo"; $bys[$i])
+            else step($names[$i] + (if $detail == "" then "" else ": " + $detail end)
+                   + (if $state == "paused" then " (waiting on an outside delay)" else "" end);
+                   (if $state == "working" or $state == "paused" or $state == "done" then "current" else "blocked" end);
+                   $bys[$i]) end];
+      def underway_todos($t):
+        ($flight[$t.id] // {}) as $f
+        | (($f.state // $t.state // "unknown")) as $state
+        | (plain($t.doing // "")) as $detail
+        | (($f.kind // $t.kind // "ship")) as $kind
+        | if $kind == "secondmate" then [step("Second mate working: " + $detail; "current"; "worker")]
+          elif $kind == "scout" then
+            lifecycle(["Instructions written, worker started", "Investigate", "Report written", "Findings relayed to you"];
+              ["firstmate", "worker", "worker", "firstmate"];
+              (if $state == "done" then 3 else 1 end); $state;
+              (if $state == "done" then "" else $detail end))
+          else
+            lifecycle(["Instructions written, worker started", "Build the change", "Validate: review, tests, docs, CI",
+                "PR open with checks green", "Your merge word", "Merge and clean up"];
+              ["firstmate", "worker", "worker", "worker", "captain", "firstmate"];
+              (if $state == "done" then 4
+               elif ($pr_ids | index($t.id)) != null then 3
+               elif $state == "parked" or ($detail | test("\\b(run|validat\\w*|review|tests?|lint|ci|checks?|pipeline|gate)\\b"; "i")) then 2
+               else 1 end); $state;
+              (if $state == "done" then "" else $detail end))
+          end;
+      def call_todos($c):
+        if $c.type == "merge" then
+          [step("Validation passed, checks green"; "done"; "worker"),
+           step("Your merge word"; "current"; "captain"),
+           step("Merge and clean up"; "todo"; "firstmate")]
+        elif $c.type == "credential" then
+          [step("Provide it: " + $c.title; "current"; "captain"),
+           step("Firstmate resumes the work that waits on it"; "todo"; "firstmate")]
+        else
+          [step("Your call: " + $c.title; "current"; "captain"),
+           step("Firstmate acts on your answer"; "todo"; "firstmate")]
+        end;
+      def charted_todos($t):
+        if $t.kind == "warning" then
+          [step("Repair: " + (if ($t.reason // "") != "" then $t.reason else $t.title end); "current"; "firstmate")]
+        else
+          ($gates[$t.id] // {}) as $g
+          | [blockers($g)[] as $id
+              | if $call_titles[$id] != null then step("Waits on your call: " + $call_titles[$id]; "blocked"; "captain")
+                else step("Waits on " + ($row_titles[$id] // $id); "blocked"; "firstmate") end]
+            + ((if ($t.reason // "") != "" then ": " + $t.reason else "" end) as $why
+               | if ($g.until // null) != null then [step("Waits until " + $g.until + $why; "blocked"; "firstmate")]
+                 elif ($g.reason // "-") != "-" and $g.reason != "" then [step("Held" + $why; "blocked"; "firstmate")]
+                 else [] end)
+            + [step("Start: dispatch a worker"; "todo"; "firstmate")]
+        end;
+      ([$gates[] | . as $g | blockers($g)[] | select($call_titles[.] != null) | {call: ., id: $g.id}]
+        | group_by(.call) | map({key: .[0].call, value: map(.id)}) | from_entries) as $blocks
+    | $b
+    | .captains_call //= [] | .underway //= [] | .charted //= []
+    | .captains_call |= map(
+        (if has("todos") then . else .todos = call_todos(.) end)
+        | (if has("blocks") or ($blocks[.key] // null) == null then . else .blocks = $blocks[.key] end))
+    | .underway |= map(if has("todos") then . else .todos = underway_todos(.) end)
+    | .charted |= map(if has("todos") then . else .todos = charted_todos(.) end)
+  '
+}
+
+command_validate() {
+  [ "$#" -eq 1 ] || { usage >&2; exit 2; }
+  check_payload "$1"
+  printf 'valid: %s\n' "$1"
+}
+
+command_build() {
+  local data=${1-} board json tmp sid extracted
+  [ "$#" -eq 1 ] || { usage >&2; exit 2; }
+  check_payload "$data"
   [ -f "$TEMPLATE" ] && [ ! -L "$TEMPLATE" ] || fail "board template is missing: $TEMPLATE"
   [ "$(grep -cxF "$PLACEHOLDER" "$TEMPLATE")" -eq 1 ] \
     || fail "board template does not carry exactly one data slot: $TEMPLATE"
@@ -222,6 +413,8 @@ command_build() {
 
 case "${1-}" in
   build) shift; command_build "$@" ;;
+  validate) shift; command_validate "$@" ;;
+  todos) shift; command_todos "$@" ;;
   path) board_path ;;
   -h|--help|help) usage ;;
   *) usage >&2; exit 2 ;;

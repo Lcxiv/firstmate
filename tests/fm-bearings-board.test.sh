@@ -69,7 +69,11 @@ write_valid_payload() {  # <path>
         { "value": "yes", "label": "Adopt", "hint": "recommended" },
         { "value": "no", "label": "Keep current" }
       ],
-      "allow_freeform": true
+      "allow_freeform": true,
+      "todos": [
+        { "text": "Your call: perishable-first admission", "state": "current", "by": "captain" },
+        { "text": "Firstmate acts on your answer", "state": "todo", "by": "firstmate" }
+      ]
     },
     {
       "key": "merge.sample-task",
@@ -85,13 +89,19 @@ write_valid_payload() {  # <path>
         { "value": "merge", "label": "Merge now" },
         { "value": "hold", "label": "Not yet" }
       ],
-      "allow_freeform": true
+      "allow_freeform": true,
+      "todos": [
+        { "text": "Validation passed, checks green", "state": "done", "by": "worker" },
+        { "text": "Your merge word", "state": "current", "by": "captain" },
+        { "text": "Merge and clean up", "state": "todo", "by": "firstmate" }
+      ]
     }
   ],
   "underway": [],
   "landed": [],
   "charted": [
-    { "id": "sample-queued", "repo": "sample", "title": "Queued work", "reason": "", "dispatchable": true }
+    { "id": "sample-queued", "repo": "sample", "title": "Queued work", "reason": "", "dispatchable": true,
+      "todos": [ { "text": "Start: dispatch a worker", "state": "todo", "by": "firstmate" } ] }
   ],
   "charted_more": 0
 }
@@ -390,11 +400,11 @@ test_charted_kind_is_optional_and_accepts_both_values() {
   home=$(make_home chartedkind)
   data="$home/payload.json"
   write_valid_payload "$data"
-  jq '.charted = [
+  jq '.charted = ([
         {"id":"a","repo":"sample","title":"Queued","reason":"","dispatchable":true},
         {"id":"b","repo":"sample","title":"Queued too","reason":"gated","dispatchable":true,"kind":"queued"},
         {"id":"c","repo":"sample","title":"Integrity notice","reason":"main inventory","dispatchable":false,"kind":"warning"}
-      ] | .charted_warning_more = 2' "$data" > "$data.tmp" && mv "$data.tmp" "$data"
+      ] | map(.todos = [{"text":"Start","state":"todo"}])) | .charted_warning_more = 2' "$data" > "$data.tmp" && mv "$data.tmp" "$data"
   run_board "$home" build "$data" >/dev/null \
     || fail "an omitted, queued, and warning charted kind was refused"
   extract_payload "$home/.lavish/bearings-board.html" | jq -e '
@@ -431,10 +441,250 @@ test_a_recommendation_is_checked_against_the_options_that_exist() {
   pass "a recommendation is checked against the options that exist, and stands alone without them"
 }
 
+# A payload with one malformed todos list, refused with a message naming the
+# item and the step.
+refuse_todos() {  # <home> <jq-edit> <expected message> <what>
+  local home=$1 data="$1/payload.json" rc out
+  write_valid_payload "$data"
+  jq "$2" "$data" > "$data.tmp" && mv "$data.tmp" "$data"
+  set +e; out=$(run_board "$home" build "$data" 2>&1); rc=$?; set -e
+  [ "$rc" -ne 0 ] || fail "$4 was accepted"
+  assert_contains "$out" "$3" "the refusal of $4 did not name the problem: $out"
+}
+
+test_build_refuses_malformed_todos_and_names_what_is_wrong() {
+  local home
+  home=$(make_home todos-refusal)
+  refuse_todos "$home" 'del(.charted[0].todos)' \
+    "charted[0] (sample-queued) has no todos list" "a queued row without todos"
+  refuse_todos "$home" '.captains_call[1].todos = []' \
+    "captains_call[1] (merge.sample-task) todos is empty" "an empty todos list"
+  refuse_todos "$home" '.captains_call[0].todos = "later"' \
+    "todos is not a list" "a todos string"
+  refuse_todos "$home" '.captains_call[0].todos[1].text = ""' \
+    "perishable-first-admission-choice) todos[1] has no text" "a step with no text"
+  refuse_todos "$home" '.captains_call[1].todos[0].state = "maybe"' \
+    'todos[0] state "maybe" is not one of done, current, blocked, todo' "an unknown step state"
+  refuse_todos "$home" '.captains_call[1].todos[0].by = "crew"' \
+    'todos[0] by "crew" is not one of captain, firstmate, worker' "an unknown step owner"
+  refuse_todos "$home" '.captains_call[1].todos[0].state = "current"' \
+    "merge.sample-task) todos marks more than one step current" "two current steps"
+  refuse_todos "$home" '.captains_call[0].todos[0] = "step"' \
+    "todos[0] is not a step object" "a bare-string step"
+  refuse_todos "$home" '.captains_call[0].blocks = [""]' \
+    "perishable-first-admission-choice) blocks is not a list of ids" "an empty blocks id"
+  refuse_todos "$home" '.captains_call[1].blocks = "sample-queued"' \
+    "captains_call[1] (merge.sample-task) blocks is not a list of ids" "a blocks string"
+  refuse_todos "$home" '.captains_call[0].blocks = ["sample-queued", 7]' \
+    "blocks is not a list of ids" "a non-string blocks id"
+  refuse_todos "$home" '.underway = [{"id":"u","repo":"sample","state":"working","doing":"x","kind":"ship","title":7,
+      "todos":[{"text":"Build","state":"current"}]}]' \
+    "does not satisfy fm-bearings-board.v1" "a non-string underway title"
+  assert_absent "$home/.lavish/bearings-board.html" "a refused todos payload still produced a board"
+  pass "build refuses malformed todos, naming the item and the step to fix"
+}
+
+test_several_blocked_prerequisites_are_accepted() {
+  local home data out
+  home=$(make_home todos-blocked)
+  data="$home/payload.json"
+  write_valid_payload "$data"
+  jq '.charted[0].todos = [
+        {"text":"Waits on a","state":"blocked"},{"text":"Waits until 2026-10-01","state":"blocked"},
+        {"text":"Start","state":"todo"}]' "$data" > "$data.tmp" && mv "$data.tmp" "$data"
+  out=$(run_board "$home" validate "$data") || fail "several blocked prerequisites were refused: $out"
+  assert_contains "$out" "valid: $data" "validate did not confirm the payload: $out"
+  pass "a queued row may carry several blocked prerequisites, and validate confirms it"
+}
+
+# A compact fm-bearings.v1 snapshot covering each generated shape.
+write_snapshot() {  # <path>
+  cat > "$1" <<'JSON'
+{
+  "schema": "fm-bearings.v1",
+  "in_flight": [
+    { "id": "u-build", "kind": "ship", "state": "working", "doing": "harness busy (claude-hook)" },
+    { "id": "u-valid", "kind": "ship", "state": "working", "doing": "review step running" },
+    { "id": "u-pr", "kind": "ship", "state": "failed", "doing": "run cancelled" },
+    { "id": "u-done", "kind": "ship", "state": "done", "doing": "checks green" },
+    { "id": "u-scout", "kind": "scout", "state": "paused", "doing": "waiting on an upstream release" },
+    { "id": "u-mate", "kind": "secondmate", "state": "active_child_work", "doing": "jt-1: building" }
+  ],
+  "decisions_open": [ { "id": "call-a", "key": "call-a", "verb": "captain-hold", "summary": "Call A" } ],
+  "gates": [
+    { "id": "q-free", "title": "Free", "blocked_by": "-", "blocker_ids": [], "until": null, "reason": "-", "owner": "(main)" },
+    { "id": "q-held", "title": "Held", "blocked_by": "call-a,u-build", "blocker_ids": ["call-a", "u-build"],
+      "until": "2026-10-01", "reason": "until 2026-10-01: after the release", "owner": "(main)" }
+  ],
+  "recorded_prs": [ { "id": "u-pr", "url": "https://github.com/example/sample/pull/3" } ]
+}
+JSON
+}
+
+test_todos_are_generated_from_the_snapshot() {
+  local home data snap filled
+  home=$(make_home todos-generate)
+  data="$home/payload.json"
+  snap="$home/snapshot.json"
+  write_snapshot "$snap"
+  jq -n '{schema:"fm-bearings-board.v1", home:"h", generated:"g", prs_live:false,
+    captains_call:[
+      {key:"call-a", type:"decision", repo:"sample", title:"Delete the scratch",
+       options:[{value:"yes", label:"Yes"}]},
+      {key:"merge.u-done", type:"merge", repo:"sample", title:"Merge: done work", risk:"low",
+       options:[{value:"merge", label:"Merge now"}]}],
+    underway:[
+      {id:"u-build", repo:"sample", kind:"ship", state:"working", doing:"harness busy (claude-hook)", title:"Build it"},
+      {id:"u-valid", repo:"sample", kind:"ship", state:"working", doing:"review step running"},
+      {id:"u-pr", repo:"sample", kind:"ship", state:"failed", doing:"run cancelled"},
+      {id:"u-scout", repo:"sample", kind:"scout", state:"paused", doing:"waiting on an upstream release"},
+      {id:"u-mate", repo:"sample", kind:"secondmate", state:"active_child_work", doing:"jt-1: building"}],
+    landed:[],
+    charted:[
+      {id:"q-free", repo:"sample", title:"Free", reason:"", dispatchable:true},
+      {id:"q-held", repo:"sample", title:"Held", reason:"", dispatchable:false},
+      {id:"q-own", repo:"sample", title:"Own steps", reason:"", dispatchable:true,
+       todos:[{text:"Composer step", state:"todo"}]},
+      {id:"main-inventory", repo:null, title:"Inventory", reason:"main inventory", dispatchable:false, kind:"warning"}]}' > "$data"
+  filled=$(run_board "$home" todos "$snap" "$data") || fail "todos generation failed"
+  printf '%s' "$filled" > "$home/filled.json"
+  run_board "$home" validate "$home/filled.json" >/dev/null \
+    || fail "the generated todos do not satisfy the contract: $filled"
+  printf '%s' "$filled" | jq -e '
+    def steps($id): [(.underway[], .charted[]) | select(.id == $id) | .todos[] | "\(.state): \(.text)"];
+    (.captains_call[0] | .blocks == ["q-held"]
+      and ([.todos[] | "\(.state)/\(.by): \(.text)"]
+        == ["current/captain: Your call: Delete the scratch", "todo/firstmate: Firstmate acts on your answer"]))
+    and ([.captains_call[1].todos[] | .state] == ["done", "current", "todo"])
+    and (.captains_call[1].todos[1] | .text == "Your merge word" and .by == "captain")
+    and (.captains_call[1] | has("blocks") | not)
+    and (steps("u-build")[0:3] == ["done: Instructions written, worker started",
+      "current: Build the change: the worker is active", "todo: Validate: review, tests, docs, CI"])
+    and (steps("u-valid")[2] == "current: Validate: review, tests, docs, CI: review step running")
+    and (steps("u-pr")[3] == "blocked: PR open with checks green: the validation run was cancelled")
+    and (steps("u-scout") == ["done: Instructions written, worker started",
+      "current: Investigate: waiting on an upstream release (waiting on an outside delay)",
+      "todo: Report written", "todo: Findings relayed to you"])
+    and (steps("u-mate") == ["current: Second mate working: jt-1: building"])
+    and (steps("q-free") == ["todo: Start: dispatch a worker"])
+    and (steps("q-held") == ["blocked: Waits on your call: Delete the scratch", "blocked: Waits on Build it",
+      "blocked: Waits until 2026-10-01", "todo: Start: dispatch a worker"])
+    and (steps("q-own") == ["todo: Composer step"])
+    and (steps("main-inventory") == ["current: Repair: main inventory"])
+  ' >/dev/null || fail "the generated todos did not follow the fill rules: $filled"
+  pass "todos generates each row's steps and each call's blocks from the snapshot, keeping composed ones"
+}
+
+test_todos_take_prose_from_the_row_and_dates_from_the_snapshot() {
+  local home data snap filled
+  home=$(make_home todos-sources)
+  data="$home/payload.json"
+  snap="$home/snapshot.json"
+  jq -n '{schema:"fm-bearings.v1",
+    in_flight:[{id:"u-full", kind:"ship", state:"working", doing:"rewriting the importer so that every vendor fe…"}],
+    gates:[
+      {id:"q-hold", title:"Hold", blocked_by:"-", blocker_ids:[], until:null,
+       reason:"waiting for the vendor contract to be co…", owner:"(main)"},
+      {id:"q-date", title:"Date", blocked_by:"-", blocker_ids:[], until:"2026-10-01",
+       reason:"until 2026-10-01: after the quarterly rel…", owner:"(main)"},
+      {id:"q-date-bare", title:"Date bare", blocked_by:"-", blocker_ids:[], until:"2026-11-15",
+       reason:"until 2026-11-15: a reason nobody copied…", owner:"(main)"},
+      {id:"q-hold-bare", title:"Hold bare", blocked_by:"-", blocker_ids:[], until:null,
+       reason:"held for a reason nobody copied in fu…", owner:"(main)"},
+      {id:"q-prose-date", title:"Prose date", blocked_by:"-", blocker_ids:[], until:null,
+       reason:"until 2026-12-24: a date only in prose", owner:"(main)"}]}' > "$snap"
+  jq -n '{schema:"fm-bearings-board.v1", home:"h", generated:"g", prs_live:false,
+    captains_call:[],
+    underway:[{id:"u-full", repo:"sample", kind:"ship", state:"working", title:"Importer",
+       doing:"rewriting the importer so that every vendor feed is parsed the same way"}],
+    landed:[],
+    charted:[
+      {id:"q-hold", repo:"sample", title:"Hold", dispatchable:false,
+       reason:"waiting for the vendor contract to be countersigned"},
+      {id:"q-date", repo:"sample", title:"Date", dispatchable:false,
+       reason:"after the quarterly release is out"},
+      {id:"q-date-bare", repo:"sample", title:"Date bare", dispatchable:false, reason:""},
+      {id:"q-hold-bare", repo:"sample", title:"Hold bare", dispatchable:false, reason:""},
+      {id:"q-prose-date", repo:"sample", title:"Prose date", dispatchable:false, reason:""}]}' > "$data"
+  filled=$(run_board "$home" todos "$snap" "$data") || fail "todos generation failed"
+  printf '%s' "$filled" | jq -e '
+    def steps($id): [(.underway[], .charted[]) | select(.id == $id) | .todos[] | "\(.state): \(.text)"];
+    ([(.underway[], .charted[]) | .todos[].text | select(contains("…"))] == [])
+    and (steps("u-full")[1]
+      == "current: Build the change: rewriting the importer so that every vendor feed is parsed the same way")
+    and (steps("q-hold") == ["blocked: Held: waiting for the vendor contract to be countersigned",
+      "todo: Start: dispatch a worker"])
+    and (steps("q-date") == ["blocked: Waits until 2026-10-01: after the quarterly release is out",
+      "todo: Start: dispatch a worker"])
+    and (steps("q-date-bare") == ["blocked: Waits until 2026-11-15", "todo: Start: dispatch a worker"])
+    and (steps("q-hold-bare") == ["blocked: Held", "todo: Start: dispatch a worker"])
+    and (steps("q-prose-date") == ["blocked: Held", "todo: Start: dispatch a worker"])
+  ' >/dev/null || fail "a generated step took prose or a date from the wrong source: $filled"
+  pass "todos takes prose from the row and a gate date only from the snapshot until field"
+}
+
+test_blocks_links_come_from_structured_blocker_ids() {
+  local home data snap filled
+  home=$(make_home todos-blocker-ids)
+  data="$home/payload.json"
+  snap="$home/snapshot.json"
+  jq -n '{schema:"fm-bearings.v1", in_flight:[],
+    gates:[
+      {id:"q-long", title:"Long", reason:"-", owner:"(main)", until:null, blocked_by:"fm-a-rather-long-prereq…",
+       blocker_ids:([range(0; 8) | "fm-a-rather-long-prerequisite-task-identifier-\(.)"] + ["fm-the-call-at-the-end"])},
+      {id:"q-display-only", title:"Display only", reason:"-", owner:"(main)", until:null,
+       blocked_by:"fm-the-call-at-the-end", blocker_ids:[]}]}' > "$snap"
+  jq -n '{schema:"fm-bearings-board.v1", home:"h", generated:"g", prs_live:false,
+    captains_call:[{key:"fm-the-call-at-the-end", type:"decision", repo:"sample", title:"Pick the vendor",
+      options:[{value:"yes", label:"Yes"}]}],
+    underway:[], landed:[],
+    charted:[{id:"q-long", repo:"sample", title:"Long", reason:"", dispatchable:false},
+      {id:"q-display-only", repo:"sample", title:"Display only", reason:"", dispatchable:true}]}' > "$data"
+  filled=$(run_board "$home" todos "$snap" "$data") || fail "todos generation failed"
+  printf '%s' "$filled" | jq -e '
+    (.captains_call[0].blocks == ["q-long"])
+    and (.charted[0].todos | length == 10)
+    and (.charted[0].todos[8] | .text == "Waits on your call: Pick the vendor" and .by == "captain")
+    and (.charted[0].todos[7].text == "Waits on fm-a-rather-long-prerequisite-task-identifier-7")
+    and ([.charted[1].todos[].text] == ["Start: dispatch a worker"])
+  ' >/dev/null || fail "the blocks link was not derived from blocker_ids: $filled"
+  pass "a call blocks link and the waits steps come from blocker_ids, never the blocked_by display string"
+}
+
+test_todos_treats_a_missing_section_as_empty() {
+  local home data snap filled rc
+  home=$(make_home todos-no-sections)
+  data="$home/payload.json"
+  snap="$home/snapshot.json"
+  write_snapshot "$snap"
+  jq -n '{schema:"fm-bearings-board.v1", home:"h", generated:"g", prs_live:false, landed:[]}' > "$data"
+  set +e; filled=$(run_board "$home" todos "$snap" "$data" 2>&1); rc=$?; set -e
+  [ "$rc" -eq 0 ] || fail "todos failed on a payload with no call, underway, or charted section: $filled"
+  printf '%s' "$filled" | jq -e '.captains_call == [] and .underway == [] and .charted == []' >/dev/null \
+    || fail "a missing section was not filled as an empty list: $filled"
+  pass "todos treats a missing call, underway, or charted section as an empty list"
+}
+
+test_todos_generation_refuses_missing_inputs() {
+  local home rc out
+  home=$(make_home todos-missing)
+  set +e; out=$(run_board "$home" todos "$home/none.json" "$home/none.json" 2>&1); rc=$?; set -e
+  [ "$rc" -ne 0 ] || fail "todos accepted missing inputs"
+  assert_contains "$out" "does not exist" "the missing-input refusal did not say why: $out"
+  pass "todos generation refuses missing inputs"
+}
+
 test_path_is_stable_and_home_scoped
 test_build_refuses_malformed_payloads_before_touching_the_board
 test_charted_kind_is_optional_and_accepts_both_values
 test_a_recommendation_is_checked_against_the_options_that_exist
+test_build_refuses_malformed_todos_and_names_what_is_wrong
+test_several_blocked_prerequisites_are_accepted
+test_todos_are_generated_from_the_snapshot
+test_todos_take_prose_from_the_row_and_dates_from_the_snapshot
+test_blocks_links_come_from_structured_blocker_ids
+test_todos_treats_a_missing_section_as_empty
+test_todos_generation_refuses_missing_inputs
 test_build_injects_binds_then_arms
 test_registration_cannot_consume_before_any_origin_binding
 test_build_does_not_bind_or_arm_when_session_start_fails
