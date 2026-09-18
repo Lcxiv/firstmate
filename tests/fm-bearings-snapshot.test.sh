@@ -1995,7 +1995,7 @@ EOF
   pass "main and secondmate captain actionability use the same blocker readiness"
 }
 
-test_long_blocker_id_lists_are_projected_exactly() {
+test_gate_ids_and_dates_are_projected_exactly() {
   local home fakebin json ids expected
   home=$(make_home long-blocker-ids)
   : > "$home/data/secondmates.md"
@@ -2008,15 +2008,23 @@ test_long_blocker_id_lists_are_projected_exactly() {
     done
     printf -- '- [ ] held-work - Held work'
     printf '%s\n' "$ids" | while IFS= read -r id; do printf ' blocked-by: %s' "$id"; done
-    printf ' (repo: firstmate) (kind: ship)\n\n## Done\n'
+    printf ' (repo: firstmate) (kind: ship)\n'
+    printf -- '- [ ] dated-work - Dated work (repo: firstmate) (kind: ship) (hold: after the quarterly release is out and the vendor has countersigned) (hold-kind: external) (hold-until: 2099-01-31)\n'
+    printf -- '- [ ] due-work - Due work (repo: firstmate) (kind: ship) (hold: its date has passed) (hold-kind: external) (hold-until: 2020-01-31)\n'
+    printf '\n## Done\n'
   } > "$home/data/backlog.md"
   fakebin=$(make_fakebin "$home")
   json=$(run "$home" "$fakebin" --json)
   [ "${#expected}" -gt 120 ] || fail "the blocker list fixture is too short to prove anything"
   printf '%s' "$json" | jq -e --arg expected "$expected" '
-    [.gates[] | select(.id == "held-work") | .blocked_by] == [$expected]
-  ' >/dev/null || fail "a long blocker id list was not projected exactly: $json"
-  pass "a long blocker id list is projected exactly, never cut short"
+    ([.gates[] | select(.id == "held-work") | .blocked_by] == [$expected])
+      and ([.gates[] | select(.id == "held-work") | .blocker_ids] == [$expected | split(",")])
+      and ([.gates[] | select(.id == "held-work") | .until] == [null])
+      and ([.gates[] | select(.id == "dated-work") | .until] == ["2099-01-31"])
+      and ([.gates[] | select(.id == "dated-work") | .blocker_ids] == [[]])
+      and ([.gates[] | select(.id == "due-work") | .until] == [null])
+  ' >/dev/null || fail "gate blocker ids or the hold-until date were not projected exactly: $json"
+  pass "gate rows carry exact blocker ids and the exact future hold-until date"
 }
 
 test_domain_alpha_stale_parent_event_does_not_become_current_work
@@ -2049,7 +2057,7 @@ test_main_unstructured_current_is_disclosed_with_structured_sibling
 test_main_orphan_counterfactual_meta_clears_inventory_warning
 test_mixed_secondmate_roles_partial_state_and_captain_readiness
 test_main_captain_readiness_matches_secondmate_projection
-test_long_blocker_id_lists_are_projected_exactly
+test_gate_ids_and_dates_are_projected_exactly
 test_completed_scout_report_not_pending
 test_open_decision_surfaces_end_to_end
 test_report_pointers_surface

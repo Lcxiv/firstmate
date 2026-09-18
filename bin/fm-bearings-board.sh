@@ -234,23 +234,28 @@ check_payload() {  # <data.json>
 #   call        decision/credential: "Your call: <title>" (current, captain),
 #               then firstmate acting on the answer. merge.<id>: checks green
 #               (done), the captain's merge word (current), merge and clean up.
-#   text        the composer's own row text (an underway `doing`, a queued
-#               `reason`) wins over the snapshot's copy, and a snapshot value
-#               the snapshot cut short (ending in an ellipsis) is never used.
+#   sources     prose comes only from the composer's own row text (an underway
+#               `doing`, a queued `reason`), never from the snapshot's shortened
+#               display strings. Dates and ids come only from the snapshot's
+#               structured fields (a gate's `until` and `blocker_ids`), never
+#               from parsing `reason` or splitting `blocked_by`.
 #   underway    the kind's lifecycle. ship: instructions and worker, build,
 #               validate, PR open with checks green, the captain's merge word,
 #               merge and clean up. scout: instructions and worker, investigate,
 #               report written, findings relayed. The step it is AT is: done ->
 #               merge word (ship) or relay (scout); a recorded PR -> PR step; a
 #               parked state or a detail naming validation -> validate; else
-#               build/investigate. That step's text carries the snapshot detail;
+#               build/investigate. That step's text carries the row's `doing`;
 #               working is current, paused is current with its outside wait, and
 #               parked, blocked, failed, and unknown are blocked. A secondmate
 #               row is one current step naming its child work.
 #   charted     prerequisites only: one blocked step per unresolved blocker id
 #               (a blocker that is an open call reads "your call" and is owned
-#               by the captain), one for a date gate or hold reason, then
-#               "Start: dispatch a worker". A warning row is one repair step.
+#               by the captain), then "Waits until <date>: <row reason>" for a
+#               gate with an `until` date, or "Held: <row reason>" for a gate
+#               that carries a hold with no date (either without the reason
+#               when the row gives none), then "Start: dispatch a worker". A
+#               warning row is one repair step.
 #   blocks      a call's key is added to the blocks of every call whose task id
 #               appears in a queued row's unresolved blockers.
 command_todos() {  # <snapshot.json|-> <payload.json>
@@ -275,9 +280,7 @@ command_todos() {  # <snapshot.json|-> <payload.json>
         elif $d == "harness idle" then "the worker is idle"
         elif $d == "run cancelled" then "the validation run was cancelled"
         else $d end;
-      def whole: if type == "string" and (endswith("…") | not) then . else "" end;
-      def blockers($g): ($g.blocked_by // "-") | if . == "-" or . == "" then []
-        else split(",") | map(select(. != "" and (endswith("…") | not))) end;
+      def blockers($g): $g.blocker_ids // [];
       def lifecycle($names; $bys; $at; $state; $detail):
         [range(0; $names | length) as $i
           | if $i < $at then step($names[$i]; "done"; $bys[$i])
@@ -289,7 +292,7 @@ command_todos() {  # <snapshot.json|-> <payload.json>
       def underway_todos($t):
         ($flight[$t.id] // {}) as $f
         | (($f.state // $t.state // "unknown")) as $state
-        | (plain(if ($t.doing // "") != "" then $t.doing else ($f.doing | whole) end)) as $detail
+        | (plain($t.doing // "")) as $detail
         | (($f.kind // $t.kind // "ship")) as $kind
         | if $kind == "secondmate" then [step("Second mate working: " + $detail; "current"; "worker")]
           elif $kind == "scout" then
@@ -327,12 +330,10 @@ command_todos() {  # <snapshot.json|-> <payload.json>
           | [blockers($g)[] as $id
               | if $call_titles[$id] != null then step("Waits on your call: " + $call_titles[$id]; "blocked"; "captain")
                 else step("Waits on " + ($row_titles[$id] // $id); "blocked"; "firstmate") end]
-            + (($g.reason // "-") as $gr
-               | (if ($t.reason // "") != "" then $t.reason else ($gr | whole) end) as $r
-               | if $gr == "-" or $gr == "" then []
-                 elif $r == "" then [step("Held: the task record carries the reason"; "blocked"; "firstmate")]
-                 elif ($r | startswith("until ")) then [step("Waits " + $r; "blocked"; "firstmate")]
-                 else [step("Held: " + $r; "blocked"; "firstmate")] end)
+            + ((if ($t.reason // "") != "" then ": " + $t.reason else "" end) as $why
+               | if ($g.until // null) != null then [step("Waits until " + $g.until + $why; "blocked"; "firstmate")]
+                 elif ($g.reason // "-") != "-" and $g.reason != "" then [step("Held" + $why; "blocked"; "firstmate")]
+                 else [] end)
             + [step("Start: dispatch a worker"; "todo"; "firstmate")]
         end;
       ([$gates[] | . as $g | blockers($g)[] | select($call_titles[.] != null) | {call: ., id: $g.id}]

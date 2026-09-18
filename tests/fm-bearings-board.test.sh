@@ -512,8 +512,9 @@ write_snapshot() {  # <path>
   ],
   "decisions_open": [ { "id": "call-a", "key": "call-a", "verb": "captain-hold", "summary": "Call A" } ],
   "gates": [
-    { "id": "q-free", "title": "Free", "blocked_by": "-", "reason": "-", "owner": "(main)" },
-    { "id": "q-held", "title": "Held", "blocked_by": "call-a,u-build", "reason": "until 2026-10-01: after the release", "owner": "(main)" }
+    { "id": "q-free", "title": "Free", "blocked_by": "-", "blocker_ids": [], "until": null, "reason": "-", "owner": "(main)" },
+    { "id": "q-held", "title": "Held", "blocked_by": "call-a,u-build", "blocker_ids": ["call-a", "u-build"],
+      "until": "2026-10-01", "reason": "until 2026-10-01: after the release", "owner": "(main)" }
   ],
   "recorded_prs": [ { "id": "u-pr", "url": "https://github.com/example/sample/pull/3" } ]
 }
@@ -567,77 +568,87 @@ test_todos_are_generated_from_the_snapshot() {
     and (steps("u-mate") == ["current: Second mate working: jt-1: building"])
     and (steps("q-free") == ["todo: Start: dispatch a worker"])
     and (steps("q-held") == ["blocked: Waits on your call: Delete the scratch", "blocked: Waits on Build it",
-      "blocked: Waits until 2026-10-01: after the release", "todo: Start: dispatch a worker"])
+      "blocked: Waits until 2026-10-01", "todo: Start: dispatch a worker"])
     and (steps("q-own") == ["todo: Composer step"])
     and (steps("main-inventory") == ["current: Repair: main inventory"])
   ' >/dev/null || fail "the generated todos did not follow the fill rules: $filled"
   pass "todos generates each row's steps and each call's blocks from the snapshot, keeping composed ones"
 }
 
-test_todos_never_carry_snapshot_truncated_text() {
+test_todos_take_prose_from_the_row_and_dates_from_the_snapshot() {
   local home data snap filled
-  home=$(make_home todos-untruncated)
+  home=$(make_home todos-sources)
   data="$home/payload.json"
   snap="$home/snapshot.json"
   jq -n '{schema:"fm-bearings.v1",
-    in_flight:[
-      {id:"u-full", kind:"ship", state:"working", doing:"rewriting the importer so that every vendor fe…"},
-      {id:"u-short", kind:"ship", state:"working", doing:"polishing the unreadable part of the long…"}],
+    in_flight:[{id:"u-full", kind:"ship", state:"working", doing:"rewriting the importer so that every vendor fe…"}],
     gates:[
-      {id:"q-hold", title:"Hold", blocked_by:"-", reason:"waiting for the vendor contract to be co…", owner:"(main)"},
-      {id:"q-date", title:"Date", blocked_by:"-", reason:"until 2026-10-01: after the quarterly rel…", owner:"(main)"},
-      {id:"q-bare", title:"Bare", blocked_by:"u-full,fm-mangled-blo…", reason:"held for a reason nobody copied in fu…", owner:"(main)"}]}' > "$snap"
+      {id:"q-hold", title:"Hold", blocked_by:"-", blocker_ids:[], until:null,
+       reason:"waiting for the vendor contract to be co…", owner:"(main)"},
+      {id:"q-date", title:"Date", blocked_by:"-", blocker_ids:[], until:"2026-10-01",
+       reason:"until 2026-10-01: after the quarterly rel…", owner:"(main)"},
+      {id:"q-date-bare", title:"Date bare", blocked_by:"-", blocker_ids:[], until:"2026-11-15",
+       reason:"until 2026-11-15: a reason nobody copied…", owner:"(main)"},
+      {id:"q-hold-bare", title:"Hold bare", blocked_by:"-", blocker_ids:[], until:null,
+       reason:"held for a reason nobody copied in fu…", owner:"(main)"},
+      {id:"q-prose-date", title:"Prose date", blocked_by:"-", blocker_ids:[], until:null,
+       reason:"until 2026-12-24: a date only in prose", owner:"(main)"}]}' > "$snap"
   jq -n '{schema:"fm-bearings-board.v1", home:"h", generated:"g", prs_live:false,
     captains_call:[],
-    underway:[
-      {id:"u-full", repo:"sample", kind:"ship", state:"working", title:"Importer",
-       doing:"rewriting the importer so that every vendor feed is parsed the same way"},
-      {id:"u-short", repo:"sample", kind:"ship", state:"working", doing:"polishing"}],
+    underway:[{id:"u-full", repo:"sample", kind:"ship", state:"working", title:"Importer",
+       doing:"rewriting the importer so that every vendor feed is parsed the same way"}],
     landed:[],
     charted:[
       {id:"q-hold", repo:"sample", title:"Hold", dispatchable:false,
        reason:"waiting for the vendor contract to be countersigned"},
       {id:"q-date", repo:"sample", title:"Date", dispatchable:false,
-       reason:"until 2026-10-01: after the quarterly release is out"},
-      {id:"q-bare", repo:"sample", title:"Bare", dispatchable:false, reason:""}]}' > "$data"
+       reason:"after the quarterly release is out"},
+      {id:"q-date-bare", repo:"sample", title:"Date bare", dispatchable:false, reason:""},
+      {id:"q-hold-bare", repo:"sample", title:"Hold bare", dispatchable:false, reason:""},
+      {id:"q-prose-date", repo:"sample", title:"Prose date", dispatchable:false, reason:""}]}' > "$data"
   filled=$(run_board "$home" todos "$snap" "$data") || fail "todos generation failed"
   printf '%s' "$filled" | jq -e '
     def steps($id): [(.underway[], .charted[]) | select(.id == $id) | .todos[] | "\(.state): \(.text)"];
     ([(.underway[], .charted[]) | .todos[].text | select(contains("…"))] == [])
     and (steps("u-full")[1]
       == "current: Build the change: rewriting the importer so that every vendor feed is parsed the same way")
-    and (steps("u-short")[1] == "current: Build the change: polishing")
     and (steps("q-hold") == ["blocked: Held: waiting for the vendor contract to be countersigned",
       "todo: Start: dispatch a worker"])
     and (steps("q-date") == ["blocked: Waits until 2026-10-01: after the quarterly release is out",
       "todo: Start: dispatch a worker"])
-    and (steps("q-bare") == ["blocked: Waits on Importer", "blocked: Held: the task record carries the reason",
-      "todo: Start: dispatch a worker"])
-  ' >/dev/null || fail "a generated step carried snapshot-truncated text: $filled"
-  pass "todos prefers the composer's full text and never carries a snapshot value cut short"
+    and (steps("q-date-bare") == ["blocked: Waits until 2026-11-15", "todo: Start: dispatch a worker"])
+    and (steps("q-hold-bare") == ["blocked: Held", "todo: Start: dispatch a worker"])
+    and (steps("q-prose-date") == ["blocked: Held", "todo: Start: dispatch a worker"])
+  ' >/dev/null || fail "a generated step took prose or a date from the wrong source: $filled"
+  pass "todos takes prose from the row and a gate date only from the snapshot until field"
 }
 
-test_a_call_in_a_long_blocker_list_keeps_its_blocks_link() {
+test_blocks_links_come_from_structured_blocker_ids() {
   local home data snap filled
-  home=$(make_home todos-long-blockers)
+  home=$(make_home todos-blocker-ids)
   data="$home/payload.json"
   snap="$home/snapshot.json"
   jq -n '{schema:"fm-bearings.v1", in_flight:[],
-    gates:[{id:"q-long", title:"Long", reason:"-", owner:"(main)",
-      blocked_by:([range(0; 8) | "fm-a-rather-long-prerequisite-task-identifier-\(.)"] + ["fm-the-call-at-the-end"] | join(","))}]}' > "$snap"
+    gates:[
+      {id:"q-long", title:"Long", reason:"-", owner:"(main)", until:null, blocked_by:"fm-a-rather-long-prereq…",
+       blocker_ids:([range(0; 8) | "fm-a-rather-long-prerequisite-task-identifier-\(.)"] + ["fm-the-call-at-the-end"])},
+      {id:"q-display-only", title:"Display only", reason:"-", owner:"(main)", until:null,
+       blocked_by:"fm-the-call-at-the-end", blocker_ids:[]}]}' > "$snap"
   jq -n '{schema:"fm-bearings-board.v1", home:"h", generated:"g", prs_live:false,
     captains_call:[{key:"fm-the-call-at-the-end", type:"decision", repo:"sample", title:"Pick the vendor",
       options:[{value:"yes", label:"Yes"}]}],
     underway:[], landed:[],
-    charted:[{id:"q-long", repo:"sample", title:"Long", reason:"", dispatchable:false}]}' > "$data"
+    charted:[{id:"q-long", repo:"sample", title:"Long", reason:"", dispatchable:false},
+      {id:"q-display-only", repo:"sample", title:"Display only", reason:"", dispatchable:true}]}' > "$data"
   filled=$(run_board "$home" todos "$snap" "$data") || fail "todos generation failed"
   printf '%s' "$filled" | jq -e '
     (.captains_call[0].blocks == ["q-long"])
     and (.charted[0].todos | length == 10)
     and (.charted[0].todos[8] | .text == "Waits on your call: Pick the vendor" and .by == "captain")
     and (.charted[0].todos[7].text == "Waits on fm-a-rather-long-prerequisite-task-identifier-7")
-  ' >/dev/null || fail "a call at the end of a long blocker list lost its blocks link: $filled"
-  pass "a call whose id ends a long blocker list still links to the work it holds up"
+    and ([.charted[1].todos[].text] == ["Start: dispatch a worker"])
+  ' >/dev/null || fail "the blocks link was not derived from blocker_ids: $filled"
+  pass "a call blocks link and the waits steps come from blocker_ids, never the blocked_by display string"
 }
 
 test_todos_treats_a_missing_section_as_empty() {
@@ -670,8 +681,8 @@ test_a_recommendation_is_checked_against_the_options_that_exist
 test_build_refuses_malformed_todos_and_names_what_is_wrong
 test_several_blocked_prerequisites_are_accepted
 test_todos_are_generated_from_the_snapshot
-test_todos_never_carry_snapshot_truncated_text
-test_a_call_in_a_long_blocker_list_keeps_its_blocks_link
+test_todos_take_prose_from_the_row_and_dates_from_the_snapshot
+test_blocks_links_come_from_structured_blocker_ids
 test_todos_treats_a_missing_section_as_empty
 test_todos_generation_refuses_missing_inputs
 test_build_injects_binds_then_arms
