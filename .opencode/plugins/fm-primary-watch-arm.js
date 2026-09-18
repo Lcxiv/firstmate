@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { encodeFirstmateOperationalInput } from "./lib/fm-operational-input.js";
 
@@ -105,7 +105,9 @@ function shouldArm(paths) {
   if (existsSync(`${paths.state}/.afk`)) return false;
   if (existsSync(`${paths.config}/x-mode.env`) || existsSync(`${paths.config}/phone-mode.env`)) return true;
   // A deferred self-update retries only on the watcher's check sweep (bin/fm-supervision-lib.sh).
-  if (existsSync(`${paths.state}/.auto-update-pending`)) return true;
+  try {
+    if (lstatSync(`${paths.state}/.auto-update-pending`).isFile()) return true;
+  } catch {}
   try {
     return readdirSync(paths.state).some((name) => name.endsWith(".meta"));
   } catch {
