@@ -460,6 +460,12 @@ test_crew_absorb_class_classifier() {
   [ "$(crew_absorb_class a)" = paused ] || fail "declared pause not classed paused"
   crew_is_paused a || fail "crew_is_paused did not recognize a paused verdict"
   ! crew_is_provably_working a || fail "a paused crew was treated as provably working"
+  FM_FAKE_CREW_STATE='state: parked · source: run-step · parked at review: 3 finding(s) (ask-user: authority decision)'
+  [ "$(crew_absorb_class a)" = parked ] || fail "authoritative run-step gate park not classed parked"
+  ! crew_is_provably_working a || fail "a parked crew was treated as provably working"
+  ! crew_is_paused a || fail "a parked crew was treated as a declared pause"
+  FM_FAKE_CREW_STATE='state: parked · source: status-log · needs-decision: two calls above me'
+  [ "$(crew_absorb_class a)" = none ] || fail "a parked verdict derived from the status log was classed absorbable"
   FM_FAKE_CREW_STATE='state: working · source: status-log · working: compiling'
   [ "$(crew_absorb_class a)" = none ] || fail "stale working: status-log classed absorbable"
   FM_FAKE_CREW_STATE='state: unknown · source: none · worktree gone'
@@ -467,7 +473,7 @@ test_crew_absorb_class_classifier() {
   ! crew_is_paused a || fail "unknown crew classed paused"
   [ "$(crew_absorb_class "")" = none ] || fail "empty id not classed none"
   unset FM_FAKE_CREW_STATE
-  pass "crew_absorb_class: working/paused/none from one read; crew_is_paused and crew_is_provably_working agree"
+  pass "crew_absorb_class: working/paused/parked/none from one read; a parked verdict is admitted only from the run step"
 }
 
 # The wedge detector's third liveness input: writes inside the crew's own recorded
@@ -1926,6 +1932,396 @@ test_nonterminal_stale_paused_absorbed_then_resurfaced() {
   FM_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the paused re-surface failed"
   grep "$(printf '\tstale\t')" "$drain_out" | grep -F "$window" >/dev/null || fail "paused re-surface was not queued"
   pass "a declared pause is absorbed on first sight, then re-surfaced as a recheck past the threshold, never wedge-escalated"
+}
+
+# --- stale, crew PARKED at a no-mistakes gate awaiting firstmate's OPEN decision:
+#     absorbed on the same bounded cadence a declared pause uses, never
+#     wedge-escalated, across pane churn --------------------------------------
+# The repeat-wake shape observed 2026-09-03: a crew whose no-mistakes run sat at
+# a review gate awaiting firstmate's decision produced a stale wake on every new
+# pane hash, roughly every ~80s, for the duration of the park.
+#
+# Both absorb doors were shut for it. With the crew's needs-decision as the log's
+# last line the poll is routed to the TERMINAL branch, which absorbed only a
+# provably working crew; and the authoritative door collapsed `state: parked ·
+# source: run-step` to `none` because the absorb vocabulary knew only working and
+# paused. The park is admitted only while the keyed decision is OPEN per the
+# durable status fold - the leg where firstmate owes the answer - never from a
+# last-line read. This fixture ENDS on the open needs-decision line so every
+# poll takes that terminal branch; the routine-note variant below pins the
+# fold-not-last-line rule on the non-terminal branch instead.
+test_gate_parked_stale_absorbed_then_resurfaced() {
+  local dir state fakebin out drain_out capture_file window key pane_hash sig pid back statusf i
+  dir=$(make_case nonterminal-stale-gate-parked); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; drain_out="$dir/drain.out"; capture_file="$dir/pane.txt"
+  window="test:fm-gateparked"
+  printf 'idle prompt while the gate waits' > "$capture_file"
+  printf 'window=%s\nkind=ship\n' "$window" > "$state/gateparked.meta"
+  statusf="$state/gateparked.status"
+  # The escalation the crew raised at the gate, still OPEN and the log's last
+  # line: no resolution line has closed the key, so firstmate owes the answer.
+  printf 'needs-decision: [key=gate-4] two calls above me at the review gate\n' > "$statusf"
+  sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-gateparked_status"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  pane_hash=$(hash_text "idle prompt while the gate waits")
+  printf '%s' "$pane_hash" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+  # Authoritative current state: the run itself is parked at the gate.
+  export FM_FAKE_CREW_STATE='state: parked · source: run-step · parked at review: 3 finding(s) (ask-user: authority decision)'
+
+  # Phase A: a fresh park under a high re-surface threshold is absorbed - no wake,
+  # no wedge timer - and the absorb is recorded with its reason so a supervisor
+  # investigating a quiet fleet can tell absorbed from never-fired.
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_TMUX_CURRENT_COMMAND=claude \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_STALE_ESCALATE_SECS=2 FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_absorbed "$state" "$pid" "parked at a validation gate" \
+    || fail "a crew parked at a validation gate was not absorbed: $(cat "$out")"
+  # Hold across several more polls: the whole defect was that the wake repeated,
+  # and FM_STALE_ESCALATE_SECS=2 here means an unfixed wedge timer would have
+  # fired well inside this window.
+  wait_poll_cycle "$state" "$pid" || { reap "$pid"; fail "watcher exited during a gate park: $(cat "$out")"; }
+  wait_poll_cycle "$state" "$pid" || { reap "$pid"; fail "watcher exited during a gate park: $(cat "$out")"; }
+  [ ! -s "$out" ] || fail "a gate park printed a wake reason during absorb: $(cat "$out")"
+  [ ! -s "$state/.wake-queue" ] || fail "a gate park enqueued a wake during absorb"
+  [ "$(cat "$state/.stale-$key" 2>/dev/null || true)" = "$pane_hash" ] || fail "stale suppressor not advanced on the gate-park absorb"
+  # Pane churn: the harness footer ticks, the pane goes stale again at a NEW hash.
+  # Every new hash was a fresh wake in the observed loop; it must be classified
+  # (the suppressor advances to the new hash) and absorbed again, not surfaced.
+  printf 'idle prompt while the gate waits, footer ticked' > "$capture_file"
+  pane_hash=$(hash_text "idle prompt while the gate waits, footer ticked")
+  i=0
+  while [ "$i" -lt 200 ] && [ "$(cat "$state/.stale-$key" 2>/dev/null || true)" != "$pane_hash" ]; do
+    kill -0 "$pid" 2>/dev/null || { fail "watcher exited during gate-park pane churn: $(cat "$out")"; }
+    sleep 0.1; i=$((i + 1))
+  done
+  [ "$(cat "$state/.stale-$key" 2>/dev/null || true)" = "$pane_hash" ] || fail "the churned pane hash was never classified"
+  printf 'idle prompt while the gate waits, footer ticked again' > "$capture_file"
+  pane_hash=$(hash_text "idle prompt while the gate waits, footer ticked again")
+  i=0
+  while [ "$i" -lt 200 ] && [ "$(cat "$state/.stale-$key" 2>/dev/null || true)" != "$pane_hash" ]; do
+    kill -0 "$pid" 2>/dev/null || { fail "watcher exited during gate-park pane churn: $(cat "$out")"; }
+    sleep 0.1; i=$((i + 1))
+  done
+  [ "$(cat "$state/.stale-$key" 2>/dev/null || true)" = "$pane_hash" ] || fail "the second churned pane hash was never classified"
+  kill -0 "$pid" 2>/dev/null || fail "watcher did not stay alive across gate-park pane churn: $(cat "$out")"
+  [ ! -s "$out" ] || fail "a gate park re-surfaced on pane churn: $(cat "$out")"
+  [ ! -s "$state/.wake-queue" ] || fail "a gate park enqueued a wake on pane churn"
+  [ "$(grep -c "parked at a validation gate" "$state/.watch-triage.log")" -ge 3 ] || fail "each churn absorb was not recorded with its reason"
+  [ "$(cat "$state/.paused-$key" 2>/dev/null || true)" = gate-park ] || fail "the gate-park class token did not survive pane churn"
+  [ "$(cat "$state/.paused-$key" 2>/dev/null || true)" = gate-park ] || fail "the gate-park class token was not recorded"
+  [ ! -e "$state/.stale-since-$key" ] || fail "a gate-park absorb must not start the wedge timer"
+  grep -F "possible wedge" "$state/.watch-triage.log" >/dev/null && fail "a gate park was timed toward a wedge"
+  reap "$pid"
+  ack_stopped_cycle "$state" || true
+
+  # Phase B: age the park past the threshold and confirm it re-surfaces ONCE as a
+  # named recheck - bounded, so a forgotten gate cannot rot invisibly, and never
+  # labeled a wedge.
+  back=$(( $(date +%s) - 500 ))
+  if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$back" '+%Y%m%d%H%M.%S')" "$statusf"
+  else touch -m -d "@$back" "$statusf"; fi
+  sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-gateparked_status"
+  : > "$out"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_TMUX_CURRENT_COMMAND=claude \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_STALE_ESCALATE_SECS=999 FM_PAUSE_RESURFACE_SECS=240 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_exit "$pid" 100 || fail "watcher did not re-surface a gate park past the threshold"
+  grep -F "stale: $window" "$out" >/dev/null || fail "the gate-park re-surface did not print a stale wake"
+  grep -F "awaiting firstmate" "$out" >/dev/null || fail "the re-surface did not name firstmate as the decision owner"
+  grep -F "possible wedge" "$out" >/dev/null && fail "a gate park was mislabeled a possible wedge"
+  [ -e "$state/.paused-resurfaced-$key" ] || fail "the gate-park re-surface throttle marker was not recorded"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the gate-park re-surface failed"
+  grep "$(printf '\tstale\t')" "$drain_out" | grep -F "$window" >/dev/null || fail "the gate-park re-surface was not queued"
+  unset FM_FAKE_CREW_STATE
+  pass "a crew parked at a gate with an open decision stops looping across pane churn, is recorded, then re-surfaced once per bounded cadence, never wedge-escalated"
+}
+
+# The fold-not-last-line rule on the non-terminal branch: a routine note appended
+# AFTER the open needs-decision makes the last line non-captain-relevant, yet the
+# keyed decision is still open in the durable fold, so the park is still
+# firstmate's wait and is still absorbed.
+test_gate_parked_open_decision_behind_routine_note_absorbed() {
+  local dir state fakebin out capture_file window key pane_hash sig pid statusf
+  dir=$(make_case gate-parked-routine-note); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"
+  window="test:fm-gatenote"
+  printf 'idle prompt while the gate waits' > "$capture_file"
+  printf 'window=%s\nkind=ship\n' "$window" > "$state/gatenote.meta"
+  statusf="$state/gatenote.status"
+  {
+    printf 'needs-decision: [key=gate-4] two calls above me at the review gate\n'
+    printf 'working: holding at the review gate for the decision\n'
+  } > "$statusf"
+  sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-gatenote_status"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  pane_hash=$(hash_text "idle prompt while the gate waits")
+  printf '%s' "$pane_hash" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+  export FM_FAKE_CREW_STATE='state: parked · source: run-step · parked at review: 3 finding(s) (ask-user: authority decision)'
+
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_TMUX_CURRENT_COMMAND=claude \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_STALE_ESCALATE_SECS=999 FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_absorbed "$state" "$pid" "parked at a validation gate" \
+    || { reap "$pid"; fail "an open decision behind a routine note was not absorbed: $(cat "$out")"; }
+  wait_poll_cycle "$state" "$pid" || { reap "$pid"; fail "watcher exited during the gate park: $(cat "$out")"; }
+  reap "$pid"
+  [ ! -s "$out" ] || fail "an open decision behind a routine note printed a wake: $(cat "$out")"
+  [ ! -s "$state/.wake-queue" ] || fail "an open decision behind a routine note enqueued a wake"
+  [ "$(cat "$state/.paused-$key" 2>/dev/null || true)" = gate-park ] || fail "the gate-park class token was not recorded"
+  unset FM_FAKE_CREW_STATE
+  pass "an open decision still admits the gate park when a routine note is the log's last line, because admission reads the durable fold"
+}
+
+# The half that is easy to break. A parked RUN proves nothing about the worker
+# that has to answer the gate: if that worker died, the run stays parked forever
+# and the gate can never be answered. Absorbing on the run step alone would hide
+# exactly the wedge this whole mechanism exists to catch, so the absorb is
+# admitted only while the endpoint reports its agent provably alive.
+test_gate_parked_dead_endpoint_still_surfaces() {
+  local dir state fakebin out drain_out capture_file window key pane_hash sig pid statusf
+  dir=$(make_case gate-parked-dead-endpoint); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; drain_out="$dir/drain.out"; capture_file="$dir/pane.txt"
+  window="test:fm-gatedead"
+  printf 'idle prompt, agent gone' > "$capture_file"
+  printf 'window=%s\nkind=ship\n' "$window" > "$state/gatedead.meta"
+  statusf="$state/gatedead.status"
+  printf 'needs-decision: [key=gate-1] two calls above me at the review gate\n' > "$statusf"
+  sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-gatedead_status"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  pane_hash=$(hash_text "idle prompt, agent gone")
+  printf '%s' "$pane_hash" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+  # Same authoritative park as the absorbed case above - the ONLY difference is
+  # the endpoint, whose pane now runs a shell rather than a harness.
+  export FM_FAKE_CREW_STATE='state: parked · source: run-step · parked at review: 3 finding(s) (ask-user: authority decision)'
+
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_TMUX_CURRENT_COMMAND=zsh \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_STALE_ESCALATE_SECS=999 FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_exit "$pid" 100 || fail "a parked gate with a dead endpoint was absorbed instead of surfaced"
+  grep -Fx "stale: $window" "$out" >/dev/null || fail "the dead-endpoint gate park did not print the immediate stale wake"
+  [ "$(cat "$state/.paused-$key" 2>/dev/null || true)" = gate-park ] && fail "a refused gate park still recorded its class token"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the dead-endpoint stale failed"
+  grep "$(printf '\tstale\t')" "$drain_out" | grep -F "$window" >/dev/null || fail "the dead-endpoint stale wake was not queued"
+  unset FM_FAKE_CREW_STATE
+  pass "a crew whose endpoint died at a parked gate still surfaces a stale wake on the existing schedule"
+}
+
+# The bound the absorb must not be able to outlive: a park that silently ends.
+# The suppression keys on CURRENT authoritative state rather than on any log line,
+# but it deliberately does not re-derive that state on every poll, because the
+# watcher polls far too often to pay for an authoritative read each time. What
+# makes the absorb safe is therefore not immediacy but EXPIRY: the cheap path is
+# capped at STALE_ESCALATE_SECS, and once it lapses the ended park is handed back
+# to the ordinary stale schedule with no leftover bookkeeping keeping it quiet.
+# Both halves are asserted below, because a cap that never lapses and a cap that
+# lapses instantly are different bugs.
+test_gate_park_that_ends_returns_to_the_ordinary_stale_schedule() {
+  local dir state fakebin out drain_out capture_file window key pane_hash sig pid statusf
+  dir=$(make_case gate-park-ends); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; drain_out="$dir/drain.out"; capture_file="$dir/pane.txt"
+  window="test:fm-gateends"
+  printf 'idle prompt while the gate waits' > "$capture_file"
+  printf 'window=%s\nkind=ship\n' "$window" > "$state/gateends.meta"
+  statusf="$state/gateends.status"
+  printf 'needs-decision: [key=gate-1] two calls above me at the review gate\n' > "$statusf"
+  sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-gateends_status"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  pane_hash=$(hash_text "idle prompt while the gate waits")
+  printf '%s' "$pane_hash" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+  export FM_FAKE_CREW_STATE='state: parked · source: run-step · parked at review: 1 finding(s)'
+
+  # Phase A: absorbed, exactly as above.
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_TMUX_CURRENT_COMMAND=claude \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_STALE_ESCALATE_SECS=999 FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_absorbed "$state" "$pid" "parked at a validation gate" \
+    || fail "the gate park was not absorbed before the end-of-park phase"
+  reap "$pid"
+  ack_stopped_cycle "$state" || true
+  [ "$(cat "$state/.paused-$key" 2>/dev/null || true)" = gate-park ] || fail "the gate-park class token was not recorded"
+
+  # Phase B: the park is over. The pane and every marker are untouched - only the
+  # authoritative verdict changed - so nothing but current state can be carrying
+  # this decision. The absorb is deliberately not re-derived on every poll (the
+  # watcher polls far too often to pay for that), so what has to be proven is that
+  # the cheap path EXPIRES: while its reconciliation is still fresh the window may
+  # stay absorbed, and once that window closes the ended park must surface.
+  export FM_FAKE_CREW_STATE='state: unknown · source: none · no current-state source available'
+  : > "$out"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_TMUX_CURRENT_COMMAND=claude \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_STALE_ESCALATE_SECS=240 FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_poll_cycle "$state" "$pid" || { reap "$pid"; fail "watcher exited before the reconciliation window closed: $(cat "$out")"; }
+  reap "$pid"
+  [ ! -s "$out" ] || fail "the bounded reconciliation window did not hold for one poll: $(cat "$out")"
+  ack_stopped_cycle "$state" || true
+
+  # Phase C: age the last authoritative reconciliation past the bound. Nothing
+  # else changes, so only the expiry of the cheap path can produce the wake.
+  set_mtime $(( $(date +%s) - 500 )) "$state/.paused-rechecked-$key"
+  : > "$out"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_TMUX_CURRENT_COMMAND=claude \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_STALE_ESCALATE_SECS=240 FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_exit "$pid" 100 || fail "a gate park that ended kept absorbing past its reconciliation bound"
+  grep -F "stale: $window" "$out" >/dev/null || fail "the ended gate park did not print a stale wake"
+  [ "$(cat "$state/.paused-$key" 2>/dev/null || true)" = gate-park ] && fail "the gate-park class token outlived the park"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the ended gate park failed"
+  grep "$(printf '\tstale\t')" "$drain_out" | grep -F "$window" >/dev/null || fail "the ended gate park's stale wake was not queued"
+  unset FM_FAKE_CREW_STATE
+  pass "a gate park that ends cannot absorb past its bounded reconciliation window; it returns to the ordinary stale schedule"
+}
+
+# LEG 2 of the park. Once firstmate's resolution line closes the key, only the
+# worker may invoke the run's respond; firstmate is forbidden to. A run still
+# parked with NO open decision and a live endpoint is therefore a worker that is
+# not acting on its answer - the unresponsive-worker shape the stale wake exists
+# to catch - and it must alarm on the ordinary schedule, not take the gate-park
+# cadence. Identical park, identical live endpoint, identical pane: only the fold
+# differs from the absorbed case above.
+test_resolved_but_parked_worker_still_surfaces() {
+  local dir state fakebin out drain_out capture_file window key pane_hash sig pid statusf
+  dir=$(make_case gate-parked-resolved); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; drain_out="$dir/drain.out"; capture_file="$dir/pane.txt"
+  window="test:fm-gateresolved"
+  printf 'idle prompt after the answer landed' > "$capture_file"
+  printf 'window=%s\nkind=ship\n' "$window" > "$state/gateresolved.meta"
+  statusf="$state/gateresolved.status"
+  {
+    printf 'needs-decision: [key=gate-4] two calls above me at the review gate\n'
+    printf 'resolved [key=gate-4]: answered: one fix round authorized\n'
+  } > "$statusf"
+  sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-gateresolved_status"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  pane_hash=$(hash_text "idle prompt after the answer landed")
+  printf '%s' "$pane_hash" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+  export FM_FAKE_CREW_STATE='state: parked · source: run-step · parked at review: 3 finding(s) (ask-user: authority decision)'
+
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_TMUX_CURRENT_COMMAND=claude \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_STALE_ESCALATE_SECS=999 FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_exit "$pid" 100 || fail "a parked run with no open decision was absorbed instead of surfaced"
+  grep -Fx "stale: $window" "$out" >/dev/null || fail "the resolved-but-parked worker did not print the immediate stale wake"
+  grep -F "awaiting firstmate" "$out" >/dev/null && fail "a resolved decision was surfaced as firstmate's wait"
+  [ ! -e "$state/.paused-$key" ] || fail "a resolved-but-parked worker recorded bounded-wait bookkeeping"
+  grep -F "parked at a validation gate" "$state/.watch-triage.log" >/dev/null 2>&1 && fail "a resolved-but-parked worker was absorbed as a gate park"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the resolved-but-parked stale failed"
+  grep "$(printf '\tstale\t')" "$drain_out" | grep -F "$window" >/dev/null || fail "the resolved-but-parked stale wake was not queued"
+  unset FM_FAKE_CREW_STATE
+  pass "a run still parked after its decision was resolved is the worker's move, so it surfaces on the ordinary stale schedule"
+}
+
+# A captain-held crew whose agent died while its run is parked is a declared
+# wait, not a gate park: it takes the captain-held recheck wording and the cheap
+# declared-wait path, and never writes the gate-park class token.
+test_captain_held_dead_crew_at_a_parked_run_keeps_captain_wording() {
+  local dir state fakebin out capture_file window key pane_hash sig pid statusf
+  dir=$(make_case captain-held-parked-dead); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"
+  window="test:fm-heldparked"
+  printf 'idle bare shell after agent exit' > "$capture_file"
+  printf 'window=%s\nkind=ship\nharness=grok\nbackend=tmux\n' "$window" > "$state/heldparked.meta"
+  statusf="$state/heldparked.status"
+  {
+    printf 'needs-decision: [key=gate-2] escalating the gate to the captain\n'
+    printf 'captain-held [key=gate-2]: tracked by task-decision-route\n'
+  } > "$statusf"
+  sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-heldparked_status"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  pane_hash=$(hash_text "idle bare shell after agent exit")
+  printf '%s' "$pane_hash" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+  export FM_FAKE_CREW_STATE='state: parked · source: run-step · parked at review: 1 finding(s)'
+
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_TMUX_CURRENT_COMMAND=zsh \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_STALE_ESCALATE_SECS=999 FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_absorbed "$state" "$pid" "captain-held, awaiting the captain" \
+    || { reap "$pid"; fail "a captain-held dead crew at a parked run was not absorbed with the captain wording: $(cat "$out") $(cat "$state/.watch-triage.log" 2>/dev/null)"; }
+  wait_poll_cycle "$state" "$pid" || { reap "$pid"; fail "watcher exited during the captain hold: $(cat "$out")"; }
+  reap "$pid"
+  [ ! -s "$out" ] || fail "a captain-held dead crew printed a wake during absorb: $(cat "$out")"
+  grep -F "awaiting firstmate" "$state/.watch-triage.log" >/dev/null && fail "a captain hold was recorded as a gate park"
+  [ -e "$state/.paused-$key" ] || fail "the captain-held wait recorded no bounded-wait flag"
+  [ -z "$(cat "$state/.paused-$key")" ] || fail "a captain hold wrote the gate-park class token"
+  [ -e "$state/.paused-rechecked-$key" ] || fail "the captain-held wait did not record its cheap-path recheck"
+  unset FM_FAKE_CREW_STATE
+  pass "a captain-held crew whose agent died at a parked run keeps the captain-held wording and the declared-wait cheap path"
+}
+
+# The status log is an append-only record of wake EVENTS, so a `paused:` line is
+# only ever evidence about the moment it was written; nothing retracts it when
+# the wait ends. Absorption must therefore key on current state, never on the
+# presence of a declaration somewhere in the log. This is the case a scan-the-log
+# fix would get wrong: the declaration is right there, superseded by later
+# activity, and the crew's authoritative state says it is not waiting on anything.
+test_superseded_pause_declaration_is_not_absorbed() {
+  local dir state fakebin out drain_out capture_file window key pane_hash sig pid statusf
+  dir=$(make_case superseded-pause); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; drain_out="$dir/drain.out"; capture_file="$dir/pane.txt"
+  window="test:fm-superseded"
+  printf 'idle prompt, nothing running' > "$capture_file"
+  printf 'window=%s\nkind=ship\n' "$window" > "$state/superseded.meta"
+  statusf="$state/superseded.status"
+  {
+    printf 'paused: holding for the upstream tool release\n'
+    printf 'working: upstream shipped, resumed the implementation\n'
+  } > "$statusf"
+  sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-superseded_status"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  pane_hash=$(hash_text "idle prompt, nothing running")
+  printf '%s' "$pane_hash" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+  # Nothing is running and the pane is idle: the earlier declaration is the only
+  # thing in the log that looks like a wait, and it must not be honored.
+  export FM_FAKE_CREW_STATE='state: unknown · source: none · no current-state source available'
+
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_TMUX_CURRENT_COMMAND=claude \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" \
+    FM_STALE_ESCALATE_SECS=999 FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_exit "$pid" 100 || fail "a superseded pause declaration was treated as an active external wait"
+  grep -Fx "stale: $window" "$out" >/dev/null || fail "the superseded-pause stale wake was not printed"
+  grep -F "awaiting external" "$out" >/dev/null && fail "a superseded pause declaration produced a paused recheck"
+  [ ! -e "$state/.paused-$key" ] || fail "a superseded pause declaration recorded pause bookkeeping"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the superseded-pause stale failed"
+  grep "$(printf '\tstale\t')" "$drain_out" | grep -F "$window" >/dev/null || fail "the superseded-pause stale wake was not queued"
+  unset FM_FAKE_CREW_STATE
+  pass "a declared external wait superseded by later activity is no longer treated as an active wait"
 }
 
 # A captain-held crew can leave a stable backend endpoint after its agent exits.
@@ -3859,6 +4255,13 @@ test_afk_busy_declared_pause_hands_off_plain_stale
 test_afk_busy_declared_pause_ticking_pane_hands_off_once
 test_nonterminal_stale_not_working_surfaced
 test_nonterminal_stale_paused_absorbed_then_resurfaced
+test_gate_parked_stale_absorbed_then_resurfaced
+test_gate_parked_open_decision_behind_routine_note_absorbed
+test_gate_parked_dead_endpoint_still_surfaces
+test_gate_park_that_ends_returns_to_the_ordinary_stale_schedule
+test_resolved_but_parked_worker_still_surfaces
+test_captain_held_dead_crew_at_a_parked_run_keeps_captain_wording
+test_superseded_pause_declaration_is_not_absorbed
 test_exited_declared_pause_is_bounded_but_live_gate_surfaces
 test_secondmate_paused_resurfaces_in_normal_mode
 test_secondmate_captain_held_resurfaces_in_normal_mode
