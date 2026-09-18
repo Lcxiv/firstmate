@@ -4,8 +4,10 @@
 #
 # Reports whether a firstmate home needs supervision because it has in-flight
 # work (a state/<id>.meta exists), an X-mode relay poll
-# (state/x-watch.check.sh), or a Discord phone poll
-# (state/phone-watch.check.sh), and whether its watcher has a fresh liveness beacon
+# (state/x-watch.check.sh), a Discord phone poll
+# (state/phone-watch.check.sh), a registered process-to-event source, or a
+# deferred self-update (state/.auto-update-pending, see below), and whether its
+# watcher has a fresh liveness beacon
 # (state/.last-watcher-beat, touched every poll cycle, within the grace window).
 # bin/fm-turnend-guard.sh uses the PID-strict fm_watcher_healthy from
 # bin/fm-wake-lib.sh for its block decision. bin/fm-guard.sh uses the model-aware
@@ -26,9 +28,16 @@ fm_sup_stat_mtime() {
 # Populates, for the state dir at $1:
 #   FM_SUP_IN_FLIGHT      count of state/*.meta (in-flight tasks)
 #   FM_SUP_SOURCES        count of registered process-to-event sources
-#   FM_SUP_NEEDED         true/false - in-flight work, a remote command poll, or a
+#   FM_SUP_UPDATE_PENDING true/false - bin/fm-update.sh left a deferred
+#                         self-update in state/.auto-update-pending
+#   FM_SUP_NEEDED         true/false - in-flight work, a remote command poll, a
 #                         registered event source (a source is a wait on an
-#                         external process, not a task, so it has no metadata)
+#                         external process, not a task, so it has no metadata),
+#                         or a pending self-update. Only the watcher's check
+#                         sweep retries that update, so the record must itself
+#                         keep a watcher armed: otherwise a home whose last
+#                         work just ended would hold the update until
+#                         unrelated work started again.
 #   FM_SUP_WATCHER_FRESH  true/false - a watcher beacon within the grace window
 #   FM_SUP_BEACON_DESC    human-readable beacon age, for banners ("never" if absent)
 #   FM_SUP_QUEUE_PENDING  true/false - state/.wake-queue has unread records
@@ -41,6 +50,7 @@ fm_supervision_status() {
   FM_SUP_WATCHER_FRESH=false
   FM_SUP_BEACON_DESC=never
   FM_SUP_QUEUE_PENDING=false
+  FM_SUP_UPDATE_PENDING=false
 
   for meta in "$state"/*.meta; do
     [ -e "$meta" ] || continue
@@ -51,10 +61,15 @@ fm_supervision_status() {
     [ -e "$source" ] || continue
     FM_SUP_SOURCES=$((FM_SUP_SOURCES + 1))
   done
+  # Same test bin/fm-update.sh's pending_read applies: a symlink is never a record.
+  if [ -f "$state/.auto-update-pending" ] && [ ! -L "$state/.auto-update-pending" ]; then
+    FM_SUP_UPDATE_PENDING=true
+  fi
   if [ "$FM_SUP_IN_FLIGHT" -gt 0 ] \
     || [ -f "$state/x-watch.check.sh" ] \
     || [ -f "$state/phone-watch.check.sh" ] \
-    || [ "$FM_SUP_SOURCES" -gt 0 ]; then
+    || [ "$FM_SUP_SOURCES" -gt 0 ] \
+    || [ "$FM_SUP_UPDATE_PENDING" = true ]; then
     FM_SUP_NEEDED=true
   fi
 

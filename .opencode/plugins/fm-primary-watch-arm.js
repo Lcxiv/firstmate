@@ -104,6 +104,8 @@ async function isPrimaryRoot(root, home) {
 function shouldArm(paths) {
   if (existsSync(`${paths.state}/.afk`)) return false;
   if (existsSync(`${paths.config}/x-mode.env`) || existsSync(`${paths.config}/phone-mode.env`)) return true;
+  // A deferred self-update retries only on the watcher's check sweep (bin/fm-supervision-lib.sh).
+  if (existsSync(`${paths.state}/.auto-update-pending`)) return true;
   try {
     return readdirSync(paths.state).some((name) => name.endsWith(".meta"));
   } catch {

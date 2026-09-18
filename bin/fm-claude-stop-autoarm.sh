@@ -29,9 +29,9 @@
 #   - AFK: while state/.afk exists the away daemon owns the watcher and triage;
 #     this hook exits 0 and NEVER rewakes the primary (checked again at
 #     translation time so a mid-cycle AFK transition is honored).
-#   - Need: arms only while work is in flight (state/*.meta) or a mode has a
-#     remote command poll to run (state/x-watch.check.sh or
-#     state/phone-watch.check.sh); an idle home exits 0.
+#   - Need: arms only while bin/fm-supervision-lib.sh's fm_supervision_needed
+#     holds (work in flight, a remote command poll, a process-event source, or
+#     a pending self-update); an idle home exits 0.
 #   - Single-flight: Claude does not dedupe async hooks, so exactly one
 #     GENERATION owner arms per event epoch: the epoch ledger's monotonic
 #     sequence is the claim generation, every firing defers (exit 0) to a live

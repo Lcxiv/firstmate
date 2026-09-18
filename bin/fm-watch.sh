@@ -1822,7 +1822,9 @@ while :; do
     done
     # A self-update deferred while this home was busy retries on the same slow
     # cadence until the home is quiet. The retry costs nothing while the record
-    # is absent, and fm-update.sh re-reads the deferral conditions itself.
+    # is absent, and fm-update.sh re-reads the deferral conditions itself. The
+    # record keeps supervision needed (bin/fm-supervision-lib.sh), so this
+    # sweep still runs once the home's last work is gone.
     if [ -f "$STATE/.auto-update-pending" ]; then
       auto_update_after_merge --retry-after-merge || exit 1
       if [ -n "$AUTO_UPDATE_WAKE_REASON" ]; then

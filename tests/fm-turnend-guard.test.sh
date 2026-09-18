@@ -260,6 +260,33 @@ test_hook_blocks_source_only_home() {
   pass "fm-turnend-guard: non-Claude path blocks a source-only home"
 }
 
+test_predicate_pending_update_needs_supervision() {
+  local state="$TMP_ROOT/pred-update/state" target
+  mkdir -p "$state"
+  printf 'https://github.com/o/r/pull/1\n' > "$state/.auto-update-pending"
+  fm_supervision_needed "$state" 300 || fail "a pending self-update did not register as supervision need"
+  [ "$FM_SUP_IN_FLIGHT" -eq 0 ] || fail "a pending self-update must not count as an in-flight task"
+  [ "$FM_SUP_UPDATE_PENDING" = true ] || fail "a pending self-update must set FM_SUP_UPDATE_PENDING"
+  rm -f "$state/.auto-update-pending"
+  target="$TMP_ROOT/pred-update/elsewhere"
+  printf 'https://github.com/o/r/pull/1\n' > "$target"
+  ln -s "$target" "$state/.auto-update-pending"
+  if fm_supervision_needed "$state" 300; then
+    fail "a symlinked pending record must not register as supervision need"
+  fi
+  pass "fm_supervision_needed: a pending self-update needs supervision; a symlink does not"
+}
+
+test_hook_blocks_pending_update_only_home() {
+  local dir out status
+  dir=$(make_primary_dir "$TMP_ROOT/hook-update-only")
+  printf 'https://github.com/o/r/pull/1\n' > "$dir/state/.auto-update-pending"
+  out=$(run_hook "$dir" false); status=$?
+  expect_code 2 "$status" "hook must block when a pending self-update has no watcher to retry it"
+  assert_contains "$out" "self-update after a merge is still pending" "block reason must identify the pending self-update"
+  pass "fm-turnend-guard: blocks a home whose only need is a pending self-update"
+}
+
 test_hook_blocks_when_dead_lock_has_fresh_beacon() {
   local dir dead out status
   dir=$(make_primary_dir "$TMP_ROOT/hook-dead-lock-fresh")
@@ -1794,11 +1821,13 @@ test_predicate_unhealthy_stale_beacon
 test_predicate_healthy_fresh_beacon
 test_predicate_queue_pending_flag
 test_predicate_x_mode_needs_supervision
+test_predicate_pending_update_needs_supervision
 test_predicate_source_needs_supervision
 test_predicate_phone_mode_needs_supervision
 test_hook_silent_when_no_work_in_flight
 test_hook_blocks_when_fresh_beacon_has_no_live_lock
 test_hook_blocks_source_only_home
+test_hook_blocks_pending_update_only_home
 test_hook_blocks_when_dead_lock_has_fresh_beacon
 test_hook_silent_with_live_lock_and_fresh_beacon
 test_hook_non_claude_health_ignores_claude_budget_contention

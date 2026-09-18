@@ -913,6 +913,75 @@ SH
   pass "T26 a skipped remote secondmate is reported to firstmate by name and reason"
 }
 
+# --- T27: a quiet home still finishes a deferred update --------------------
+# Only the watcher's check sweep retries a deferred update, and a watcher is
+# kept armed only while something needs supervision. So the case that matters is
+# the deferral whose blocking worker was the home's LAST work: once it is
+# cleaned up nothing is in flight, and unless the pending record itself counts
+# as supervision need, nothing arms the watcher and the update waits for
+# unrelated work to start. This drives the whole quiet-home path: the deferral,
+# the cleanup, the real turn-end guard refusing to let the turn end blind, the
+# real watcher finishing the update, and the need released afterwards.
+quiet_home_turnend_guard() {  # <world> -> guard output; status is the guard's
+  local w=$1
+  printf '{"stop_hook_active":false}' \
+    | FM_HOME="$w/home" FM_STATE_OVERRIDE="$w/home/state" \
+      bash "$w/main/bin/fm-turnend-guard.sh" 2>&1
+}
+
+test_quiet_home_completes_deferred_update() {
+  local w fakebin out pid i=0 status
+  w=$(new_world_with_real_bin t27)
+  name_origin_as_github "$w"
+  git -C "$w/main" worktree add -q -b fm/task "$w/task" main
+  add_task "$w" task1 "$w/task"
+  bump_origin "$w" instr
+
+  out=$(FM_FAKE_LIVE_PANES="main:fm-task1" run_after_merge "$w" "$FM_PR_URL_SELF")
+  assert_contains "$out" "after-merge: deferred" "the update deferred while the last work was in flight"
+
+  # That worker is cleaned up and nothing else is under way: no task record, no
+  # remote command poll, no event source, and no watcher beat.
+  rm -f "$w/home/state/task1.meta" "$w/home/state/.last-watcher-beat"
+  git -C "$w/main" worktree remove --force "$w/task"
+  [ -z "$(find "$w/home/state" -maxdepth 1 -name '*.meta' -print)" ] \
+    || fail "the quiet-home fixture still records work in flight"
+  [ -f "$w/home/state/.auto-update-pending" ] \
+    || fail "the deferred notification was not recorded for retry"
+
+  out=$(quiet_home_turnend_guard "$w"); status=$?
+  [ "$status" -eq 2 ] \
+    || fail "a quiet home with a pending update let the turn end with no watcher (status $status: $out)"
+  assert_contains "$out" "self-update after a merge is still pending" \
+    "the guard did not name the pending update as the reason supervision is needed"
+
+  fakebin=$(fm_fakebin "$w")
+  fake_tmux_liveness "$fakebin"
+  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$w/home/state" FM_HOME="$w/home" \
+    FM_ROOT_OVERRIDE="$w/main" FM_POLL=1 FM_CHECK_INTERVAL=1 FM_HEARTBEAT=999999 \
+    FM_SIGNAL_GRACE=1 "$w/main/bin/fm-watch.sh" > "$w/watch.out" 2>"$w/watch.err" &
+  pid=$!
+  while [ "$i" -lt 600 ] && kill -0 "$pid" 2>/dev/null; do
+    sleep 0.1
+    i=$((i + 1))
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    kill "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+    fail "the watcher never finished the quiet home's update (output: $(cat "$w/watch.out"))"
+  fi
+  wait "$pid" 2>/dev/null || true
+
+  [ "$(git -C "$w/main" rev-parse HEAD)" = "$(git -C "$w/main" rev-parse origin/main)" ] \
+    || fail "the quiet home's deferred update did not land"
+  [ ! -f "$w/home/state/.auto-update-pending" ] \
+    || fail "the completed update left its pending record behind"
+  out=$(quiet_home_turnend_guard "$w"); status=$?
+  [ "$status" -eq 0 ] \
+    || fail "the home still demanded supervision after the update landed (status $status: $out)"
+  pass "T27 a quiet home keeps its watcher armed until a deferred update lands, then releases it"
+}
+
 test_updates_main_and_secondmate
 test_reread_gate_is_instruction_only
 test_dirty_secondmate_skipped
@@ -937,5 +1006,6 @@ test_after_merge_excludes_merged_task_from_in_flight
 test_after_merge_cut_short_leaves_pending_record
 test_watcher_reports_repeated_failure_once
 test_watcher_reports_skipped_remote_secondmate
+test_quiet_home_completes_deferred_update
 
 echo "# all fm-update tests passed"
