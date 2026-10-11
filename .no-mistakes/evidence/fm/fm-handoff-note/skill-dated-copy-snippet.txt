@@ -1,0 +1,22 @@
+### Skill dated-copy snippet, extracted verbatim from .agents/skills/handoff-note/SKILL.md:
+home=${FM_HOME:-$(git rev-parse --show-toplevel)}
+cp "$home/data/handoff/latest.md" "$home/data/handoff/$(date +%Y-%m-%d-%H%M).md"
+
+## (a) main home, FM_HOME unset, cwd=/tmp/fm-handoff-lab/skill/main/sub/dir
+exit 0
+2026-10-10-2115.md
+latest.md
+
+## (b) FM_HOME=/tmp/fm-handoff-lab/skill/secondmate-home, cwd=/tmp/fm-handoff-lab/skill/main (a different repo)
+exit 0
+2026-10-10-2115.md
+latest.md
+
+main home after (b) (must be unchanged):
+2026-10-10-2115.md
+latest.md
+
+CHECK (a) stamp format YYYY-MM-DD-HHMM: OK (2026-10-10-2115.md)
+CHECK (a) dated copy identical to latest.md: OK
+CHECK (b) FM_HOME copy landed in FM_HOME with the stamp format: OK (2026-10-10-2115.md)
+CHECK (b) main home untouched by the FM_HOME run: OK

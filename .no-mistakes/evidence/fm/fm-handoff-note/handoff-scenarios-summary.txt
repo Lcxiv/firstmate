@@ -1,0 +1,78 @@
+PASS  [S1] section header present
+PASS  [S1] body printed
+PASS  [S1] last note line printed (whole note)
+PASS  [S1] age and path label
+PASS  [S1] no unreadable-age line on this platform
+S1 line numbers: WAKE QUEUE=23 HANDOFF=28 SUPERVISION=40 FLEET=109 CONTEXT=136
+PASS  [S1] placed after WAKE QUEUE
+PASS  [S1] placed before SUPERVISION
+PASS  [S1] placed before FLEET STATE
+PASS  [S1] read-once contract names the stale/unreadable/bounded case
+PASS  [S1] digest completed (NEXT STEP)
+PASS  [S1] lock acquired (not read-only)
+PASS  [S2] compact routed to re-emit
+PASS  [S2] compact re-emit prints the handoff section
+PASS  [S2] compact re-emit prints the body
+PASS  [S2] clear routed to re-emit
+PASS  [S2] clear re-emit prints the body
+PASS  [S3] section still present
+PASS  [S3] body never leaked anywhere in digest
+PASS  [S3] stale line names age, bound, and path
+PASS  [S3] section is exactly one non-blank line
+S3 handoff section verbatim:
+Handoff note is 100h old (data/handoff/latest.md), past the 72h freshness bound, so it is not printed. Open it directly only if this session needs it.
+PASS  [S3] exactly 72h old is stale (bound is exclusive)
+PASS  [S3] 72h note body withheld
+PASS  [S3] 71h old is still fresh and printed
+PASS  [S3] 71h note body printed
+PASS  [S4] widened bound prints the 100h note
+PASS  [S4] widened bound prints its body
+PASS  [S4] narrowed bound makes a 30h note stale
+PASS  [S4] narrowed bound withholds the body
+PASS  [S4] invalid max-age 'abc' falls back to 72h (100h note stale)
+PASS  [S4] invalid max-age 'abc' does not leak body
+PASS  [S4] invalid max-age '0' falls back to 72h (100h note stale)
+PASS  [S4] invalid max-age '0' does not leak body
+PASS  [S4] invalid max-age '-5' falls back to 72h (100h note stale)
+PASS  [S4] invalid max-age '-5' does not leak body
+PASS  [S4] invalid max-age '' falls back to 72h (100h note stale)
+PASS  [S4] invalid max-age '' does not leak body
+PASS  [S5] section present
+PASS  [S5] absent line
+PASS  [S5] exactly one non-blank line
+PASS  [S5] no file was created
+PASS  [S5] no handoff dir created
+S5 handoff section verbatim:
+No handoff note (data/handoff/latest.md). Nothing from a previous session to inherit; the handoff-note skill owns writing one.
+PASS  [S6] empty line
+PASS  [S6] exactly one non-blank line
+PASS  [S6] not announced as fresh
+S6 handoff section verbatim:
+Handoff note is empty (data/handoff/latest.md), so there is no conversation to inherit from it.
+PASS  [S7] unreadable-age line
+PASS  [S7] body never leaked
+PASS  [S7] exactly one non-blank line
+S7 handoff section verbatim:
+Handoff note present but its age could not be read (data/handoff/latest.md), so it is not printed. Open it directly only if this session needs it.
+PASS  [S8] default bound shows head of note
+PASS  [S8] default bound stops at line 200
+PASS  [S8] default bound omits line 201+
+PASS  [S8] default bound discloses exact remainder
+PASS  [S8] supervision block still emitted after bounded note
+PASS  [S8] fleet state still emitted after bounded note
+PASS  [S8] override 20 discloses exact remainder
+PASS  [S8] override 20 prints line 20 (filler 15)
+PASS  [S8] override 20 omits line 21 (filler 16)
+PASS  [S8] invalid lines override falls back to 200
+PASS  [S8] note under the bound printed whole (last line)
+PASS  [S8] note under the bound claims no remainder
+PASS  [S9] last note line stands alone
+PASS  [S9] next section rule starts its own line
+PASS  [S10] session is read-only
+PASS  [S10] wake queue skipped
+PASS  [S10] handoff section present
+PASS  [S10] handoff body printed on read-only path
+PASS  [S11] truncation banner printed
+PASS  [S11] truncation banner lists handoff among never-run stages
+
+TOTAL FAILS: 0

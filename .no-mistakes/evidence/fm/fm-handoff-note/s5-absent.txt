@@ -1,0 +1,161 @@
+### S5 no data/handoff/ at all
+### (live run of bin/fm-sessionstart-run.sh against an isolated throwaway home)
+
+
+================================================================================
+SESSION START - /tmp/fm-handoff-lab/absent
+================================================================================
+
+LOCK
+--------------------------------------------------------------------------------
+lock acquired: harness pid 43970 (session 7d5eee4a-2acd-4f6d-a7f3-8a07c6a6fc4c)
+
+BOOTSTRAP
+--------------------------------------------------------------------------------
+MISSING: tmux (install: brew install tmux  # or the platform's package manager)
+MISSING: treehouse (install: curl -fsSL https://kunchenguid.github.io/treehouse/install.sh | sh)
+MISSING: node (install: brew install node  # or the platform's package manager)
+MISSING: gh (install: brew install gh  # or the platform's package manager)
+MISSING: no-mistakes (install: curl -fsSL https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.sh | sh)
+MISSING: gh-axi (install: npm install -g gh-axi && gh-axi setup hooks)
+MISSING: chrome-devtools-axi (install: npm install -g chrome-devtools-axi && chrome-devtools-axi setup hooks)
+MISSING: lavish-axi (install: npm install -g lavish-axi && lavish-axi setup hooks)
+MISSING: tasks-axi (install: npm install -g tasks-axi)
+MISSING: quota-axi (install: npm install -g quota-axi)
+
+WAKE QUEUE
+--------------------------------------------------------------------------------
+(no queued wakes)
+
+================================================================================
+HANDOFF NOTE FROM THE PREVIOUS SESSION
+================================================================================
+No handoff note (data/handoff/latest.md). Nothing from a previous session to inherit; the handoff-note skill owns writing one.
+================================================================================
+SUPERVISION OPERATING INSTRUCTIONS - primary harness: claude
+================================================================================
+Current state:
+- Lock: held by this session; this session owns normal supervision unless away mode says otherwise.
+- Away mode: inactive.
+- X mode: inactive.
+- Phone mode: inactive.
+- Remote command polling: inactive; use the default watcher cadence.
+- Ordinary wake: the Stop-owned auto-arm (bin/fm-claude-stop-autoarm.sh) already owns watcher continuity; drain and handle the wake, and do not arm another cycle yourself.
+
+Mode: Claude Stop-hook-owned supervision.
+
+When this session owns supervision and away mode is not active:
+1. Drain first with `bin/fm-wake-drain.sh`.
+   After handling all emitted wakes and reconciling open decisions and unread status lines, run the exact `--ack-through` command printed as `WAKE_ACK_REQUIRED`; until then the work remains durable for idempotent re-handling after interruption.
+2. Routine watcher arm and re-arm are owned by the Stop `asyncRewake` hook (`bin/fm-claude-stop-autoarm.sh`), never by you.
+   Every turn end while supervision is needed launches or attaches one home-scoped watcher cycle with no model command and no model tokens.
+   An actionable close wakes you through the hook's exit-2 rewake, delivered as a `Stop hook feedback` message.
+3. On a `Stop hook feedback` wake (`signal:`, `stale:`, `check:`, or `heartbeat`), run `bin/fm-wake-drain.sh` first and handle the wake.
+   Do not run `bin/fm-watch-arm.sh` after an ordinary wake; the next turn end re-arms automatically when supervision is still needed.
+   Do not invent a wake from an attach-status line alone; drain and act only on real wake records, the drain's `OPEN DECISIONS` and `UNREAD STATUS` entries, or a real watcher reason line.
+4. On the one `Stop hook feedback` automatic-mechanism failure notice (`firstmate watcher auto-arm FAILED ...`), drain, inspect the automatic mechanism failure, and do not turn the notice into a repeating manual-arm loop.
+5. If the Stop hook does not claim the home or reports an exhausted failure, inspect its registration and watcher startup path before ending blind.
+   Keep the Stop-owned automatic mechanism as the only Claude arm owner.
+   Source `/tmp/fm-handoff-lab/absent/config/x-mode.env` first when Relay or Discord phone mode is active.
+   A shell `&`, a truncating pipe, or bundling is denied automatically by the PreToolUse seatbelt (`bin/fm-arm-pretool-check.sh`) registered in `.claude/settings.json`.
+6. Treat `watcher: started ...` and `watcher: attached ...` inside automatic arm output as proof that one live cycle exists.
+   On attach, the arm follows verified identity-matched successors instead of exiting when the first cycle ends.
+7. The durable wake queue preserves actionable events between a rewake and the next Stop-launched arm, while the bounded turn-end guard prevents a blind Stop when recovery did not start.
+   No PreToolUse hook denies fleet commands based on watcher status.
+   [`watcher-continuity.md`](../watcher-continuity.md) owns the exact session-lock recovery boundary.
+8. The turn-end guard (`bin/fm-turnend-guard.sh --claude`) remains the final backstop.
+   It requires the PID-strict live-watcher and fresh-beacon predicate at the Stop boundary, while the mid-turn pull guard accepts a fresh beacon without a live process under Claude's between-turns auto-arm model.
+   It allows the stop when a watcher is healthy or an open auto-arm generation claim owns recovery, while fresh failure epochs advance the bounded one-time attended fail-open progression described in [`turnend-guard.md`](../turnend-guard.md).
+9. Waiting on the hook-owned cycle is silent: do not send idle progress while the watcher is parked.
+
+The watcher itself remains `bin/fm-watch.sh`, and `bin/fm-watch-arm.sh` remains the verified arm wrapper that the Stop hook foregrounds.
+Re-arm attaches to an existing healthy cycle when one is already present and follows its verified successor chain.
+See [`watcher-continuity.md`](../watcher-continuity.md) for the arm-layer successor and clean-close failure contract and the Claude ownership model.
+
+
+================================================================================
+READ-ONCE CONTRACT
+================================================================================
+Everything below is printed in full for this session start: every state/*.meta,
+a compact data/backlog.md listing, a bounded tail of every state/*.status,
+data/projects.md, data/secondmates.md, data/captain.md, data/captain-shared.md,
+and data/learnings.md. The handoff note above was printed the same way when the
+section said it was.
+Do NOT re-read any of them after reading this digest, and do NOT bulk-read
+data/backlog.md or state/*.status: re-reading everything defeats the entire
+point of this command.
+
+Go to a source directly only when:
+  - this digest flagged it ABSENT (then rebuild or create it per AGENTS.md),
+  - its contents looked unparseable or corrupt,
+  - an individual full status log is needed for older wake-event history, or a
+    status line was capped and its tail matters (each task's full log path is
+    printed with its tail),
+  - a full task body is needed (tasks-axi show <id> --full, or data/backlog.md),
+  - the backlog listing disclosed omitted queued items and this turn needs them,
+  - the handoff section said the note was stale, unreadable, or bounded, and
+    this turn needs what it did not print (data/handoff/latest.md),
+  - the NETWORK CHECKS section reported its checks still IN PROGRESS and this
+    turn needs their verdict (bin/fm-startup-network.sh report),
+  - or a STARTUP TRUNCATED banner named the stage that would have printed it, in
+    which case that stage's sources were never emitted and must be reconciled.
+
+================================================================================
+FLEET STATE
+================================================================================
+
+data/backlog.md
+--------------------------------------------------------------------------------
+ABSENT
+
+Work under way (state/*.meta)
+--------------------------------------------------------------------------------
+(none)
+
+Orphan status logs (state/*.status without matching .meta)
+--------------------------------------------------------------------------------
+(none)
+
+AFK
+--------------------------------------------------------------------------------
+absent
+
+================================================================================
+NETWORK CHECKS
+================================================================================
+completed off the startup path in 1s: GitHub authentication, dead-secondmate relaunch, secondmate convergence, pending handoff delivery, and project clone refresh with its drift reporting.
+NEEDS_GH_AUTH
+These ran AFTER the sections above were composed, so re-read any record a line here names.
+
+================================================================================
+CONTEXT
+================================================================================
+
+data/projects.md
+--------------------------------------------------------------------------------
+ABSENT
+
+data/secondmates.md
+--------------------------------------------------------------------------------
+ABSENT
+
+data/captain.md
+--------------------------------------------------------------------------------
+ABSENT
+
+data/captain-shared.md (shared, main-authoritative, read-only in secondmate homes)
+--------------------------------------------------------------------------------
+ABSENT
+
+data/learnings.md
+--------------------------------------------------------------------------------
+ABSENT
+
+================================================================================
+NEXT STEP
+================================================================================
+Follow the supervision operating instructions block above for harness 'claude'.
+This script never starts supervision itself.
+
+The digest above is complete for this session start. The READ-ONCE CONTRACT
+section near the top of it governs what may still be read from disk.

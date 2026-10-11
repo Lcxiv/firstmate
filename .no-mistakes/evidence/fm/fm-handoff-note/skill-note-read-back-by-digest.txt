@@ -1,0 +1,8 @@
+### Skill-written note (latest.md + dated copy from the snippet run) read back by the next session start, handoff section only:
+Written 0h ago (data/handoff/latest.md). This is the conversation no durable record carries: what the captain is waiting on, their open asks, and what was promised.
+
+# Handoff, lab
+Synthetic.
+
+## Waiting on the captain
+- SYNTHETIC-SKILL-MARKER

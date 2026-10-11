@@ -1,0 +1,8 @@
+ok - a fresh handoff note is printed whole in its own labelled section ahead of the bulk digest
+ok - a stale handoff note costs one line, never its body, and the freshness bound is a real threshold
+ok - an absent or empty handoff note costs one line and nothing is invented
+ok - an oversized handoff note is bounded with an exact disclosed remainder, and a normal one is not
+ok - the context re-emit path prints the handoff note, which is exactly when it matters
+ok - a lock refusal prints a loud read-only banner, skips every mutating step, and still completes the digest
+ok - the pure-Bash watchdog bounds session start, kills its hung grandchild, and emits the truncation contract
+# targeted handoff selection: all assertions passed

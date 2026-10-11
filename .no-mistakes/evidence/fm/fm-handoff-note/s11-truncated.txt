@@ -1,0 +1,25 @@
+### S11 digest truncated by the runtime bound before the handoff stage
+### (live run of bin/fm-session-start.sh, invoked directly, against an isolated throwaway home)
+
+
+================================================================================
+SESSION START - /tmp/fm-handoff-lab/truncate
+================================================================================
+
+LOCK
+--------------------------------------------------------------------------------
+lock acquired: harness pid 43970 (session 7d5eee4a-2acd-4f6d-a7f3-8a07c6a6fc4c)
+
+BOOTSTRAP
+--------------------------------------------------------------------------------
+
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  STARTUP TRUNCATED - SESSION START HIT ITS 3s RUNTIME BOUND
+●  It stopped during the "bootstrap" stage, so everything above is COMPLETE
+●  only up to that point.
+●  RECONCILE these stages before acting on anything they would have shown:
+●    bootstrap wake-queue handoff supervision-instructions read-once fleet-state network-checks context next-step
+●  Rerun bin/fm-session-start.sh now to finish taking the helm. If it truncates
+●  again, raise FM_SESSION_START_TIMEOUT and report the slow stage - a stage that
+●  cannot finish inside the bound is a fleet problem, not a reporting detail.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
