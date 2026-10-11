@@ -432,7 +432,7 @@ print_handoff_note() {
     return 0
   fi
   now=$(date +%s)
-  mtime=$(stat -f %m "$path" 2>/dev/null || stat -c %Y "$path" 2>/dev/null || printf '')
+  mtime=$(fm_path_mtime "$path") || mtime=
   case "$mtime" in ''|*[!0-9]*) mtime= ;; esac
   if [ -z "$mtime" ]; then
     printf 'Handoff note present but its age could not be read (%s), so it is not printed. Open it directly only if this session needs it.\n' "$label"
@@ -456,6 +456,7 @@ print_handoff_note() {
       "$((total - HANDOFF_LINES))" "$HANDOFF_LINES" "$label"
   else
     cat "$path"
+    [ -z "$(tail -c 1 "$path")" ] || printf '\n'
   fi
 }
 

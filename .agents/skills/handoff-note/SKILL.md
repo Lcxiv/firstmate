@@ -17,14 +17,15 @@ This note carries exactly that, and nothing the digest or a report already holds
 
 ## Where it goes
 
-Write the note to `$FM_HOME/data/handoff/latest.md`, creating `data/handoff/` if it does not exist yet.
-`FM_HOME` selects the home whose session this is; when it is unset the effective home is the tracked code root, exactly as every other script in `bin/` resolves it.
+Write the note to `data/handoff/latest.md` in the effective home, creating `data/handoff/` if it does not exist yet.
+`FM_HOME` selects the home whose session this is; when it is unset the effective home is the tracked code root, exactly as every other script in `bin/` resolves it, so resolve the home first rather than using a bare `$FM_HOME`.
 `latest.md` is overwritten every time, because it describes now rather than history.
 
 Immediately after writing it, keep a dated copy so an earlier note stays recoverable:
 
 ```sh
-cp "$FM_HOME/data/handoff/latest.md" "$FM_HOME/data/handoff/$(date +%Y-%m-%d-%H%M).md"
+home=${FM_HOME:-$(git rev-parse --show-toplevel)}
+cp "$home/data/handoff/latest.md" "$home/data/handoff/$(date +%Y-%m-%d-%H%M).md"
 ```
 
 The dated copies are recoverability only; nothing reads them automatically.

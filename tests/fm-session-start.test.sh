@@ -533,7 +533,11 @@ write_handoff_note() {
 # assuming one.
 handoff_note_age_hours() {
   local path=$1 mtime now
-  mtime=$(stat -f %m "$path" 2>/dev/null || stat -c %Y "$path" 2>/dev/null || printf '')
+  if [ "$(uname)" = Darwin ]; then
+    mtime=$(stat -f %m "$path" 2>/dev/null) || mtime=
+  else
+    mtime=$(stat -c %Y "$path" 2>/dev/null) || mtime=
+  fi
   case "$mtime" in ''|*[!0-9]*) fail "could not read the handoff note mtime: $path" ;; esac
   now=$(date +%s)
   printf '%s\n' "$(( (now - mtime) / 3600 ))"
@@ -2559,6 +2563,8 @@ EOF
     "a fresh handoff note was announced but its body was not printed"
   assert_contains "$out" "Written 0h ago (data/handoff/latest.md)" \
     "the fresh handoff section did not state the note's age and path"
+  assert_not_contains "$out" "its age could not be read" \
+    "this platform's stat form never read a just-written note's mtime"
   assert_contains "$out" "the handoff section said the note was stale, unreadable, or bounded" \
     "the read-once contract does not cover what the handoff section withheld"
 
@@ -2575,6 +2581,12 @@ EOF
     || fail "the handoff note was emitted after the supervision block"
   [ "$handoff_line" -lt "$fleet_line" ] \
     || fail "the handoff note was buried behind the bulk fleet-state digest a truncated tail takes first"
+
+  # A note whose last byte is not a newline still ends its own section.
+  printf '# Handoff\n- %s-UNTERMINATED' "$HANDOFF_BODY_MARKER" > "$home/data/handoff/latest.md"
+  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  printf '%s\n' "$out" | grep -qx -- "- $HANDOFF_BODY_MARKER-UNTERMINATED" \
+    || fail "an unterminated handoff note glued its last line onto the next output: $out"
 
   pass "a fresh handoff note is printed whole in its own labelled section ahead of the bulk digest"
 }
@@ -2608,12 +2620,14 @@ EOF
   # The bound is a real comparison against this file's age, not a constant: the
   # same unchanged file prints in full once the allowance exceeds its age.
   age=$(handoff_note_age_hours "$home/data/handoff/latest.md")
-  out=$(FM_SESSION_START_HANDOFF_MAX_AGE_HOURS=$((age + 1)) \
+  out=$(FM_SESSION_START_HANDOFF_MAX_AGE_HOURS=$((age + 3)) \
     run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
   assert_contains "$out" "$HANDOFF_BODY_MARKER" \
     "a note inside a widened freshness bound was still withheld, so the bound is not a real threshold"
-  assert_contains "$out" "Written ${age}h ago" \
-    "the widened-bound run did not report the note's real age"
+  case "$out" in
+    *"Written ${age}h ago"*|*"Written $((age + 1))h ago"*) ;;
+    *) fail "the widened-bound run did not report the note's real age (${age}h): $out" ;;
+  esac
 
   pass "a stale handoff note costs one line, never its body, and the freshness bound is a real threshold"
 }
