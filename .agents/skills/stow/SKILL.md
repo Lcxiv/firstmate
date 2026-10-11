@@ -307,3 +307,11 @@ The exclusion binds the pass as a writer: proposing an offload and letting the m
 Every Firstmate-home skill that migration produces is user-owned and local under the destinations hard rule, while an approved project-level destination is produced and shipped through that project's registered delivery path, never by stow.
 Changing firstmate's tracked `.agents/skills/` or public `skills/` remains a deliberately scoped Firstmate repository task through its pipeline, never a stow product.
 Outside a captain-approved offload, generalizable knowledge still routes to shared tracked material through its pipeline and fleet-local knowledge to `data/`.
+
+## Last step: write the handoff note
+
+Every `/stow` ends by writing the session handoff note, after the completion receipt above and after the cascade in a primary home.
+The pass has just swept this session for everything durable; the note is where what remains goes, the conversation itself, so the next session inherits it instead of paying for another compaction.
+Load [`handoff-note`](../handoff-note/SKILL.md) and follow it: that skill owns the note's location, its overwrite-plus-dated-copy contract, its sections, and what must never go in it.
+Write it in the home whose session is being stowed, which in a primary home is the primary's own note; a cascaded secondmate writes its own as the last step of its own `/stow`.
+Say in one line that it is saved, alongside the reset-safe statement the receipt already makes.
