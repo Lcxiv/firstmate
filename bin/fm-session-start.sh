@@ -40,24 +40,26 @@
 #   3. inactive outcomes + wake-drain - runs the local bounded inactive-outcome
 #                       reconciliation before presenting durable wakes and advancing
 #                       recovery handling state, so both only run when locked.
-#   4. supervision-instructions - the one emitted operating block for the
+#   4. handoff note   - a fresh data/handoff/latest.md, printed whole; stale or
+#                       absent, one line saying so. Read-only, always runs.
+#   5. supervision-instructions - the one emitted operating block for the
 #                       detected primary harness.
-#   5. read-once contract - the do-not-re-read contract covering every source
+#   6. read-once contract - the do-not-re-read contract covering every source
 #                       represented by the two digests below.
-#   6. fleet digest   - a compact data/backlog.md identity/metadata listing,
+#   7. fleet digest   - a compact data/backlog.md identity/metadata listing,
 #                       every state/*.meta, a bounded state/*.status tail,
 #                       state/.afk, and a cheap per-task endpoint-liveness read:
 #                       read-only, always runs.
-#   7. network checks - the result of the deferred network stage started back at
+#   8. network checks - the result of the deferred network stage started back at
 #                       step 1, harvested WITHOUT waiting for it.
-#   8. context digest - data/projects.md, data/secondmates.md, data/captain.md,
+#   9. context digest - data/projects.md, data/secondmates.md, data/captain.md,
 #                       data/captain-shared.md, data/learnings.md: read-only,
 #                       always safe, always runs.
-#   9. closing reminder - prints the context-specific watcher next step; this
+#  10. closing reminder - prints the context-specific watcher next step; this
 #                       script points back to the emitted harness supervision
 #                       block and deliberately never arms the watcher itself.
 #
-# Those nine names are also the runtime-bound stage list below, so a truncated
+# Those ten names are also the runtime-bound stage list below, so a truncated
 # startup can name exactly which of them never ran.
 #
 # NO NETWORK ON THE BLOCKING PATH. This digest runs on a session-open hook that
@@ -70,7 +72,7 @@
 # call. The five that did - `gh auth status`, secondmate liveness, secondmate
 # convergence, pending remote handoff delivery, and the fleet-sync fetch - are
 # started as one detached bounded worker right after the lock (step 1) and
-# harvested at step 7 without ever blocking on it. bin/fm-startup-network.sh
+# harvested at step 8 without ever blocking on it. bin/fm-startup-network.sh
 # owns that stage and its safety argument; bin/fm-bootstrap.sh remains the owner
 # of the sweeps themselves and still runs every one of them.
 # The digest is therefore composed from local reads and local subprocesses only,
@@ -159,6 +161,35 @@
 # may be. Both bounds are safe because the section prints every task's full
 # status log path, and AGENTS.md section 8 treats a status line as a wake EVENT
 # rather than current state - bin/fm-crew-state.sh owns current state.
+#
+# HANDOFF NOTE: data/handoff/latest.md is the only input in this digest that
+# carries the CONVERSATION rather than a durable record - what the captain is
+# waiting on, what was promised, what is half done. Every other section is
+# rebuildable from disk at any time; this one is not, which is why the digest
+# itself carries it rather than leaving it to a separate session-open hook that
+# would have to be installed per home and kept in step with this ordering.
+#   - PLACEMENT, just after the safety preamble's wake queue and ahead of
+#     the supervision block: its content is the same genre as the drain's OPEN
+#     DECISIONS section (open captain calls and unfinished asks that are
+#     actionable this turn), and the digest truncates from the TAIL, so the one
+#     thing a fresh session cannot recover must never be what truncation takes.
+#     Curated memory can sit behind it because a targeted read brings it back.
+#   - FRESHNESS: a note is printed whole only while it is newer than
+#     FM_SESSION_START_HANDOFF_MAX_AGE_HOURS (default 72, i.e. three days). An
+#     older note describes a conversation that has moved on, so it prints one
+#     line naming its age and path and never its body; so does an absent note.
+#     A note whose mtime cannot be read is treated as stale, never as fresh.
+#   - LENGTH: the handoff-note skill caps the note at about 120 lines, and this
+#     section bounds the print at FM_SESSION_START_HANDOFF_LINES (default 200)
+#     with an exact disclosed remainder, so an oversized note cannot push the
+#     supervision block or the fleet-state digest out of a truncated digest.
+#   - Both a true startup and a --reemit print it, because a compaction or
+#     /clear re-emit is precisely when the conversation it carries was lost.
+#     A read-only session prints it too: it is a plain local file read with no
+#     mutation and no network, and a read-only session needs the context just
+#     as much. The .agents/skills/handoff-note skill owns the note's format,
+#     overwrite-plus-dated-copy contract, and who writes it; this script only
+#     reads it.
 #
 # RUNTIME BOUND: the digest is now executed through a native session-open
 # adapter (see bin/fm-sessionstart-run.sh), which blocks either hook-driven
@@ -257,7 +288,7 @@ done
 # The ordered stage list is the contract behind the truncation banner: the child
 # names the stage it is entering, and the parent reports every stage at or after
 # that one as never emitted. Keep it in the exact order the digest prints.
-SESSION_START_STAGES='lock bootstrap wake-queue supervision-instructions read-once fleet-state network-checks context next-step'
+SESSION_START_STAGES='lock bootstrap wake-queue handoff supervision-instructions read-once fleet-state network-checks context next-step'
 
 stage() {  # <stage-name>: breadcrumb for the parent's truncation banner
   [ -n "${FM_SESSION_START_STAGE_FILE:-}" ] || return 0
@@ -353,6 +384,10 @@ STATUS_TAIL=${FM_SESSION_START_STATUS_TAIL:-5}
 case "$STATUS_TAIL" in ''|*[!0-9]*) STATUS_TAIL=5 ;; esac
 QUEUED_LIMIT=${FM_SESSION_START_QUEUED_LIMIT:-20}
 case "$QUEUED_LIMIT" in ''|*[!0-9]*|0) QUEUED_LIMIT=20 ;; esac
+HANDOFF_MAX_AGE_HOURS=${FM_SESSION_START_HANDOFF_MAX_AGE_HOURS:-72}
+case "$HANDOFF_MAX_AGE_HOURS" in ''|*[!0-9]*|0) HANDOFF_MAX_AGE_HOURS=72 ;; esac
+HANDOFF_LINES=${FM_SESSION_START_HANDOFF_LINES:-200}
+case "$HANDOFF_LINES" in ''|*[!0-9]*|0) HANDOFF_LINES=200 ;; esac
 BACKLOG_FIELDS=blocked_by,hold_kind,hold_reason
 
 RULE='================================================================================'
@@ -378,6 +413,50 @@ print_file_or_absent() {
     fi
   else
     printf 'ABSENT\n'
+  fi
+}
+
+# print_handoff_note <path> <label>: the previous session's handoff note,
+# printed whole while it is fresh and reduced to one line otherwise. Age comes
+# from the file's mtime, because the note is rewritten in place on every save.
+# An mtime that cannot be read is treated as STALE rather than fresh, so a note
+# of unknown age is never presented as the current conversation.
+print_handoff_note() {
+  local path=$1 label=$2 now mtime age hours total
+  if [ ! -f "$path" ]; then
+    printf 'No handoff note (%s). Nothing from a previous session to inherit; the handoff-note skill owns writing one.\n' "$label"
+    return 0
+  fi
+  if [ ! -s "$path" ]; then
+    printf 'Handoff note is empty (%s), so there is no conversation to inherit from it.\n' "$label"
+    return 0
+  fi
+  now=$(date +%s)
+  mtime=$(fm_path_mtime "$path") || mtime=
+  case "$mtime" in ''|*[!0-9]*) mtime= ;; esac
+  if [ -z "$mtime" ]; then
+    printf 'Handoff note present but its age could not be read (%s), so it is not printed. Open it directly only if this session needs it.\n' "$label"
+    return 0
+  fi
+  age=$((now - mtime))
+  [ "$age" -ge 0 ] || age=0
+  hours=$((age / 3600))
+  if [ "$hours" -ge "$HANDOFF_MAX_AGE_HOURS" ]; then
+    printf 'Handoff note is %sh old (%s), past the %sh freshness bound, so it is not printed. Open it directly only if this session needs it.\n' \
+      "$hours" "$label" "$HANDOFF_MAX_AGE_HOURS"
+    return 0
+  fi
+  printf 'Written %sh ago (%s). This is the conversation no durable record carries: what the captain is waiting on, their open asks, and what was promised.\n\n' \
+    "$hours" "$label"
+  total=$(awk 'END { print NR }' "$path" 2>/dev/null || printf '0')
+  case "$total" in ''|*[!0-9]*) total=0 ;; esac
+  if [ "$total" -gt "$HANDOFF_LINES" ]; then
+    head -n "$HANDOFF_LINES" "$path"
+    printf '\n... %s more line(s) omitted by the %s-line bound: read %s for the rest.\n' \
+      "$((total - HANDOFF_LINES))" "$HANDOFF_LINES" "$label"
+  else
+    cat "$path"
+    [ -z "$(tail -c 1 "$path")" ] || printf '\n'
   fi
 }
 
@@ -659,7 +738,7 @@ if [ "$READ_ONLY" -eq 0 ]; then
   fi
   # Every network call this session start owes is launched HERE, detached and
   # bounded, so it runs concurrently with the whole digest below instead of in
-  # front of it. Step 7 harvests whatever it has finished, without ever waiting.
+  # front of it. Step 8 harvests whatever it has finished, without ever waiting.
   # --reemit passes --locked 0 for the same reason it runs bootstrap detect-only:
   # this process already ran the mutating sweeps at its own startup, so only the
   # read-only GitHub-auth probe is owed. A read-only session starts nothing at
@@ -744,7 +823,18 @@ else
   fi
 fi
 
-# --- 4. supervision operating instructions ----------------------------------
+# --- 4. handoff note ----------------------------------------------------
+# Here, not later: the HANDOFF NOTE block in this file's header owns the
+# argument. Short version: its open captain calls are actionable in the same
+# turn as the wake queue above it, and it is the one section a truncated tail
+# could take whose content no durable fleet record reproduces.
+# Read-only on every path, so the lock refusal that skips the drain above does
+# not skip this.
+stage handoff
+section "HANDOFF NOTE FROM THE PREVIOUS SESSION"
+print_handoff_note "$DATA/handoff/latest.md" "data/handoff/latest.md"
+
+# --- 5. supervision operating instructions ----------------------------------
 stage supervision-instructions
 AFK_PRESENT=0
 [ -e "$STATE/.afk" ] && AFK_PRESENT=1
@@ -775,7 +865,7 @@ fi
   --x-mode "$X_MODE_PRESENT" \
   --phone-mode "$PHONE_MODE_PRESENT"
 
-# --- 5. read-once contract -------------------------------------------------
+# --- 6. read-once contract -------------------------------------------------
 # Ahead of the two digests it governs, not after them: a truncated tail is
 # exactly what drops a closing reminder, and this contract is what stops the
 # next turn from re-reading everything the digest just printed. Because it now
@@ -787,7 +877,8 @@ cat <<'EOF'
 Everything below is printed in full for this session start: every state/*.meta,
 a compact data/backlog.md listing, a bounded tail of every state/*.status,
 data/projects.md, data/secondmates.md, data/captain.md, data/captain-shared.md,
-and data/learnings.md.
+and data/learnings.md. The handoff note above was printed the same way when the
+section said it was.
 Do NOT re-read any of them after reading this digest, and do NOT bulk-read
 data/backlog.md or state/*.status: re-reading everything defeats the entire
 point of this command.
@@ -800,13 +891,15 @@ Go to a source directly only when:
     printed with its tail),
   - a full task body is needed (tasks-axi show <id> --full, or data/backlog.md),
   - the backlog listing disclosed omitted queued items and this turn needs them,
+  - the handoff section said the note was stale, unreadable, or bounded, and
+    this turn needs what it did not print (data/handoff/latest.md),
   - the NETWORK CHECKS section reported its checks still IN PROGRESS and this
     turn needs their verdict (bin/fm-startup-network.sh report),
   - or a STARTUP TRUNCATED banner named the stage that would have printed it, in
     which case that stage's sources were never emitted and must be reconciled.
 EOF
 
-# --- 6. fleet-state digest ---------------------------------------------
+# --- 7. fleet-state digest ---------------------------------------------
 # Before CONTEXT: see this file's ORDERING note. Live fleet identity is what a
 # truncated tail must never take.
 stage fleet-state
@@ -881,7 +974,7 @@ if fm_pf_relay_active "$FM_HOME" \
   fi
 fi
 
-# --- 7. network checks ------------------------------------------------------
+# --- 8. network checks ------------------------------------------------------
 # Deliberately here and not later: these lines are actionable (a stuck clone, a
 # secondmate that could not be relaunched, broken GitHub auth), and the section
 # after this one is the curated memory a truncated tail is meant to take first.
@@ -900,7 +993,7 @@ else
   "$SCRIPT_DIR/fm-startup-network.sh" harvest --pid $$ 2>&1 || true
 fi
 
-# --- 8. context digest -----------------------------------------------------
+# --- 9. context digest -----------------------------------------------------
 # Last of the bulk sections deliberately: curated memory is stable session to
 # session, already governed by config/startup-memory-budget, and recoverable
 # with one targeted read, so it is the cheapest thing for a truncated tail to
@@ -913,7 +1006,7 @@ print_file_or_absent "$DATA/captain.md" "data/captain.md"
 print_file_or_absent "$DATA/captain-shared.md" "data/captain-shared.md (shared, main-authoritative, read-only in secondmate homes)"
 print_file_or_absent "$DATA/learnings.md" "data/learnings.md"
 
-# --- 9. closing reminder -----------------------------------------------
+# --- 10. closing reminder -----------------------------------------------
 stage next-step
 section "NEXT STEP"
 if [ "$READ_ONLY" -eq 1 ]; then

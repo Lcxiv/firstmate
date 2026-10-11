@@ -10,7 +10,7 @@ The shared orchestrator behavior lives in [`AGENTS.md`](../AGENTS.md) - edit it 
 
 This section is the single owner of the top-level operational-home layout; producer script headers and their help own exact child-file fields and mutation contracts.
 The tracked code root contains the shared instruction, skill, documentation, workflow, and `bin/` surfaces, while each effective `FM_HOME` contains private operational directories.
-`data/` holds durable private fleet records such as the project and secondmate registries, captain preferences, optional shared captain preferences, learnings, backlog, briefs, scout reports, and explicitly installed content-addressed extension packages under `data/extensions/packages/`.
+`data/` holds durable private fleet records such as the project and secondmate registries, captain preferences, optional shared captain preferences, learnings, backlog, briefs, scout reports, session handoff notes under `data/handoff/`, and explicitly installed content-addressed extension packages under `data/extensions/packages/`.
 `state/` holds runtime records such as task metadata, append-only status events, endpoint signals, watcher and wake-queue coordination, inactive terminal-outcome receipts under `state/terminal-outcomes/`, enabled extension working namespaces under `state/extensions/`, away-mode state, generated Relay and Discord phone-mode artifacts, private secondmate config-reread generations with their retry and quarantine state, per-task steering-inbox records under `state/<id>.inbox/` (`bin/fm-task-inbox-lib.sh`), and parent-owned secondmate pending-reply records under `state/pending-replies/` (`bin/fm-pending-reply-lib.sh`).
 `config/` holds local gitignored operating choices, including explicit extension bindings under `config/extensions.d/`, and `projects/` holds the local project clones that Firstmate reads but changes only through the narrow guarded and concrete captain-approved exceptions in `AGENTS.md`.
 Untracked files and directories whose names begin with `scratchpad` are also gitignored, so temporary scratch does not make porcelain-based secondmate sync guards treat a home as dirty.
@@ -219,6 +219,22 @@ Shared captain preferences that apply across secondmate domains live only in the
 Fleet-local operational facts and gotchas live locally in `data/learnings.md`; it is gitignored and printed after the captain-preference files in the session-start context digest.
 The file is created lazily on first learning and follows the internal [`stow` skill's](../.agents/skills/stow/SKILL.md) aging-tier and cold-archive contract: inspect the current file first and curate it instead of appending forever.
 There is no shared learnings file by captain decision.
+
+## Session handoff notes (data/handoff/)
+
+`data/handoff/` holds the session handoff note: the one record that carries the conversation rather than fleet state, so a fresh session can pick up what the captain is waiting on instead of paying for another compaction.
+It is private and gitignored with the rest of `data/`, and the first save creates it when it does not exist yet.
+The same directory also holds remote-route backlog outboxes, `data/handoff/<secondmate-id>.outbox.md`, which `bin/fm-backlog-handoff.sh` owns and [`remote-secondmates.md`](remote-secondmates.md) documents; the note's file names never collide with them.
+
+`data/handoff/latest.md` is the live note and is overwritten on every save, because it describes the present rather than history.
+Each save also leaves a dated `data/handoff/<YYYY-MM-DD-HHMM>.md` copy so an earlier note stays recoverable; nothing reads those copies automatically, and pruning them is a housekeeping choice with no operational effect.
+Prune only those dated copies, never an `*.outbox.md` file, which is queued work that has already left the main backlog.
+The internal [`handoff-note` skill](../.agents/skills/handoff-note/SKILL.md) owns the note's section list, its quoting and secrecy rules, and when to write one; the internal [`/stow` skill](../.agents/skills/stow/SKILL.md) ends every pass by writing it.
+
+`bin/fm-session-start.sh` prints `latest.md` as its own clearly labelled handoff section while the note is fresh, on a true startup and on a context re-emit after a `/clear` or a compaction alike, which is why no separate session-open hook is involved.
+A note past the freshness bound, or no note at all, costs one line instead of a body.
+That script's header owns the freshness bound and its `FM_SESSION_START_HANDOFF_MAX_AGE_HOURS` override, the print bound and its `FM_SESSION_START_HANDOFF_LINES` override, and the argument for where the section sits in the digest.
+Handoff notes are deliberately outside the startup-memory budget below: the budget governs the three curated memory files that persist across sessions, while a handoff note is single-use conversation context that the next session consumes and replaces.
 
 ## Startup memory budget (config/startup-memory-budget)
 
@@ -998,6 +1014,8 @@ FM_ZELLIJ_SESSION=firstmate  # zellij-only: named session for normal backend ops
 CMUX_SOCKET_PASSWORD=   # cmux-only: socket password fallback when config/cmux-socket-password is absent (docs/cmux-backend.md)
 FM_SESSION_START_STATUS_TAIL=5   # state/*.status lines printed per task in the session-start digest; each line is capped by bin/fm-line-cap-lib.sh
 FM_SESSION_START_QUEUED_LIMIT=20   # plain queued backlog rows in the session-start digest; in-flight, held, and blocked rows are never bounded and done rows are never listed
+FM_SESSION_START_HANDOFF_MAX_AGE_HOURS=72   # hours a data/handoff/latest.md note stays fresh enough for the session-start digest to print it; older or unreadable-age notes cost one line
+FM_SESSION_START_HANDOFF_LINES=200   # lines of a fresh handoff note the session-start digest prints before disclosing the exact remainder
 FM_BOOTSTRAP_DETECT_ONLY=0   # internal/read-only session-start mode: skip bootstrap's mutating sweeps and print advisory TANGLE wording
 FM_BOOTSTRAP_NETWORK=all   # internal session-start phase split: all, skip (local steps only), or only (network steps only); see bin/fm-bootstrap.sh
 FM_STARTUP_NETWORK_TIMEOUT=120   # seconds bounding the whole deferred network stage; hitting it prints an actionable NETWORK_CHECKS line

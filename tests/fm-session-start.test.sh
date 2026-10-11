@@ -24,6 +24,12 @@
 #   - composition: the script invokes the real fm-lock.sh/fm-bootstrap.sh/
 #     fm-wake-drain.sh (their real, distinctive output appears verbatim), it
 #     does not reimplement their logic
+#   - the HANDOFF NOTE section: a fresh note printed whole and labelled, a stale
+#     or absent note reduced to one line that never leaks the body, the
+#     freshness bound as a real threshold rather than a constant, the print
+#     bound's disclosed remainder, the section's place in the digest order, the
+#     context re-emit path that is exactly when the note matters, and the
+#     read-only path that still gets it
 #   - the deferred network stage: an unreachable host delays a reported check
 #     rather than the digest, the sweeps it defers still run and land, a result
 #     surfaces exactly once (inline or as a wake, never both), a read-only
@@ -501,6 +507,42 @@ SH
   chmod +x "$fakebin/herdr"
 }
 
+# A synthetic note only: the real one carries the captain's private business and
+# must never be copied into this repo, its tests, or a commit message.
+HANDOFF_BODY_MARKER='SYNTHETIC-HANDOFF-BODY-MARKER'
+
+# write_handoff_note <home> [extra-line-count]: a fresh synthetic note, plus
+# <extra-line-count> filler lines when the print bound needs driving past.
+write_handoff_note() {
+  local home=$1 extra=${2:-0} i=1
+  mkdir -p "$home/data/handoff"
+  {
+    printf '# Handoff, 2026-01-02 0304\n'
+    printf 'One synthetic line about this session.\n\n'
+    printf '## Waiting on the captain\n'
+    printf -- '- %s: say "synthetic go".\n' "$HANDOFF_BODY_MARKER"
+    while [ "$i" -le "$extra" ]; do
+      printf -- '- filler line %s\n' "$i"
+      i=$((i + 1))
+    done
+  } > "$home/data/handoff/latest.md"
+}
+
+# handoff_note_age_hours <path>: the same mtime-derived age the digest computes,
+# so a test can bracket the freshness bound around a real file instead of
+# assuming one.
+handoff_note_age_hours() {
+  local path=$1 mtime now
+  if [ "$(uname)" = Darwin ]; then
+    mtime=$(stat -f %m "$path" 2>/dev/null) || mtime=
+  else
+    mtime=$(stat -c %Y "$path" 2>/dev/null) || mtime=
+  fi
+  case "$mtime" in ''|*[!0-9]*) fail "could not read the handoff note mtime: $path" ;; esac
+  now=$(date +%s)
+  printf '%s\n' "$(( (now - mtime) / 3600 ))"
+}
+
 # run_session_start <home> <root> <path>
 # Drop every harness env marker from bin/fm-harness.sh detect_own so the
 # surrounding interactive shell cannot leak past the suite's fake ps harness.
@@ -762,6 +804,7 @@ EOF
   fm_write_secondmate_meta "$home/state/sm-x.meta" "$home/other-secondmate" "firstmate:fm-sm-x" alpha
   append_wake "$home/state" signal sm-x "done: surfaced before refusal" || fail "seed wake failed"
   git -C "$root" checkout -q -B fm/read-only-tangle
+  write_handoff_note "$home"
 
   sleep 300 &
   holder_pid=$!
@@ -797,6 +840,14 @@ EOF
   # untouched (fm-ff-lib would have tried to fast-forward it otherwise).
   assert_not_contains "$out" "SECONDMATE_SYNC" "mutating secondmate sweep ran during a lock refusal"
   assert_not_contains "$out" "NUDGE_SECONDMATES" "mutating secondmate sweep ran during a lock refusal"
+
+  # The handoff note is a plain local read with no mutation and no network, and
+  # a session that cannot drain the queue above still needs the conversation,
+  # so the refusal that skips every mutating step must not skip this one.
+  assert_contains "$out" "HANDOFF NOTE FROM THE PREVIOUS SESSION" \
+    "the read-only path dropped the handoff section"
+  assert_contains "$out" "$HANDOFF_BODY_MARKER" \
+    "the read-only path withheld a fresh handoff note that costs it no mutation authority"
 
   # The rest of the digest (read-only-safe) still completed.
   assert_contains "$out" "FLEET STATE" "fleet-state digest section missing on the read-only path"
@@ -1839,7 +1890,7 @@ EOF
   assert_contains "$out" "RUNTIME BOUND" "the truncation banner did not name the bound it hit"
   assert_contains "$out" 'stopped during the "bootstrap" stage' "the truncation banner did not name the incomplete stage"
   assert_contains "$out" "RECONCILE these stages" "the truncation banner did not tell the agent what to reconcile"
-  assert_contains "$out" "wake-queue supervision-instructions read-once fleet-state network-checks context next-step" \
+  assert_contains "$out" "wake-queue handoff supervision-instructions read-once fleet-state network-checks context next-step" \
     "the truncation banner did not list every stage that never ran"
   assert_not_contains "$out" "NEXT STEP" "a truncated digest claimed to have reached its closing reminder"
   assert_absent "$home/state/.session-start-complete" \
@@ -2492,6 +2543,192 @@ EOF
   pass "session start rejects Pi loaded markers from previous sessions"
 }
 
+# --- handoff note section ----------------------------------------------------
+
+test_handoff_note_fresh_is_printed_and_labelled() {
+  local rec root home fakebin out handoff_line wake_line supervision_line fleet_line
+  rec=$(new_world handoff-fresh)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  write_handoff_note "$home"
+
+  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+
+  assert_contains "$out" "HANDOFF NOTE FROM THE PREVIOUS SESSION" \
+    "a fresh handoff note got no labelled section of its own"
+  assert_contains "$out" "$HANDOFF_BODY_MARKER" \
+    "a fresh handoff note was announced but its body was not printed"
+  assert_contains "$out" "Written 0h ago (data/handoff/latest.md)" \
+    "the fresh handoff section did not state the note's age and path"
+  assert_not_contains "$out" "its age could not be read" \
+    "this platform's stat form never read a just-written note's mtime"
+  assert_contains "$out" "the handoff section said the note was stale, unreadable, or bounded" \
+    "the read-once contract does not cover what the handoff section withheld"
+
+  # Placement: with the open captain calls from the wake queue, and ahead of
+  # everything a truncated tail is allowed to take.
+  handoff_line=$(printf '%s\n' "$out" | grep -n '^HANDOFF NOTE FROM THE PREVIOUS SESSION$' | head -1 | cut -d: -f1)
+  wake_line=$(printf '%s\n' "$out" | grep -n '^WAKE QUEUE$' | head -1 | cut -d: -f1)
+  supervision_line=$(printf '%s\n' "$out" | grep -n '^SUPERVISION OPERATING INSTRUCTIONS' | head -1 | cut -d: -f1)
+  fleet_line=$(printf '%s\n' "$out" | grep -n '^FLEET STATE$' | head -1 | cut -d: -f1)
+  [ -n "$handoff_line" ] && [ -n "$wake_line" ] && [ -n "$supervision_line" ] && [ -n "$fleet_line" ] \
+    || fail "handoff ordering fixture lost a section header: $out"
+  [ "$wake_line" -lt "$handoff_line" ] || fail "the handoff note displaced this turn's work queue"
+  [ "$handoff_line" -lt "$supervision_line" ] \
+    || fail "the handoff note was emitted after the supervision block"
+  [ "$handoff_line" -lt "$fleet_line" ] \
+    || fail "the handoff note was buried behind the bulk fleet-state digest a truncated tail takes first"
+
+  # A note whose last byte is not a newline still ends its own section.
+  printf '# Handoff\n- %s-UNTERMINATED' "$HANDOFF_BODY_MARKER" > "$home/data/handoff/latest.md"
+  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  printf '%s\n' "$out" | grep -qx -- "- $HANDOFF_BODY_MARKER-UNTERMINATED" \
+    || fail "an unterminated handoff note glued its last line onto the next output: $out"
+
+  pass "a fresh handoff note is printed whole in its own labelled section ahead of the bulk digest"
+}
+
+test_handoff_note_stale_prints_one_line_without_the_body() {
+  local rec root home fakebin out age stale_lines
+  rec=$(new_world handoff-stale)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  write_handoff_note "$home"
+  touch -t 200001010000 "$home/data/handoff/latest.md"
+
+  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+
+  assert_contains "$out" "HANDOFF NOTE FROM THE PREVIOUS SESSION" \
+    "a stale note removed the section instead of explaining itself"
+  assert_not_contains "$out" "$HANDOFF_BODY_MARKER" \
+    "a stale handoff note leaked its body into the digest"
+  assert_contains "$out" "past the 72h freshness bound" \
+    "the stale handoff line did not name the default freshness bound"
+  assert_contains "$out" "data/handoff/latest.md" \
+    "the stale handoff line did not name the file to open on demand"
+
+  stale_lines=$(printf '%s\n' "$out" | grep -c 'freshness bound, so it is not printed')
+  [ "$stale_lines" -eq 1 ] \
+    || fail "the stale handoff note cost $stale_lines lines instead of exactly one"
+
+  # The bound is a real comparison against this file's age, not a constant: the
+  # same unchanged file prints in full once the allowance exceeds its age.
+  age=$(handoff_note_age_hours "$home/data/handoff/latest.md")
+  out=$(FM_SESSION_START_HANDOFF_MAX_AGE_HOURS=$((age + 3)) \
+    run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  assert_contains "$out" "$HANDOFF_BODY_MARKER" \
+    "a note inside a widened freshness bound was still withheld, so the bound is not a real threshold"
+  case "$out" in
+    *"Written ${age}h ago"*|*"Written $((age + 1))h ago"*) ;;
+    *) fail "the widened-bound run did not report the note's real age (${age}h): $out" ;;
+  esac
+
+  pass "a stale handoff note costs one line, never its body, and the freshness bound is a real threshold"
+}
+
+test_handoff_note_absent_prints_one_line() {
+  local rec root home fakebin out
+  rec=$(new_world handoff-absent)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  # data/handoff/ deliberately never created.
+
+  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+
+  assert_contains "$out" "HANDOFF NOTE FROM THE PREVIOUS SESSION" \
+    "a home with no handoff note dropped the section silently"
+  assert_contains "$out" "No handoff note (data/handoff/latest.md)" \
+    "an absent handoff note did not say so in one line"
+  assert_not_contains "$out" "Written 0h ago" \
+    "an absent handoff note was reported as a freshly written one"
+  assert_absent "$home/data/handoff/latest.md" \
+    "reading the handoff section created the note it was supposed to report absent"
+
+  # An empty-but-present note is the same nothing: it carries no conversation.
+  mkdir -p "$home/data/handoff"
+  : > "$home/data/handoff/latest.md"
+  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  assert_contains "$out" "Handoff note is empty (data/handoff/latest.md)" \
+    "an empty handoff note was not distinguished from an absent one in one honest line"
+  assert_not_contains "$out" "Written 0h ago" \
+    "an empty handoff note was announced as inheritable conversation"
+
+  pass "an absent or empty handoff note costs one line and nothing is invented"
+}
+
+test_handoff_note_print_bound_discloses_its_remainder() {
+  local rec root home fakebin out total
+  rec=$(new_world handoff-bound)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  write_handoff_note "$home" 60
+  total=$(awk 'END { print NR }' "$home/data/handoff/latest.md")
+
+  out=$(FM_SESSION_START_HANDOFF_LINES=20 run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+
+  assert_contains "$out" "$HANDOFF_BODY_MARKER" \
+    "the bounded handoff print dropped the note's leading lines"
+  assert_contains "$out" "- filler line 15" "the bounded handoff print stopped short of its own bound"
+  assert_not_contains "$out" "- filler line 40" "the handoff print bound did not actually bound the note"
+  assert_contains "$out" "... $((total - 20)) more line(s) omitted by the 20-line bound: read data/handoff/latest.md for the rest." \
+    "the bounded handoff print hid its remainder instead of disclosing it exactly"
+
+  # Inside the bound, nothing is withheld and no remainder is claimed.
+  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  assert_contains "$out" "- filler line 60" "the default print bound truncated a note the skill's own cap allows"
+  assert_not_contains "$out" "more line(s) omitted by" \
+    "a note inside the print bound still reported a remainder"
+
+  pass "an oversized handoff note is bounded with an exact disclosed remainder, and a normal one is not"
+}
+
+test_handoff_note_prints_on_the_context_reemit_path() {
+  local rec root home fakebin reemit sequence generation
+  rec=$(new_world handoff-reemit)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  write_handoff_note "$home"
+
+  # A compaction or /clear re-emit is exactly when the conversation the note
+  # carries has been lost, so the re-emit path must print it too.
+  reemit=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$root" FM_FAKE_HARNESS_PID=$$ PATH="$fakebin:$BASE_PATH" \
+    env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
+    "$SESSION_START" --reemit)
+
+  assert_contains "$reemit" "SESSION START (CONTEXT RE-EMIT) - $home" \
+    "the re-emit fixture did not run the re-emit path"
+  assert_contains "$reemit" "HANDOFF NOTE FROM THE PREVIOUS SESSION" \
+    "the context re-emit dropped the handoff section"
+  assert_contains "$reemit" "$HANDOFF_BODY_MARKER" \
+    "the context re-emit announced the handoff note without printing it"
+
+  if [ -s "$home/state/.wake-queue" ]; then
+    sequence=$(printf '%s\n' "$reemit" | sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through \([0-9][0-9]*\) --recovery-generation [A-Za-z0-9._-][A-Za-z0-9._-]*$/\1/p' | tail -1)
+    generation=$(printf '%s\n' "$reemit" | sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through [0-9][0-9]* --recovery-generation \([A-Za-z0-9._-][A-Za-z0-9._-]*\)$/\1/p' | tail -1)
+    if [ -n "$sequence" ] && [ -n "$generation" ]; then
+      FM_STATE_OVERRIDE="$home/state" "$ROOT/bin/fm-wake-drain.sh" --ack-through "$sequence" \
+        --recovery-generation "$generation" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  pass "the context re-emit path prints the handoff note, which is exactly when it matters"
+}
+
 test_context_digest_absent_empty_present
 test_lock_refusal_read_only_path
 test_lock_write_failure_read_only_path
@@ -2499,6 +2736,11 @@ test_trace_context_effective_state_is_frozen_after_lock
 test_session_lock_concurrent_single_winner
 test_output_ordering_diagnostics_lead
 test_read_once_contract_is_stated_once_before_its_subject
+test_handoff_note_fresh_is_printed_and_labelled
+test_handoff_note_stale_prints_one_line_without_the_body
+test_handoff_note_absent_prints_one_line
+test_handoff_note_print_bound_discloses_its_remainder
+test_handoff_note_prints_on_the_context_reemit_path
 test_herdr_backend_diagnostics_follow_real_session_start
 test_session_start_relaunches_missing_pi_secondmate
 test_deferred_relaunch_is_always_reported
