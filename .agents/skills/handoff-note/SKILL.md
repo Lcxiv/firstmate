@@ -54,7 +54,7 @@ Rules:
 
 ## How the next session gets it
 
-`bin/fm-session-start.sh` prints a fresh note as its own labelled section, in the digest's safety preamble right after the wake queue, on every path that emits the digest: a true startup and a context re-emit after a `/clear` or a compaction alike.
+`bin/fm-session-start.sh` prints a fresh note as its own labelled section right after the wake queue, on every path that emits the digest: a true startup and a context re-emit after a `/clear` or a compaction alike.
 A note past the freshness bound, or no note at all, prints one short line instead of a body.
 That script's header owns the bound, its override, and the section's exact placement argument; nothing here needs a separate session-open hook.
 

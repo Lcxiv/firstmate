@@ -168,7 +168,7 @@
 # rebuildable from disk at any time; this one is not, which is why the digest
 # itself carries it rather than leaving it to a separate session-open hook that
 # would have to be installed per home and kept in step with this ordering.
-#   - PLACEMENT, in the safety preamble right after the wake queue and ahead of
+#   - PLACEMENT, just after the safety preamble's wake queue and ahead of
 #     the supervision block: its content is the same genre as the drain's OPEN
 #     DECISIONS section (open captain calls and unfinished asks that are
 #     actionable this turn), and the digest truncates from the TAIL, so the one

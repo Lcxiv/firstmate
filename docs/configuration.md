@@ -223,10 +223,12 @@ There is no shared learnings file by captain decision.
 ## Session handoff notes (data/handoff/)
 
 `data/handoff/` holds the session handoff note: the one record that carries the conversation rather than fleet state, so a fresh session can pick up what the captain is waiting on instead of paying for another compaction.
-It is private and gitignored with the rest of `data/`, and it is created lazily on the first save, so a home that has never written one simply has no directory.
+It is private and gitignored with the rest of `data/`, and the first save creates it when it does not exist yet.
+The same directory also holds remote-route backlog outboxes, `data/handoff/<secondmate-id>.outbox.md`, which `bin/fm-backlog-handoff.sh` owns and [`remote-secondmates.md`](remote-secondmates.md) documents; the note's file names never collide with them.
 
 `data/handoff/latest.md` is the live note and is overwritten on every save, because it describes the present rather than history.
 Each save also leaves a dated `data/handoff/<YYYY-MM-DD-HHMM>.md` copy so an earlier note stays recoverable; nothing reads those copies automatically, and pruning them is a housekeeping choice with no operational effect.
+Prune only those dated copies, never an `*.outbox.md` file, which is queued work that has already left the main backlog.
 The internal [`handoff-note` skill](../.agents/skills/handoff-note/SKILL.md) owns the note's section list, its quoting and secrecy rules, and when to write one; the internal [`/stow` skill](../.agents/skills/stow/SKILL.md) ends every pass by writing it.
 
 `bin/fm-session-start.sh` prints `latest.md` as its own clearly labelled handoff section while the note is fresh, on a true startup and on a context re-emit after a `/clear` or a compaction alike, which is why no separate session-open hook is involved.
