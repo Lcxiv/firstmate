@@ -828,6 +828,423 @@ test_scout_and_secondmate_scaffold() {
   pass "fm-brief: scout and secondmate code paths still scaffold well-formed briefs"
 }
 
+# --- shared coding standards (data/standards.md) ----------------------------
+#
+# Every case scaffolds the same task id in the same home twice: once with no
+# standards file (the baseline, which is today's output) and once with the
+# path under test in place. Comparing the two pins both halves of the
+# contract: a skipped or absent file leaves the scaffold byte-identical, and an
+# included file adds exactly one section at the task fill site.
+
+STANDARDS_KINDS="no-mistakes direct-PR local-only scout"
+
+# standards_scaffold <home> <id> <kind> <err-file>: scaffold one ship or scout
+# brief from inside the home (so a stray command substitution would land
+# there) and return the scaffold's exit code. The run is bounded: a scaffold
+# still alive after 3000 polls of 0.02s (at least a minute, more once each
+# poll's process start-up is counted) is treated as hung on the standards path,
+# its blocked reader is released by a short-lived writer, and the test fails.
+# A healthy scaffold finishes in well under a second, so the bound only needs
+# to stay clear of a slow run under concurrent suite load, which 500 polls did
+# not.
+standards_scaffold() {
+  local home=$1 id=$2 kind=$3 err=$4 pid tries=0 rc writer
+  local -a mode_args
+  case "$kind" in
+    scout) mode_args=(--scout) ;;
+    *) mode_args=(--mode "$kind") ;;
+  esac
+  (cd "$home" && FM_HOME="$home" exec "$ROOT/bin/fm-brief.sh" "$id" some-proj "${mode_args[@]}") \
+    >/dev/null 2>"$err" &
+  pid=$!
+  while kill -0 "$pid" 2>/dev/null && [ "$tries" -lt 3000 ]; do
+    sleep 0.02
+    tries=$((tries + 1))
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    (: > "$home/data/standards.md") 2>/dev/null &
+    writer=$!
+    sleep 0.2
+    kill "$writer" "$pid" 2>/dev/null
+    wait "$writer" "$pid" 2>/dev/null
+    fail "$kind scaffold hung on the standards path instead of skipping it"
+  fi
+  wait "$pid"; rc=$?
+  return "$rc"
+}
+
+# standards_baseline <home> <id> <kind>: scaffold with no standards file in the
+# home, keep the brief as <home>/<id>.baseline, and clear the task directory so
+# the same id can be scaffolded again.
+standards_baseline() {
+  local home=$1 id=$2 kind=$3 rc=0
+  [ ! -e "$home/data/standards.md" ] && [ ! -L "$home/data/standards.md" ] \
+    || fail "standards baseline for $id must run without a standards path"
+  standards_scaffold "$home" "$id" "$kind" "$home/$id.baseline.err" || rc=$?
+  expect_code 0 "$rc" "$kind baseline scaffold for $id"
+  [ ! -s "$home/$id.baseline.err" ] \
+    || fail "$kind scaffold with no standards file wrote stderr: $(cat "$home/$id.baseline.err")"
+  mv "$home/data/$id/brief.md" "$home/$id.baseline"
+  rm -rf "${home:?}/data/$id"
+}
+
+# assert_task_dir_holds_only_the_brief <home> <id>: staging leaves nothing behind.
+assert_task_dir_holds_only_the_brief() {
+  local listing
+  listing=$(ls -A "$1/data/$2")
+  [ "$listing" = brief.md ] \
+    || fail "$2: the task directory holds more than the brief after scaffolding: $listing"
+}
+
+# standards_section_intro <baseline> <brief> <fixture>: the brief must equal the
+# baseline with exactly one "Shared coding standards" section spliced in right
+# after the task fill site, ending in the fixture's exact bytes (plus one
+# newline when the fixture lacks a trailing one) and a separating blank line.
+# Prints the section text that precedes the copied bytes.
+standards_section_intro() {
+  perl - "$1" "$2" "$3" <<'PERL'
+use strict;
+use warnings;
+
+my @bytes = map {
+  open my $fh, '<:raw', $_ or die "$_: $!\n";
+  local $/;
+  my $content = <$fh>;
+  defined $content ? $content : '';
+} @ARGV;
+my ($baseline, $brief, $fixture) = @bytes;
+my $site = "# Task\n{TASK}\n\n";
+my $at = index($baseline, $site);
+die "baseline has no task fill site\n" if $at < 0;
+$at += length $site;
+my $prefix = substr($baseline, 0, $at);
+my $suffix = substr($baseline, $at);
+die "brief does not start with the baseline up to the task fill site\n"
+  unless substr($brief, 0, length $prefix) eq $prefix;
+die "brief does not end with the baseline after the task fill site\n"
+  unless length($brief) >= length($prefix) + length($suffix)
+    && substr($brief, length($brief) - length($suffix)) eq $suffix;
+my $section = substr($brief, length $prefix, length($brief) - length($prefix) - length($suffix));
+die "no section was inserted at the task fill site\n" if $section eq '';
+die "inserted text does not open with the Shared coding standards heading\n"
+  unless $section =~ /\A# Shared coding standards\n/;
+my $tail = $fixture . ($fixture =~ /\n\z/ ? '' : "\n") . "\n";
+die "section does not end with the standards bytes copied verbatim\n"
+  unless length($section) > length($tail)
+    && substr($section, length($section) - length($tail)) eq $tail;
+my $intro = substr($section, 0, length($section) - length($tail));
+die "section intro is not separated from the copied standards by a blank line\n"
+  unless $intro =~ /\n\n\z/;
+print $intro;
+PERL
+}
+
+# write_standards_metachar_fixture <path>: neutral fixture text that exercises
+# every interpretation the copy must not apply, ending in a newline.
+write_standards_metachar_fixture() {
+  # shellcheck disable=SC2016 # Every byte below is literal fixture text.
+  printf '%s\n' \
+    'Fixture rule one: prefer small functions.' \
+    'Fixture rule two: keep $HOME, ${FM_HOME}, $(touch standards-pwned), and `touch standards-pwned` literal.' \
+    'Fixture rule three: backslashes \n \\ \t and a trailing backslash '\\ \
+    'Fixture rule four: sed specials s/a/b/g & \1 | and printf %s %d %% stay as written.' \
+    "Fixture rule five: quotes ' \" and braces {state} {ID} <id> stay as written." \
+    'Fixture rule six: the Delivery contract: mode= phrase mid-line is ordinary prose.' \
+    'EOF' \
+    '' \
+    $'\tFixture rule seven: a tab-indented line.' \
+    $'Fixture rule eight: a carriage return before the newline.\r' \
+    'Fixture rule nine: naïve café UTF-8 text.' \
+    > "$1"
+}
+
+# A present ordinary file is copied byte for byte into every ship mode and the
+# scout scaffold, with the review-source and precedence lines, and a file
+# without a trailing newline never merges into the next scaffold line.
+test_shared_standards_are_copied_verbatim_into_ship_and_scout() {
+  local home fixtures fixture label kind id intro rc err
+  home="$TMP_ROOT/standards-verbatim-home"
+  fixtures="$TMP_ROOT/standards-verbatim-fixtures"
+  mkdir -p "$home/data" "$fixtures"
+  write_standards_metachar_fixture "$fixtures/metachar"
+  printf '%s\n%s' 'Fixture rule one: prefer small functions.' \
+    'Fixture rule two: this final line has no trailing newline.' > "$fixtures/no-newline"
+
+  for label in metachar no-newline; do
+    fixture="$fixtures/$label"
+    for kind in $STANDARDS_KINDS; do
+      id="standards-$label-$kind"
+      err="$home/$id.err"
+      standards_baseline "$home" "$id" "$kind"
+      cp "$fixture" "$home/data/standards.md"
+      rc=0
+      standards_scaffold "$home" "$id" "$kind" "$err" || rc=$?
+      rm -f "$home/data/standards.md"
+      expect_code 0 "$rc" "$kind scaffold with $label standards"
+      [ ! -s "$err" ] || fail "$kind scaffold with $label standards wrote stderr: $(cat "$err")"
+      intro=$(standards_section_intro "$home/$id.baseline" "$home/data/$id/brief.md" "$fixture") \
+        || fail "$kind brief did not carry the $label standards verbatim at the task fill site"
+      assert_contains "$intro" "treat them as a standards source in any code review you perform or are asked to do" \
+        "$kind standards section did not make the standards a code-review source"
+      assert_contains "$intro" "the task's own instructions win, then the project's \`AGENTS.md\`, then these shared standards" \
+        "$kind standards section did not state the conflict precedence"
+      [ "$(grep -c -F '{TASK}' "$home/data/$id/brief.md")" = 1 ] \
+        || fail "$kind brief with $label standards no longer has exactly one {TASK} fill site"
+      assert_task_dir_holds_only_the_brief "$home" "$id"
+    done
+  done
+  assert_absent "$home/standards-pwned" "standards text was executed as shell while being copied"
+  pass "fm-brief.sh: shared standards are copied byte for byte into every ship mode and scout brief"
+}
+
+# The 4 KB cap is inclusive: exactly 4096 bytes are copied, 4097 are skipped
+# with a reason while the scaffold still succeeds unchanged.
+test_shared_standards_size_cap_is_4096_bytes() {
+  local home fixtures kind id err rc
+  home="$TMP_ROOT/standards-size-home"
+  fixtures="$TMP_ROOT/standards-size-fixtures"
+  mkdir -p "$home/data" "$fixtures"
+  perl -e 'my $s = "Fixture rule: prefer small functions.\n" x 200; print substr($s, 0, 4095), "\n"' > "$fixtures/at-cap"
+  perl -e 'my $s = "Fixture rule: prefer small functions.\n" x 200; print substr($s, 0, 4096), "\n"' > "$fixtures/over-cap"
+  [ "$(wc -c < "$fixtures/at-cap" | tr -d ' ')" = 4096 ] || fail "at-cap fixture is not 4096 bytes"
+  [ "$(wc -c < "$fixtures/over-cap" | tr -d ' ')" = 4097 ] || fail "over-cap fixture is not 4097 bytes"
+
+  for kind in no-mistakes scout; do
+    id="standards-at-cap-$kind"
+    standards_baseline "$home" "$id" "$kind"
+    cp "$fixtures/at-cap" "$home/data/standards.md"
+    rc=0
+    standards_scaffold "$home" "$id" "$kind" "$home/$id.err" || rc=$?
+    rm -f "$home/data/standards.md"
+    expect_code 0 "$rc" "$kind scaffold with a 4096-byte standards file"
+    [ ! -s "$home/$id.err" ] || fail "$kind scaffold warned about a 4096-byte standards file: $(cat "$home/$id.err")"
+    standards_section_intro "$home/$id.baseline" "$home/data/$id/brief.md" "$fixtures/at-cap" >/dev/null \
+      || fail "$kind brief did not include a standards file of exactly 4096 bytes"
+
+    id="standards-over-cap-$kind"
+    standards_baseline "$home" "$id" "$kind"
+    cp "$fixtures/over-cap" "$home/data/standards.md"
+    assert_standards_skipped "$home" "$id" "$kind" "is larger than 4096 bytes"
+    rm -f "$home/data/standards.md"
+  done
+  pass "fm-brief.sh: shared standards up to 4096 bytes are copied and larger files are skipped"
+}
+
+# assert_standards_skipped <home> <id> <kind> <reason>: with the standards path
+# already in place, the scaffold exits 0, prints exactly one stderr line naming
+# the skip and its reason, and writes a brief byte-identical to the baseline.
+assert_standards_skipped() {
+  local home=$1 id=$2 kind=$3 reason=$4 err rc=0 lines
+  err="$home/$id.err"
+  standards_scaffold "$home" "$id" "$kind" "$err" || rc=$?
+  expect_code 0 "$rc" "$kind scaffold with a skipped standards path ($reason)"
+  lines=$(wc -l < "$err" | tr -d ' ')
+  [ "$lines" = 1 ] || fail "$kind scaffold must print exactly one stderr line for a skipped standards path ($reason), got $lines: $(cat "$err")"
+  assert_grep "shared coding standards skipped" "$err" "$kind skip warning did not say the standards were skipped"
+  assert_grep "$reason" "$err" "$kind skip warning did not give the reason '$reason'"
+  cmp -s "$home/$id.baseline" "$home/data/$id/brief.md" \
+    || fail "$kind brief changed although its standards path was skipped ($reason)"
+  assert_task_dir_holds_only_the_brief "$home" "$id"
+}
+
+# Absent is the silent default: no section, no stderr, today's exact bytes.
+# The verbatim test above already proves the baseline is today's scaffold with
+# no section spliced in; this pins that absence stays quiet in every kind.
+test_shared_standards_absent_is_silent() {
+  local home kind id
+  home="$TMP_ROOT/standards-absent-home"
+  mkdir -p "$home/data"
+  for kind in $STANDARDS_KINDS; do
+    id="standards-absent-$kind"
+    standards_baseline "$home" "$id" "$kind"
+    assert_no_grep "# Shared coding standards" "$home/$id.baseline" \
+      "$kind brief grew a standards section with no standards file"
+  done
+  pass "fm-brief.sh: an absent standards file adds no section and no stderr"
+}
+
+# Anything other than an ordinary single-link regular file holding only
+# standards text is skipped with a reason, never followed, opened, or allowed
+# to collide with the scaffold's own machine-read markers.
+test_shared_standards_non_ordinary_paths_are_skipped() {
+  local home outside kind id case_name reason
+  home="$TMP_ROOT/standards-skip-home"
+  outside="$TMP_ROOT/standards-skip-outside"
+  mkdir -p "$home/data" "$outside"
+  printf '%s\n' 'Fixture rule one: prefer small functions.' > "$outside/target.md"
+
+  for kind in no-mistakes scout; do
+    for case_name in symlink dangling-symlink hard-link directory fifo unreadable task-placeholder delivery-contract; do
+      id="standards-skip-$case_name-$kind"
+      if [ "$case_name" = unreadable ] && [ "$(id -u)" = 0 ]; then
+        printf 'ok - fm-brief.sh: unreadable standards case skipped (running as root reads mode-000 files)\n'
+        continue
+      fi
+      standards_baseline "$home" "$id" "$kind"
+      case "$case_name" in
+        symlink)
+          ln -s "$outside/target.md" "$home/data/standards.md"
+          reason="is a symlink" ;;
+        dangling-symlink)
+          ln -s "$outside/missing.md" "$home/data/standards.md"
+          reason="is a symlink" ;;
+        hard-link)
+          ln "$outside/target.md" "$home/data/standards.md"
+          reason="is hard-linked" ;;
+        directory)
+          mkdir "$home/data/standards.md"
+          reason="is a directory" ;;
+        fifo)
+          mkfifo "$home/data/standards.md"
+          reason="is a FIFO" ;;
+        unreadable)
+          printf '%s\n' 'Fixture rule one: prefer small functions.' > "$home/data/standards.md"
+          chmod 000 "$home/data/standards.md"
+          reason="could not be read" ;;
+        task-placeholder)
+          printf '%s\n' 'Fixture rule one: never leave a {TASK} marker unfilled.' > "$home/data/standards.md"
+          reason="contains the {TASK} fill placeholder" ;;
+        delivery-contract)
+          printf '%s\n' 'Fixture rule one: prefer small functions.' 'Delivery contract: mode=direct-PR' > "$home/data/standards.md"
+          reason="contains a 'Delivery contract: mode=' line" ;;
+      esac
+      assert_standards_skipped "$home" "$id" "$kind" "$reason"
+      chmod 600 "$home/data/standards.md" 2>/dev/null || true
+      rm -rf "${home:?}/data/standards.md"
+    done
+  done
+  pass "fm-brief.sh: symlinked, hard-linked, special, unreadable, or marker-bearing standards are skipped with a reason"
+}
+
+# write_fake_stat <fakebin> <dialect>: a logging stat shim that speaks one
+# dialect and answers link counts for the real file through perl's lstat.
+#   gnu      -c %h prints the count; -f is file-system mode, so a following %l
+#            is a missing file operand and the call fails after printing
+#            file-system details, as GNU coreutils stat does.
+#   bsd      -f %l prints the count; -c is an illegal option.
+#   failing  every call fails with no output.
+#   garbage  every call succeeds with a non-numeric answer.
+write_fake_stat() {
+  local fakebin=$1 dialect=$2
+  {
+    printf '#!/usr/bin/env bash\ndialect=%s\n' "$dialect"
+    cat <<'SH'
+printf '%s\n' "$*" >> "$(dirname "$0")/stat.log"
+case "$dialect:${1:-}:${2:-}" in
+  gnu:-c:%h | bsd:-f:%l)
+    perl -e '@s = lstat $ARGV[0] or exit 1; print "$s[3]\n"' "$3"
+    exit ;;
+  gnu:-f:*)
+    printf "stat: cannot read file system information for '%s': No such file or directory\n" "$2" >&2
+    printf '  File: "%s"\n    ID: 0 Namelen: 255 Type: apfs\n' "$3"
+    exit 1 ;;
+  bsd:-c:*)
+    echo 'stat: illegal option -- c' >&2
+    exit 1 ;;
+  garbage:*)
+    echo '?'
+    exit 0 ;;
+esac
+exit 1
+SH
+  } > "$fakebin/stat"
+  chmod +x "$fakebin/stat"
+}
+
+# The link-count probe must not guess the stat dialect from the platform: GNU
+# coreutils stat first on a Mac's PATH, or a BSD stat elsewhere, still copies a
+# real single-link file and refuses a real multi-link one, and a stat that
+# answers neither syntax with a number refuses rather than guessing.
+test_shared_standards_link_count_probe_works_in_both_stat_dialects() {
+  local home outside fixture fakebin pairing dialect platform id rc err
+  home="$TMP_ROOT/standards-stat-home"
+  outside="$TMP_ROOT/standards-stat-outside"
+  mkdir -p "$home/data" "$outside"
+  fixture="$outside/fixture.md"
+  printf '%s\n' 'Fixture rule one: prefer small functions.' > "$fixture"
+
+  for pairing in gnu:Darwin bsd:Linux; do
+    dialect=${pairing%%:*}
+    platform=${pairing#*:}
+    fakebin=$(fm_fakebin "$TMP_ROOT/standards-stat-$dialect")
+    write_fake_stat "$fakebin" "$dialect"
+    printf '#!/bin/sh\necho %s\n' "$platform" > "$fakebin/uname"
+    chmod +x "$fakebin/uname"
+    # The pairing is the divergence under test: the platform names the other
+    # dialect, whose syntax this stat refuses.
+    [ "$(PATH="$fakebin:$PATH" uname)" = "$platform" ] || fail "uname shim does not report $platform"
+    case "$dialect" in
+      gnu) ! PATH="$fakebin:$PATH" stat -f %l "$fixture" >/dev/null 2>&1 \
+             || fail "GNU stat shim accepted the BSD link-count syntax" ;;
+      bsd) ! PATH="$fakebin:$PATH" stat -c %h "$fixture" >/dev/null 2>&1 \
+             || fail "BSD stat shim accepted the GNU link-count syntax" ;;
+    esac
+    rm -f "$fakebin/stat.log"
+
+    id="standards-stat-$dialect-single-link"
+    err="$home/$id.err"
+    standards_baseline "$home" "$id" no-mistakes
+    cp "$fixture" "$home/data/standards.md"
+    rc=0
+    PATH="$fakebin:$PATH" standards_scaffold "$home" "$id" no-mistakes "$err" || rc=$?
+    rm -f "$home/data/standards.md"
+    expect_code 0 "$rc" "scaffold with $dialect stat on $platform"
+    [ ! -s "$err" ] || fail "scaffold with $dialect stat on $platform wrote stderr: $(cat "$err")"
+    [ -s "$fakebin/stat.log" ] || fail "scaffold never consulted the $dialect stat shim"
+    standards_section_intro "$home/$id.baseline" "$home/data/$id/brief.md" "$fixture" >/dev/null \
+      || fail "scaffold with $dialect stat on $platform did not copy a single-link standards file"
+
+    id="standards-stat-$dialect-multi-link"
+    standards_baseline "$home" "$id" no-mistakes
+    cp "$fixture" "$home/data/standards.md"
+    ln "$home/data/standards.md" "$outside/second-link-$dialect"
+    PATH="$fakebin:$PATH" assert_standards_skipped "$home" "$id" no-mistakes "is hard-linked (link count 2)"
+    rm -f "$home/data/standards.md" "$outside/second-link-$dialect"
+  done
+
+  for dialect in failing garbage; do
+    fakebin=$(fm_fakebin "$TMP_ROOT/standards-stat-$dialect")
+    write_fake_stat "$fakebin" "$dialect"
+    id="standards-stat-$dialect"
+    standards_baseline "$home" "$id" no-mistakes
+    cp "$fixture" "$home/data/standards.md"
+    PATH="$fakebin:$PATH" assert_standards_skipped "$home" "$id" no-mistakes "has a link count that could not be read"
+    [ -s "$fakebin/stat.log" ] || fail "scaffold never consulted the $dialect stat shim"
+    rm -f "$home/data/standards.md"
+  done
+  pass "fm-brief.sh: the standards link-count probe works with GNU or BSD stat on any platform and refuses an unreadable count"
+}
+
+# Secondmate charters are out of scope: they never read the standards path, so
+# neither a valid file nor a skippable one changes a charter or prints anything.
+test_shared_standards_leave_secondmate_charters_unchanged() {
+  local home outside setup err
+  home="$TMP_ROOT/standards-secondmate-home"
+  outside="$TMP_ROOT/standards-secondmate-outside"
+  mkdir -p "$home/data" "$outside"
+  printf '%s\n' 'Fixture rule one: prefer small functions.' > "$outside/target.md"
+  FM_HOME="$home" FM_SECONDMATE_CHARTER='Handle routed domain work.' \
+    "$ROOT/bin/fm-brief.sh" standards-mate --secondmate --no-projects >/dev/null 2>&1 \
+    || fail "baseline secondmate charter did not scaffold"
+  mv "$home/data/standards-mate/brief.md" "$home/standards-mate.baseline"
+  rm -rf "${home:?}/data/standards-mate"
+  for setup in valid symlink; do
+    case "$setup" in
+      valid) cp "$outside/target.md" "$home/data/standards.md" ;;
+      symlink) ln -s "$outside/target.md" "$home/data/standards.md" ;;
+    esac
+    err="$home/standards-mate-$setup.err"
+    FM_HOME="$home" FM_SECONDMATE_CHARTER='Handle routed domain work.' \
+      "$ROOT/bin/fm-brief.sh" standards-mate --secondmate --no-projects >/dev/null 2>"$err" \
+      || fail "secondmate charter with a $setup standards path did not scaffold"
+    [ ! -s "$err" ] || fail "secondmate charter with a $setup standards path wrote stderr: $(cat "$err")"
+    cmp -s "$home/standards-mate.baseline" "$home/data/standards-mate/brief.md" \
+      || fail "secondmate charter changed with a $setup standards path in the home"
+    rm -rf "${home:?}/data/standards-mate" "${home:?}/data/standards.md"
+  done
+  pass "fm-brief.sh: secondmate charters never carry or warn about shared standards"
+}
+
 test_script_parses
 test_no_heredoc_in_command_substitution
 test_help_includes_entire_header
@@ -852,3 +1269,9 @@ test_secondmate_directory_paths_are_absolute_and_output_is_stable
 test_pause_verb_override_renders_all_brief_scaffolds
 test_scout_and_secondmate_load_decision_hold_policy
 test_scout_and_secondmate_scaffold
+test_shared_standards_are_copied_verbatim_into_ship_and_scout
+test_shared_standards_size_cap_is_4096_bytes
+test_shared_standards_absent_is_silent
+test_shared_standards_non_ordinary_paths_are_skipped
+test_shared_standards_link_count_probe_works_in_both_stat_dialects
+test_shared_standards_leave_secondmate_charters_unchanged
