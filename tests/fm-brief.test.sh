@@ -841,8 +841,12 @@ STANDARDS_KINDS="no-mistakes direct-PR local-only scout"
 # standards_scaffold <home> <id> <kind> <err-file>: scaffold one ship or scout
 # brief from inside the home (so a stray command substitution would land
 # there) and return the scaffold's exit code. The run is bounded: a scaffold
-# still alive after ~10s is treated as hung on the standards path, its blocked
-# reader is released by a short-lived writer, and the test fails.
+# still alive after 3000 polls of 0.02s (at least a minute, more once each
+# poll's process start-up is counted) is treated as hung on the standards path,
+# its blocked reader is released by a short-lived writer, and the test fails.
+# A healthy scaffold finishes in well under a second, so the bound only needs
+# to stay clear of a slow run under concurrent suite load, which 500 polls did
+# not.
 standards_scaffold() {
   local home=$1 id=$2 kind=$3 err=$4 pid tries=0 rc writer
   local -a mode_args
@@ -853,7 +857,7 @@ standards_scaffold() {
   (cd "$home" && FM_HOME="$home" exec "$ROOT/bin/fm-brief.sh" "$id" some-proj "${mode_args[@]}") \
     >/dev/null 2>"$err" &
   pid=$!
-  while kill -0 "$pid" 2>/dev/null && [ "$tries" -lt 500 ]; do
+  while kill -0 "$pid" 2>/dev/null && [ "$tries" -lt 3000 ]; do
     sleep 0.02
     tries=$((tries + 1))
   done
@@ -862,7 +866,7 @@ standards_scaffold() {
     writer=$!
     sleep 0.2
     kill "$writer" "$pid" 2>/dev/null
-    wait "$pid" 2>/dev/null
+    wait "$writer" "$pid" 2>/dev/null
     fail "$kind scaffold hung on the standards path instead of skipping it"
   fi
   wait "$pid"; rc=$?
