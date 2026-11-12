@@ -1,0 +1,96 @@
+== 1. present: verbatim copy in all ship modes + scout ==
+PASS: [--mode no-mistakes] file bytes present verbatim, followed by newline + blank line
+PASS: [--mode no-mistakes] one section heading
+PASS: [--mode no-mistakes] exactly one {TASK} placeholder
+PASS: [--mode no-mistakes] section placed after # Task (line 3 -> 6)
+PASS: [--mode no-mistakes] no staging leftovers in data/t1
+PASS: [--mode direct-PR] file bytes present verbatim, followed by newline + blank line
+PASS: [--mode direct-PR] one section heading
+PASS: [--mode direct-PR] exactly one {TASK} placeholder
+PASS: [--mode direct-PR] section placed after # Task (line 3 -> 6)
+PASS: [--mode direct-PR] no staging leftovers in data/t2
+PASS: [--mode local-only] file bytes present verbatim, followed by newline + blank line
+PASS: [--mode local-only] one section heading
+PASS: [--mode local-only] exactly one {TASK} placeholder
+PASS: [--mode local-only] section placed after # Task (line 3 -> 6)
+PASS: [--mode local-only] no staging leftovers in data/t3
+PASS: [--scout] file bytes present verbatim, followed by newline + blank line
+PASS: [--scout] one section heading
+PASS: [--scout] exactly one {TASK} placeholder
+PASS: [--scout] section placed after # Task (line 3 -> 6)
+PASS: [--scout] no staging leftovers in data/t4
+--- section as written into data/t1/brief.md (no-mistakes) ---
+# Shared coding standards
+Apply these fleet-wide standards, copied verbatim below, to the code you write, and treat them as a standards source in any code review you perform or are asked to do.
+When they conflict, the task's own instructions win, then the project's `AGENTS.md`, then these shared standards.
+
+Fixture rule one: prefer small functions.
+Meta: $HOME `id` $(whoami) \n \\ & | {NOT_TASK} %s ${x:-y} s/a/b/ 'q' "d"
+Fixture rule last: no trailing newline here
+
+--- end ---
+--- 4 lines after section in scout brief ---
+Fixture rule last: no trailing newline here
+
+# Herdr lifecycle declaration - NOT ENABLED
+**HARD SAFETY GATE:** this scaffold cannot inspect the task text filled in above.
+--- end ---
+PASS: ship brief still has one Delivery contract line
+== 2. absent: silent and byte-identical to base commit ==
+PASS: [--mode no-mistakes] absent: no stderr, identical to base-commit scaffold
+PASS: [--mode direct-PR] absent: no stderr, identical to base-commit scaffold
+PASS: [--mode local-only] absent: no stderr, identical to base-commit scaffold
+PASS: [--scout] absent: no stderr, identical to base-commit scaffold
+== 3. secondmate charter unchanged even with standards present ==
+PASS: charter has no section and matches base commit
+== 4. size boundary ==
+  standards.md is 4096 bytes
+  4096 bytes -> rc=0 section=1 stderr=[]
+PASS: 4096 bytes included intact
+  standards.md is 4097 bytes
+  4097 bytes -> rc=0 section=0 stderr=[warning: shared coding standards skipped: /var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T//fm-std-drive.06d4fD/home.LLmVZd/data/standards.md is larger than 4096 bytes]
+PASS: 4097 bytes skipped with one-line reason, exit 0
+  standards.md is 0 bytes
+  0 bytes -> rc=0 section=1 stderr=[]
+PASS: empty file still gets the section (ruled deliberate)
+== 5. non-ordinary paths: skipped with reason, exit 0, no hang ==
+  symlink [--mode no-mistakes] rc=0 stderr=[warning: shared coding standards skipped: /var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T//fm-std-drive.06d4fD/home.Ewngl9/data/standards.md is a symlink]
+PASS: symlink [--mode no-mistakes] skipped with reason
+  symlink [--scout] rc=0 stderr=[warning: shared coding standards skipped: /var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T//fm-std-drive.06d4fD/home.Ewngl9/data/standards.md is a symlink]
+PASS: symlink [--scout] skipped with reason
+  dangling-symlink [--mode no-mistakes] rc=0 stderr=[warning: shared coding standards skipped: /var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T//fm-std-drive.06d4fD/home.4YdXiJ/data/standards.md is a symlink]
+PASS: dangling-symlink [--mode no-mistakes] skipped with reason
+  dangling-symlink [--scout] rc=0 stderr=[warning: shared coding standards skipped: /var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T//fm-std-drive.06d4fD/home.4YdXiJ/data/standards.md is a symlink]
+PASS: dangling-symlink [--scout] skipped with reason
+  hardlink [--mode no-mistakes] rc=0 stderr=[warning: shared coding standards skipped: /var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T//fm-std-drive.06d4fD/home.rVRF2f/data/standards.md is hard-linked (link count 2)]
+PASS: hardlink [--mode no-mistakes] skipped with reason
+  hardlink [--scout] rc=0 stderr=[warning: shared coding standards skipped: /var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T//fm-std-drive.06d4fD/home.rVRF2f/data/standards.md is hard-linked (link count 2)]
+PASS: hardlink [--scout] skipped with reason
+  directory [--mode no-mistakes] rc=0 stderr=[warning: shared coding standards skipped: /var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T//fm-std-drive.06d4fD/home.mCJoMk/data/standards.md is a directory]
+PASS: directory [--mode no-mistakes] skipped with reason
+  directory [--scout] rc=0 stderr=[warning: shared coding standards skipped: /var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T//fm-std-drive.06d4fD/home.mCJoMk/data/standards.md is a directory]
+PASS: directory [--scout] skipped with reason
+  fifo [--mode no-mistakes] rc=0 stderr=[warning: shared coding standards skipped: /var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T//fm-std-drive.06d4fD/home.qjD7ZC/data/standards.md is a FIFO]
+PASS: fifo [--mode no-mistakes] skipped with reason
+  fifo [--scout] rc=0 stderr=[warning: shared coding standards skipped: /var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T//fm-std-drive.06d4fD/home.qjD7ZC/data/standards.md is a FIFO]
+PASS: fifo [--scout] skipped with reason
+  unreadable [--mode no-mistakes] rc=0 stderr=[warning: shared coding standards skipped: /var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T//fm-std-drive.06d4fD/home.1fG9fy/data/standards.md could not be read]
+PASS: unreadable [--mode no-mistakes] skipped with reason
+  unreadable [--scout] rc=0 stderr=[warning: shared coding standards skipped: /var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T//fm-std-drive.06d4fD/home.1fG9fy/data/standards.md could not be read]
+PASS: unreadable [--scout] skipped with reason
+  task-marker [--mode no-mistakes] rc=0 stderr=[warning: shared coding standards skipped: /var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T//fm-std-drive.06d4fD/home.YQ3lWD/data/standards.md contains the {TASK} fill placeholder]
+PASS: task-marker [--mode no-mistakes] skipped with reason
+  task-marker [--scout] rc=0 stderr=[warning: shared coding standards skipped: /var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T//fm-std-drive.06d4fD/home.YQ3lWD/data/standards.md contains the {TASK} fill placeholder]
+PASS: task-marker [--scout] skipped with reason
+  delivery-marker [--mode no-mistakes] rc=0 stderr=[warning: shared coding standards skipped: /var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T//fm-std-drive.06d4fD/home.Z1osjO/data/standards.md contains a 'Delivery contract: mode=' line]
+PASS: delivery-marker [--mode no-mistakes] skipped with reason
+  delivery-marker [--scout] rc=0 stderr=[warning: shared coding standards skipped: /var/folders/gp/phywrkfd3kj2jp2f764xmldw0000gn/T//fm-std-drive.06d4fD/home.Z1osjO/data/standards.md contains a 'Delivery contract: mode=' line]
+PASS: delivery-marker [--scout] skipped with reason
+== 6. stat dialect: GNU stat first on PATH on this Mac ==
+  SKIP: no GNU stat installed
+  native stat: /usr/bin/stat
+== 7. startup-memory budget report ignores data/standards.md ==
+  report without standards (rc=0): estimator=ceil(UTF-8 bytes / 3) conservative-local-estimate role=primary effective_budget_tokens=7500 file=data/captain.md bytes=17 estimated_tokens=6 status=present file=data/captain-shared.md bytes=0 estimated_tokens=0 status=absent file=data/learnings.md bytes=18 estimated_tokens=6 status=present total_estimated_tokens=12 budget_status=within-budget 
+  report with 4000-byte standards (rc=0): estimator=ceil(UTF-8 bytes / 3) conservative-local-estimate role=primary effective_budget_tokens=7500 file=data/captain.md bytes=17 estimated_tokens=6 status=present file=data/captain-shared.md bytes=0 estimated_tokens=0 status=absent file=data/learnings.md bytes=18 estimated_tokens=6 status=present total_estimated_tokens=12 budget_status=within-budget 
+PASS: budget report unchanged by a 4000-byte standards file
+RESULT pass=46 fail=0
