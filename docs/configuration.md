@@ -227,7 +227,7 @@ A home may keep fleet-wide coding standards in an optional, gitignored `data/sta
 Workers run in isolated copies of a project and cannot be relied on to read a path outside them, so the copy carries the standards to the worker and leaves a record in `data/<id>/brief.md` of exactly which standards each task was held to.
 The section tells the worker to treat the standards as a standards source in any code review it performs or is asked to do; when they conflict, the task's own instructions win, then the project's `AGENTS.md`, then these shared standards.
 Only an ordinary, single-link regular file of at most 4096 bytes is copied, which keeps the file a short list of shared rules rather than a second `AGENTS.md`.
-A symlink, hard link, directory, FIFO, other special file, oversize or unreadable file, or a file containing the `{TASK}` fill placeholder or a line beginning `Delivery contract: mode=` is skipped with one warning naming why, and the scaffold still succeeds; an absent file changes nothing.
+A symlink, hard link, directory, FIFO, other special file, a file whose link count cannot be read, an oversize or unreadable file, or a file containing the `{TASK}` fill placeholder or a line beginning `Delivery contract: mode=` is skipped with one warning naming why, and the scaffold still succeeds; an absent file changes nothing.
 Secondmate charters never carry the section, and each home's scaffold reads only its own `data/standards.md`.
 The file is never part of the session-start digest or the startup-memory budget: it reaches workers only through the instructions copied at scaffold time, so an edit applies to tasks scaffolded afterward.
 

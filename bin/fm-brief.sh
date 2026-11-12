@@ -372,11 +372,20 @@ STANDARDS_COPY=
 STANDARDS_OK=0
 trap '[ -z "$STANDARDS_COPY" ] || rm -f "$STANDARDS_COPY"' EXIT
 
-if [ "$(uname)" = Darwin ]; then
-  standards_link_count() { stat -f %l "$1" 2>/dev/null; }
-else
-  standards_link_count() { stat -c %h "$1" 2>/dev/null; }
-fi
+# Prints the hard-link count of $1, or fails when no stat syntax answers with a
+# number. The syntax is probed rather than chosen by platform: BSD stat rejects
+# GNU's -c, while GNU stat reads BSD's -f as its file-system mode, so GNU
+# coreutils first on a Mac's PATH would otherwise defeat the check.
+standards_link_count() {
+  local syntax count
+  for syntax in c:%h f:%l; do
+    count=$(stat "-${syntax%%:*}" "${syntax#*:}" "$1" 2>/dev/null) || continue
+    case "$count" in '' | *[!0-9]*) continue ;; esac
+    printf '%s\n' "$count"
+    return 0
+  done
+  return 1
+}
 
 standards_skip() {
   echo "warning: shared coding standards skipped: $STANDARDS_PATH $1" >&2
@@ -394,8 +403,10 @@ stage_standards() {
     fi
     return
   fi
-  links=$(standards_link_count "$STANDARDS_PATH") || links=
-  if [ "$links" != 1 ]; then standards_skip "is hard-linked (link count ${links:-unknown})"; return; fi
+  if ! links=$(standards_link_count "$STANDARDS_PATH"); then
+    standards_skip "has a link count that could not be read"; return
+  fi
+  if [ "$links" != 1 ]; then standards_skip "is hard-linked (link count $links)"; return; fi
   if ! STANDARDS_COPY=$(mktemp "$DATA/$ID/.standards.XXXXXX" 2>/dev/null) \
     || ! head -c "$((STANDARDS_MAX_BYTES + 1))" 2>/dev/null < "$STANDARDS_PATH" > "$STANDARDS_COPY"; then
     standards_skip "could not be read"; return

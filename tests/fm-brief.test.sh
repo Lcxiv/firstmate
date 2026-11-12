@@ -1116,6 +1116,105 @@ test_shared_standards_non_ordinary_paths_are_skipped() {
   pass "fm-brief.sh: symlinked, hard-linked, special, unreadable, or marker-bearing standards are skipped with a reason"
 }
 
+# write_fake_stat <fakebin> <dialect>: a logging stat shim that speaks one
+# dialect and answers link counts for the real file through perl's lstat.
+#   gnu      -c %h prints the count; -f is file-system mode, so a following %l
+#            is a missing file operand and the call fails after printing
+#            file-system details, as GNU coreutils stat does.
+#   bsd      -f %l prints the count; -c is an illegal option.
+#   failing  every call fails with no output.
+#   garbage  every call succeeds with a non-numeric answer.
+write_fake_stat() {
+  local fakebin=$1 dialect=$2
+  {
+    printf '#!/usr/bin/env bash\ndialect=%s\n' "$dialect"
+    cat <<'SH'
+printf '%s\n' "$*" >> "$(dirname "$0")/stat.log"
+case "$dialect:${1:-}:${2:-}" in
+  gnu:-c:%h | bsd:-f:%l)
+    perl -e '@s = lstat $ARGV[0] or exit 1; print "$s[3]\n"' "$3"
+    exit ;;
+  gnu:-f:*)
+    printf "stat: cannot read file system information for '%s': No such file or directory\n" "$2" >&2
+    printf '  File: "%s"\n    ID: 0 Namelen: 255 Type: apfs\n' "$3"
+    exit 1 ;;
+  bsd:-c:*)
+    echo 'stat: illegal option -- c' >&2
+    exit 1 ;;
+  garbage:*)
+    echo '?'
+    exit 0 ;;
+esac
+exit 1
+SH
+  } > "$fakebin/stat"
+  chmod +x "$fakebin/stat"
+}
+
+# The link-count probe must not guess the stat dialect from the platform: GNU
+# coreutils stat first on a Mac's PATH, or a BSD stat elsewhere, still copies a
+# real single-link file and refuses a real multi-link one, and a stat that
+# answers neither syntax with a number refuses rather than guessing.
+test_shared_standards_link_count_probe_works_in_both_stat_dialects() {
+  local home outside fixture fakebin pairing dialect platform id rc err
+  home="$TMP_ROOT/standards-stat-home"
+  outside="$TMP_ROOT/standards-stat-outside"
+  mkdir -p "$home/data" "$outside"
+  fixture="$outside/fixture.md"
+  printf '%s\n' 'Fixture rule one: prefer small functions.' > "$fixture"
+
+  for pairing in gnu:Darwin bsd:Linux; do
+    dialect=${pairing%%:*}
+    platform=${pairing#*:}
+    fakebin=$(fm_fakebin "$TMP_ROOT/standards-stat-$dialect")
+    write_fake_stat "$fakebin" "$dialect"
+    printf '#!/bin/sh\necho %s\n' "$platform" > "$fakebin/uname"
+    chmod +x "$fakebin/uname"
+    # The pairing is the divergence under test: the platform names the other
+    # dialect, whose syntax this stat refuses.
+    [ "$(PATH="$fakebin:$PATH" uname)" = "$platform" ] || fail "uname shim does not report $platform"
+    case "$dialect" in
+      gnu) ! PATH="$fakebin:$PATH" stat -f %l "$fixture" >/dev/null 2>&1 \
+             || fail "GNU stat shim accepted the BSD link-count syntax" ;;
+      bsd) ! PATH="$fakebin:$PATH" stat -c %h "$fixture" >/dev/null 2>&1 \
+             || fail "BSD stat shim accepted the GNU link-count syntax" ;;
+    esac
+    rm -f "$fakebin/stat.log"
+
+    id="standards-stat-$dialect-single-link"
+    err="$home/$id.err"
+    standards_baseline "$home" "$id" no-mistakes
+    cp "$fixture" "$home/data/standards.md"
+    rc=0
+    PATH="$fakebin:$PATH" standards_scaffold "$home" "$id" no-mistakes "$err" || rc=$?
+    rm -f "$home/data/standards.md"
+    expect_code 0 "$rc" "scaffold with $dialect stat on $platform"
+    [ ! -s "$err" ] || fail "scaffold with $dialect stat on $platform wrote stderr: $(cat "$err")"
+    [ -s "$fakebin/stat.log" ] || fail "scaffold never consulted the $dialect stat shim"
+    standards_section_intro "$home/$id.baseline" "$home/data/$id/brief.md" "$fixture" >/dev/null \
+      || fail "scaffold with $dialect stat on $platform did not copy a single-link standards file"
+
+    id="standards-stat-$dialect-multi-link"
+    standards_baseline "$home" "$id" no-mistakes
+    cp "$fixture" "$home/data/standards.md"
+    ln "$home/data/standards.md" "$outside/second-link-$dialect"
+    PATH="$fakebin:$PATH" assert_standards_skipped "$home" "$id" no-mistakes "is hard-linked (link count 2)"
+    rm -f "$home/data/standards.md" "$outside/second-link-$dialect"
+  done
+
+  for dialect in failing garbage; do
+    fakebin=$(fm_fakebin "$TMP_ROOT/standards-stat-$dialect")
+    write_fake_stat "$fakebin" "$dialect"
+    id="standards-stat-$dialect"
+    standards_baseline "$home" "$id" no-mistakes
+    cp "$fixture" "$home/data/standards.md"
+    PATH="$fakebin:$PATH" assert_standards_skipped "$home" "$id" no-mistakes "has a link count that could not be read"
+    [ -s "$fakebin/stat.log" ] || fail "scaffold never consulted the $dialect stat shim"
+    rm -f "$home/data/standards.md"
+  done
+  pass "fm-brief.sh: the standards link-count probe works with GNU or BSD stat on any platform and refuses an unreadable count"
+}
+
 # Secondmate charters are out of scope: they never read the standards path, so
 # neither a valid file nor a skippable one changes a charter or prints anything.
 test_shared_standards_leave_secondmate_charters_unchanged() {
@@ -1174,4 +1273,5 @@ test_shared_standards_are_copied_verbatim_into_ship_and_scout
 test_shared_standards_size_cap_is_4096_bytes
 test_shared_standards_absent_is_silent
 test_shared_standards_non_ordinary_paths_are_skipped
+test_shared_standards_link_count_probe_works_in_both_stat_dialects
 test_shared_standards_leave_secondmate_charters_unchanged
