@@ -65,13 +65,9 @@
 # it carries the AGENTS.md authoring bar (widely useful knowledge only, pointers
 # over copied detail) and has the crewmate add the fm-ensure-agents-md.sh
 # self-governance section when a touched project AGENTS.md lacks it.
-# Ship and scout briefs copy the home's optional data/standards.md byte for byte
-# into a "Shared coding standards" section right after the task section
-# (docs/configuration.md "Shared coding standards" owns the file contract).
-# The path is inspected without following a symlink and a non-regular file is
-# never opened; a present file that does not qualify is skipped with one stderr
-# warning naming why, and the scaffold still succeeds. An absent file is silent
-# and leaves the scaffold unchanged. Secondmate charters never read the file.
+# Ship and scout briefs copy the home's optional data/standards.md verbatim into
+# a "Shared coding standards" section right after the task section.
+# docs/configuration.md "Shared coding standards" owns the file contract.
 # Refuses to overwrite an existing brief.
 set -eu
 
