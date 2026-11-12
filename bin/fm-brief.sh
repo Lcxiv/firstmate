@@ -65,6 +65,13 @@
 # it carries the AGENTS.md authoring bar (widely useful knowledge only, pointers
 # over copied detail) and has the crewmate add the fm-ensure-agents-md.sh
 # self-governance section when a touched project AGENTS.md lacks it.
+# Ship and scout briefs copy the home's optional data/standards.md byte for byte
+# into a "Shared coding standards" section right after the task section
+# (docs/configuration.md "Shared coding standards" owns the file contract).
+# The path is inspected without following a symlink and a non-regular file is
+# never opened; a present file that does not qualify is skipped with one stderr
+# warning naming why, and the scaffold still succeeds. An absent file is silent
+# and leaves the scaffold unchanged. Secondmate charters never read the file.
 # Refuses to overwrite an existing brief.
 set -eu
 
@@ -357,13 +364,81 @@ FIRSTMATE_REPO_SECTION=${FIRSTMATE_REPO_SECTION%$'\n'}
 CREWMATE_CONTEXT="$FIRSTMATE_REPO_SECTION"$'\n\n'"$HERDR_SECTION"
 fi
 
-if [ "$KIND" = scout ]; then
-cat > "$BRIEF" <<EOF
+# Shared coding standards. The bytes are staged once beside the brief, so the
+# size and marker checks apply to exactly the bytes copied, and the copy goes
+# through cat so no shell, sed, or placeholder interpretation touches them.
+# The {TASK} placeholder and the "Delivery contract: mode=" line are read by the
+# documented fill and by bin/fm-spawn.sh, so a file carrying either is skipped
+# rather than letting its text be mistaken for the scaffold's own.
+STANDARDS_PATH="$DATA/standards.md"
+STANDARDS_MAX_BYTES=4096
+STANDARDS_COPY=
+STANDARDS_OK=0
+trap '[ -z "$STANDARDS_COPY" ] || rm -f "$STANDARDS_COPY"' EXIT
+
+if [ "$(uname)" = Darwin ]; then
+  standards_link_count() { stat -f %l "$1" 2>/dev/null; }
+else
+  standards_link_count() { stat -c %h "$1" 2>/dev/null; }
+fi
+
+standards_skip() {
+  echo "warning: shared coding standards skipped: $STANDARDS_PATH $1" >&2
+  return 1
+}
+
+stage_standards() {
+  local links size
+  if [ -L "$STANDARDS_PATH" ]; then standards_skip "is a symlink"; return; fi
+  [ -e "$STANDARDS_PATH" ] || return 1
+  if [ ! -f "$STANDARDS_PATH" ]; then
+    if [ -d "$STANDARDS_PATH" ]; then standards_skip "is a directory"
+    elif [ -p "$STANDARDS_PATH" ]; then standards_skip "is a FIFO"
+    else standards_skip "is not an ordinary regular file"
+    fi
+    return
+  fi
+  links=$(standards_link_count "$STANDARDS_PATH") || links=
+  if [ "$links" != 1 ]; then standards_skip "is hard-linked (link count ${links:-unknown})"; return; fi
+  if ! STANDARDS_COPY=$(mktemp "$DATA/$ID/.standards.XXXXXX" 2>/dev/null) \
+    || ! head -c "$((STANDARDS_MAX_BYTES + 1))" 2>/dev/null < "$STANDARDS_PATH" > "$STANDARDS_COPY"; then
+    standards_skip "could not be read"; return
+  fi
+  size=$(wc -c < "$STANDARDS_COPY")
+  if [ "$size" -gt "$STANDARDS_MAX_BYTES" ]; then standards_skip "is larger than $STANDARDS_MAX_BYTES bytes"; return; fi
+  if grep -qF '{TASK}' "$STANDARDS_COPY"; then standards_skip "contains the {TASK} fill placeholder"; return; fi
+  if grep -q '^Delivery contract: mode=' "$STANDARDS_COPY"; then standards_skip "contains a 'Delivery contract: mode=' line"; return; fi
+}
+
+if stage_standards; then STANDARDS_OK=1; fi
+
+# The opening shared by ship and scout briefs: preamble, the task fill site,
+# and the standards section when one was staged. A file without a trailing
+# newline gets one so it never merges into the next line of the scaffold.
+emit_brief_opening() {
+  cat <<'EOF'
 You are a crewmate: an autonomous worker agent managed by firstmate. Work on your own; do not wait for a human.
 
 # Task
 {TASK}
 
+EOF
+  [ "$STANDARDS_OK" = 1 ] || return 0
+  cat <<'EOF'
+# Shared coding standards
+Apply these fleet-wide standards, copied verbatim below, to the code you write, and treat them as a standards source in any code review you perform or are asked to do.
+When they conflict, the task's own instructions win, then the project's `AGENTS.md`, then these shared standards.
+
+EOF
+  cat "$STANDARDS_COPY"
+  [ -z "$(tail -c 1 "$STANDARDS_COPY")" ] || printf '\n'
+  printf '\n'
+}
+
+if [ "$KIND" = scout ]; then
+{
+emit_brief_opening
+cat <<EOF
 $CREWMATE_CONTEXT
 
 # Setup
@@ -405,6 +480,7 @@ Before reporting done, read and follow \`$FM_ROOT/.agents/skills/captain-hold-li
 When the report is complete, append \`done: {one-line conclusion}\` to the status file and stop.
 If your findings reveal work that should ship (e.g. you reproduced a bug and the fix is clear), say so in the report; firstmate may promote this task in place, and you would then receive mode-specific ship instructions as a follow-up message.
 EOF
+} > "$BRIEF"
 echo "scaffolded: $BRIEF (scout; replace {TASK})"
 exit 0
 fi
@@ -441,12 +517,9 @@ case "$MODE" in
 esac
 DOD=$(fm_dod_block "$MODE" "$ID" "$ORIGIN") || exit 1
 
-cat > "$BRIEF" <<EOF
-You are a crewmate: an autonomous worker agent managed by firstmate. Work on your own; do not wait for a human.
-
-# Task
-{TASK}
-
+{
+emit_brief_opening
+cat <<EOF
 $CREWMATE_CONTEXT
 
 # Setup
@@ -495,4 +568,5 @@ Keep it proportionate: skip \`AGENTS.md\` edits for trivial tasks that produced 
 
 $DOD
 EOF
+} > "$BRIEF"
 echo "scaffolded: $BRIEF (ship, mode=$MODE; replace {TASK})"

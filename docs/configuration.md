@@ -10,7 +10,7 @@ The shared orchestrator behavior lives in [`AGENTS.md`](../AGENTS.md) - edit it 
 
 This section is the single owner of the top-level operational-home layout; producer script headers and their help own exact child-file fields and mutation contracts.
 The tracked code root contains the shared instruction, skill, documentation, workflow, and `bin/` surfaces, while each effective `FM_HOME` contains private operational directories.
-`data/` holds durable private fleet records such as the project and secondmate registries, captain preferences, optional shared captain preferences, learnings, backlog, briefs, scout reports, and explicitly installed content-addressed extension packages under `data/extensions/packages/`.
+`data/` holds durable private fleet records such as the project and secondmate registries, captain preferences, optional shared captain preferences, learnings, optional shared coding standards, backlog, briefs, scout reports, and explicitly installed content-addressed extension packages under `data/extensions/packages/`.
 `state/` holds runtime records such as task metadata, append-only status events, endpoint signals, watcher and wake-queue coordination, inactive terminal-outcome receipts under `state/terminal-outcomes/`, enabled extension working namespaces under `state/extensions/`, away-mode state, generated Relay and Discord phone-mode artifacts, private secondmate config-reread generations with their retry and quarantine state, per-task steering-inbox records under `state/<id>.inbox/` (`bin/fm-task-inbox-lib.sh`), and parent-owned secondmate pending-reply records under `state/pending-replies/` (`bin/fm-pending-reply-lib.sh`).
 `config/` holds local gitignored operating choices, including explicit extension bindings under `config/extensions.d/`, and `projects/` holds the local project clones that Firstmate reads but changes only through the narrow guarded and concrete captain-approved exceptions in `AGENTS.md`.
 Untracked files and directories whose names begin with `scratchpad` are also gitignored, so temporary scratch does not make porcelain-based secondmate sync guards treat a home as dirty.
@@ -219,6 +219,17 @@ Shared captain preferences that apply across secondmate domains live only in the
 Fleet-local operational facts and gotchas live locally in `data/learnings.md`; it is gitignored and printed after the captain-preference files in the session-start context digest.
 The file is created lazily on first learning and follows the internal [`stow` skill's](../.agents/skills/stow/SKILL.md) aging-tier and cold-archive contract: inspect the current file first and curate it instead of appending forever.
 There is no shared learnings file by captain decision.
+
+## Shared coding standards (data/standards.md)
+
+A home may keep fleet-wide coding standards in an optional, gitignored `data/standards.md`.
+`bin/fm-brief.sh` copies the file byte for byte into a "Shared coding standards" section right after the task section of every ship and scout scaffold it writes.
+Workers run in isolated copies of a project and cannot be relied on to read a path outside them, so the copy carries the standards to the worker and leaves a record in `data/<id>/brief.md` of exactly which standards each task was held to.
+The section tells the worker to treat the standards as a standards source in any code review it performs or is asked to do; when they conflict, the task's own instructions win, then the project's `AGENTS.md`, then these shared standards.
+Only an ordinary, single-link regular file of at most 4096 bytes is copied, which keeps the file a short list of shared rules rather than a second `AGENTS.md`.
+A symlink, hard link, directory, FIFO, other special file, oversize or unreadable file, or a file containing the `{TASK}` fill placeholder or a line beginning `Delivery contract: mode=` is skipped with one warning naming why, and the scaffold still succeeds; an absent file changes nothing.
+Secondmate charters never carry the section, and each home's scaffold reads only its own `data/standards.md`.
+The file is never part of the session-start digest or the startup-memory budget: it reaches workers only through the instructions copied at scaffold time, so an edit applies to tasks scaffolded afterward.
 
 ## Startup memory budget (config/startup-memory-budget)
 
